@@ -64,6 +64,8 @@ uniform float uEnvGain;   // cabinEnv -> scene radiance
 uniform vec2  uHdr;       // (floor gain, headroom gain) in scene radiance
 uniform float uScanPerM;  // raster lines per metre of panel height
 uniform float uGrillePerM;// aperture-grille triads per metre of panel width
+uniform float uScanAmp;   // scanline modulation depth
+uniform float uGrilleAmp; // grille modulation depth
 uniform vec2  uParallax;  // emitter depth behind the cover pane, in uv per unit tan
 
 /* The cabin, along the reflection vector. Shared with the canopy glazing and
@@ -177,7 +179,7 @@ void main(){
      from, which is a scanline that costs instructions and shows nothing. */
   float slPhase = uv.y * max(uSize.y * uScanPerM, 18.0);
   float slFade = 1.0 - smoothstep(0.30, 0.85, fwidth(slPhase));
-  float sl = 1.0 - 0.17*slFade*(0.5 + 0.5*sin(slPhase*6.2832));
+  float sl = 1.0 - uScanAmp*slFade*(0.5 + 0.5*sin(slPhase*6.2832));
   float roll = 0.98 + 0.02*sin(uv.y*13.0 - uTime*2.1);
   col *= sl * roll;
 
@@ -192,7 +194,7 @@ void main(){
   float ph = uv.x * uSize.x * uGrillePerM;
   float phFade = 1.0 - smoothstep(0.32, 0.90, fwidth(ph));
   col *= mix(vec3(1.0),
-             1.0 + 0.30*cos(6.2831853*(ph - vec3(0.0, 0.33333, 0.66667))),
+             1.0 + uGrilleAmp*cos(6.2831853*(ph - vec3(0.0, 0.33333, 0.66667))),
              phFade);
 
   /* Fixed-pattern noise and a slow supply flicker. A panel whose every lit
@@ -466,6 +468,10 @@ export class HoloScreen {
         uHdr: { value: new THREE.Vector2(spec.hdrLo ?? 4.6, spec.hdrHi ?? 420.0) },
         uScanPerM: { value: spec.scanPerM ?? 340.0 },
         uGrillePerM: { value: spec.grillePerM ?? 430.0 },
+        // Display character is a per-screen decision: a cockpit gauge can wear
+        // its raster proudly, a reference panel someone actually reads cannot.
+        uScanAmp: { value: spec.scanAmp ?? 0.17 },
+        uGrilleAmp: { value: spec.grilleAmp ?? 0.30 },
         /* Emitter depth over panel size, per axis: a 6 mm stack behind a
            0.86 m panel shifts the image by 0.7% of its width at 45 degrees.
            Small on purpose — this is a cue, not an effect, and anything you

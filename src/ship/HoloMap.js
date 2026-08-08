@@ -240,6 +240,9 @@ export class HoloMap {
 
     this.info = new HoloScreen({
       name: 'navinfo', w: 0.42, h: 0.27, res: 520, ss: 4, curve: 0.04, aniso: 16,
+      // This is the one panel in the ship that is *read* rather than glanced
+      // at, so it wears its CRT character lightly.
+      scanAmp: 0.06, grilleAmp: 0.10,
     });
     // A third larger than it was: from the parked chart camera on a wide
     // window the panel's text was landing under ten screen pixels.
