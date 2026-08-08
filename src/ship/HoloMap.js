@@ -51,10 +51,10 @@ const DEPLOY = 1.06;         // deployed size, relative to the table
  * spread over four stops rather than flat, because a chart in which every line
  * is the same value is the diagram problem again in a different form.
  */
-const G_GRID = 8;            // base plate, rings, spokes: the quiet layer
-const G_STRUCT = 14;         // lanes, stalks, footprints
-const G_BODY = 4.5;          // containment wall and projector cone
-const G_WARM = 42;           // reticle, route, hub — the one warm layer
+const G_GRID = 6;            // base plate, rings, spokes: the quiet layer
+const G_STRUCT = 19;         // lanes, stalks, footprints
+const G_BODY = 3.2;          // containment wall and projector cone
+const G_WARM = 58;           // reticle, route, hub — the one warm layer
 const G_SWEEP = 16;
 
 /* ---------------------------------------------------------------- textures */
@@ -649,7 +649,7 @@ export class HoloMap {
        noise and left the chart still reading as a veil over the room. With the
        chart in a real HDR range the room only has to come down far enough to
        stop competing, and it stays legible as the place you are standing in. */
-    for (const [l, base] of this._lamps) l.intensity = base * (1 - 0.45 * k);
+    for (const [l, base] of this._lamps) l.intensity = base * (1 - 0.68 * k);
 
     for (const m of this.mats) {
       m.uniforms.uTime.value = this._t;
