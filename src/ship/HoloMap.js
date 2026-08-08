@@ -253,8 +253,8 @@ export class HoloMap {
        the volume stays whole. Billboarded every frame, so only the position
        matters; the chart camera looks along +z, which puts screen-right at
        *negative* x. */
-    this.info.mesh.scale.setScalar(0.72);
-    this.info.mesh.position.set(-0.27, 0.40, -0.72);
+    this.info.mesh.scale.setScalar(0.95);
+    this.info.mesh.position.set(-0.20, 0.45, -0.72);
     this.info.material.uniforms.uPower.value = 1;
     g.add(this.info.mesh);
 
@@ -735,42 +735,42 @@ export class HoloMap {
          wider and the letterforms mushier. */
       const T = (str, x, y, o) => c.text(str, x, y, { weight: '600', shadow: 5, ...o });
 
-      T('STELLAR CARTOGRAPHY', 20, 28, { size: 12, color: 'rgba(186,220,238,0.9)', track: 3 });
+      T('STELLAR CARTOGRAPHY', 20, 28, { size: 13, color: 'rgba(196,226,242,0.95)', track: 2.6 });
       c.line(20, 37, w - 20, 37, DIM, 1, 0.5);
       T(s.visited ? s.name.toUpperCase() : 'UNCHARTED', 20, 74,
-        { size: 28, color: s.visited ? '#f4fdff' : '#d6ecfa', track: 0.6, weight: '700' });
+        { size: 30, color: s.visited ? '#f4fdff' : '#dcf0fc', track: 0.5, weight: '700' });
       T(`${s.designation}  ·  ${s.starClass.cls}-CLASS`, 20, 98,
-        { size: 14.5, color: AM, track: 1.4 });
+        { size: 15, color: AM, track: 1.2 });
 
       /* Labels are information, not decoration: DIM's 42% alpha survives on a
          big heading but a small label under scanlines reads as fog. */
       const LBL = '#c9e4f6';
       const row = (label, val, y, col = '#eaf8ff') => {
-        T(label, 20, y, { size: 14.5, color: LBL, track: 1.4 });
-        T(val, w - 20, y, { size: 17, color: col, align: 'right' });
+        T(label, 20, y, { size: 16.5, color: LBL, track: 1.1 });
+        T(val, w - 20, y, { size: 19.5, color: col, align: 'right' });
       };
-      row('TERRITORY', g.speciesName(this.sel).toUpperCase(), 132, AM);
-      row('DISTANCE', `${dist.toFixed(1)} ly`, 156);
-      row('LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE', 180,
+      row('TERRITORY', g.speciesName(this.sel).toUpperCase(), 128, AM);
+      row('DISTANCE', `${dist.toFixed(1)} ly`, 153);
+      row('LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE', 178,
         jc.lane ? (jc.charted ? '#9fe9ff' : AM) : '#b3cfdf');
-      row('NEBULA', `${Math.round(jc.density * 100)}%`, 204,
+      row('NEBULA', `${Math.round(jc.density * 100)}%`, 203,
         jc.density > 0.55 ? '#ff9d8b' : '#eaf8ff');
       row('FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`, 228,
         cost > 1 ? '#ff9d8b' : cost > g.ship.foldCharge ? '#ffc48a' : '#eaf8ff');
-      row('CHARGE', `${Math.round(g.ship.foldCharge * 100)}%`, 252);
-      if (g.resonatorSystems.has(this.sel) && s.visited) row('SIGNAL', 'RESONATOR', 276, AM);
+      row('CHARGE', `${Math.round(g.ship.foldCharge * 100)}%`, 253);
+      if (g.resonatorSystems.has(this.sel) && s.visited) row('SIGNAL', 'RESONATOR', 278, AM);
 
       const y = c.h - 48;
       if (isCur) {
         c.fill(20, y, w - 40, 36, 'rgba(143,228,255,0.08)');
-        T('CURRENT SYSTEM', w / 2, y + 24, { size: 16, color: LBL, align: 'center', track: 2 });
+        T('CURRENT SYSTEM', w / 2, y + 24, { size: 18, color: LBL, align: 'center', track: 1.8 });
       } else {
         c.fill(20, y, w - 40, 36, canJump ? 'rgba(255,170,110,0.16)' : 'rgba(120,140,150,0.08)');
         c.fill(20, y, 3, 36, canJump ? AM : DIM);
         T(canJump ? 'PRESS  J  TO FOLD'
           : cost > 1 ? 'NEBULA TOO DENSE · CHART A NEARER LANE' : 'INSUFFICIENT CHARGE',
         w / 2, y + 24,
-        { size: 16, color: canJump ? '#ffe8d2' : LBL, align: 'center', track: 1.6, weight: '700' });
+        { size: 17.5, color: canJump ? '#ffe8d2' : LBL, align: 'center', track: 1.2, weight: '700' });
       }
     });
   }
