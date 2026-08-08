@@ -40,8 +40,11 @@ const SAVE_KEY = 'star-universe.v1';
 /**
  * Deal the commodity deck around a system's stations.
  * Station `idx` produces deck[2i..2i+1] and demands deck[2i+2..2i+3] (mod 8),
- * so station 0 produces exactly what station 1 demands. One profitable run in
- * each direction, by construction, in every inhabited system.
+ * so each station's demands are exactly the next station's produce. With the
+ * usual two stations that means one *strong* run (buy B's produce at 0.55×,
+ * sell into A's demand at 1.65×) and one decent one back (A's produce into
+ * B's neutral price) — profitable both ways, by construction, in every
+ * inhabited system.
  */
 export function buildMarket(systemSeed, idx) {
   const rnd = mulberry32((systemSeed ^ 0x9e3779b9) >>> 0);
