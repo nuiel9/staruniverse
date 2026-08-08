@@ -253,8 +253,8 @@ export class HoloMap {
        the volume stays whole. Billboarded every frame, so only the position
        matters; the chart camera looks along +z, which puts screen-right at
        *negative* x. */
-    this.info.mesh.scale.setScalar(0.85);
-    this.info.mesh.position.set(-0.23, 0.46, -0.72);
+    this.info.mesh.scale.setScalar(0.72);
+    this.info.mesh.position.set(-0.27, 0.40, -0.72);
     this.info.material.uniforms.uPower.value = 1;
     g.add(this.info.mesh);
 
