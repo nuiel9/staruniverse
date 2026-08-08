@@ -80,7 +80,7 @@ export class DockScreen {
       const g = market.byId.get(c.id);
       const have = eco.cargo[c.id] || 0;
       const canBuy = g.stock > 0 && eco.credits >= g.price && held < eco.cargoCap;
-      const tag = g.role === 'produces' ? '<i class="dk-tag mk">PRODUCES</i>'
+      const tag = g.role === 'produces' ? '<i class="dk-tag prod">PRODUCES</i>'
         : g.role === 'demands' ? '<i class="dk-tag want">WANTED</i>' : '';
       return `<tr class="${g.role || ''}">
         <td class="dk-name">${c.name}${tag}<em>${c.desc}</em></td>

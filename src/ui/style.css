@@ -263,7 +263,9 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
   color:var(--dim);margin-top:3px}
 .dk-tag{font-style:normal;font-size:8px;letter-spacing:.22em;padding:2px 7px;margin-left:10px;
   vertical-align:2px;border:1px solid}
-.dk-tag.mk{color:var(--gn);border-color:rgba(138,255,193,.35)}
+/* `prod`, not `mk`: .mk is the HUD's world-marker class, and a tag wearing it
+   is position:absolute'd out of the table into a 28px box at the panel origin. */
+.dk-tag.prod{color:var(--gn);border-color:rgba(138,255,193,.35)}
 .dk-tag.want{color:var(--am);border-color:rgba(255,196,138,.4)}
 .dk-num{text-align:right;white-space:nowrap}
 th.dk-num{text-align:right}
