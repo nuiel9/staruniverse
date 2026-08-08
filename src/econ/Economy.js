@@ -12,8 +12,12 @@ import { mulberry32 } from '../world/generate.js';
    would leave some systems with no profitable run at all, and a trading game
    where trading might not work is not a trading game.
 
-   Prices are static for now. They become alive in M2, when news of a glut
-   travels the lanes no faster than the freighters that cause it.
+   Prices are alive now: each good at each station drifts on two slow seeded
+   sines, so a price is a function of *when you ask*. That matters because
+   nothing here moves information faster than a hull — what a dock's board
+   shows about other stations is the price as of when a freighter last left
+   there, computed by evaluating the same price function at (now − travel
+   time). Old news is the trader's edge: outrun it and the margin is yours.
    ========================================================================== */
 
 export const COMMODITIES = [
@@ -36,6 +40,19 @@ const PRODUCE_MULT = 0.55;
 const DEMAND_MULT = 1.65;
 
 const SAVE_KEY = 'star-universe.v1';
+
+/** How fast news rides the lanes, in light-years per second of game time.
+ *  Twenty light-years of lane ≈ seventeen minutes stale. */
+export const NEWS_LY_PER_SEC = 0.02;
+
+/** Price drift: two incommensurate sines per good per station, ±26% at the
+ *  worst alignment. Deterministic in t, so the past is recomputable — which
+ *  is the whole trick behind dated traffic reports. */
+function drift(phaseSeed, t) {
+  const rnd = mulberry32(phaseSeed >>> 0);
+  const p1 = rnd() * Math.PI * 2, p2 = rnd() * Math.PI * 2;
+  return 1 + 0.16 * Math.sin(t / 210 + p1) + 0.10 * Math.sin(t / 47 + p2);
+}
 
 /**
  * Deal the commodity deck around a system's stations.
@@ -60,7 +77,7 @@ export function buildMarket(systemSeed, idx) {
   // Per-station jitter so two producers of the same good still disagree a
   // little. Seeded off the station's own slot in the system.
   const jrnd = mulberry32((systemSeed + idx * 977) >>> 0);
-  const goods = COMMODITIES.map((c) => {
+  const goods = COMMODITIES.map((c, gi) => {
     const role = produces.has(c.id) ? 'produces' : demands.has(c.id) ? 'demands' : null;
     const mult = role === 'produces' ? PRODUCE_MULT : role === 'demands' ? DEMAND_MULT : 1;
     const jitter = 0.88 + jrnd() * 0.24;
@@ -69,7 +86,9 @@ export function buildMarket(systemSeed, idx) {
         : 4 + Math.floor(jrnd() * 10);
     return {
       id: c.id,
+      // The dealt price — what this station charges when its drift is flat.
       price: Math.max(1, Math.round(c.base * mult * jitter)),
+      phase: (systemSeed * 31 + idx * 7919 + gi * 104729) >>> 0,
       stock,
       role,
     };
@@ -83,6 +102,7 @@ export class Economy {
     this.credits = 400;
     this.cargoCap = 16;
     this.cargo = {};                    // commodity id -> units held
+    this.known = [];                    // stations whose boards you can quote
     this.load();
   }
 
@@ -92,32 +112,74 @@ export class Economy {
     return n;
   }
 
-  /** @returns units actually bought (0 on any refusal). */
-  buy(market, id, qty = 1) {
+  /** The price of a good at a market at moment `t`. Pass a past `t` and you
+   *  get the past price — that is not a convenience, it is the news system. */
+  priceAt(market, id, t) {
     const g = market.byId.get(id);
     if (!g) return 0;
-    const n = Math.min(qty, g.stock, this.cargoCap - this.cargoUsed(),
-      Math.floor(this.credits / g.price));
-    if (n <= 0) return 0;
-    g.stock -= n;
-    this.credits -= n * g.price;
-    this.cargo[id] = (this.cargo[id] || 0) + n;
-    this.save();
-    return n;
+    return Math.max(1, Math.round(g.price * drift(g.phase, t)));
   }
 
-  /** @returns units actually sold. */
+  /** @returns {n, price} — units transacted at what unit price. n=0 refused. */
+  buy(market, id, qty = 1) {
+    const g = market.byId.get(id);
+    if (!g) return { n: 0, price: 0 };
+    const price = this.priceAt(market, id, this.game.time);
+    const n = Math.min(qty, g.stock, this.cargoCap - this.cargoUsed(),
+      Math.floor(this.credits / price));
+    if (n <= 0) return { n: 0, price };
+    g.stock -= n;
+    this.credits -= n * price;
+    this.cargo[id] = (this.cargo[id] || 0) + n;
+    this.save();
+    return { n, price };
+  }
+
+  /** @returns {n, price} — units sold at what unit price. */
   sell(market, id, qty = 1) {
     const g = market.byId.get(id);
     const held = this.cargo[id] || 0;
-    if (!g || !held) return 0;
+    if (!g || !held) return { n: 0, price: 0 };
+    const price = this.priceAt(market, id, this.game.time);
     const n = Math.min(qty, held);
     g.stock += n;
-    this.credits += n * g.price;
+    this.credits += n * price;
     this.cargo[id] = held - n;
     if (!this.cargo[id]) delete this.cargo[id];
     this.save();
-    return n;
+    return { n, price };
+  }
+
+  /* --------------------------------------------------- who you know */
+
+  /** Remember a station so its board can be quoted elsewhere. Docking in a
+   *  system teaches you both its stations — the local board is shared. */
+  learnStation(rec) {
+    if (this.known.some((k) => k.key === rec.key)) return;
+    this.known.push(rec);
+    this.save();
+  }
+
+  /**
+   * The traffic report: every known station's board, as fresh as a freighter
+   * can make it. Prices are the *real* price function evaluated at
+   * (now − lane distance / news speed): perfectly honest, always late.
+   */
+  reports(currentSystemId, t, excludeKey) {
+    const lanes = this.game.lanes;
+    const out = [];
+    for (const k of this.known) {
+      if (k.key === excludeKey) continue;                        // it IS the board
+      const ly = lanes ? lanes.graphDist(currentSystemId, k.systemId) : Infinity;
+      if (!Number.isFinite(ly)) continue;                        // no lane, no news
+      const age = ly / NEWS_LY_PER_SEC;
+      const market = buildMarket(k.systemSeed, k.idx);
+      const goods = market.goods
+        .filter((g) => g.role)
+        .map((g) => ({ id: g.id, role: g.role, price: this.priceAt(market, g.id, t - age) }));
+      out.push({ ...k, age, ly, goods });
+    }
+    return out.sort((a, b) => a.ly - b.ly);
   }
 
   /* The ledger survives the tab; the markets do not — they are re-dealt from
@@ -126,7 +188,7 @@ export class Economy {
   save() {
     try {
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        credits: this.credits, cargo: this.cargo,
+        credits: this.credits, cargo: this.cargo, known: this.known,
       }));
     } catch { /* private browsing, quota — the run just becomes ephemeral */ }
   }
@@ -143,6 +205,7 @@ export class Economy {
           if (BY_ID.has(id) && Number.isInteger(n) && n > 0) this.cargo[id] = n;
         }
       }
+      if (Array.isArray(s.known)) this.known = s.known.filter((k) => k && k.key);
     } catch { /* a corrupt save is just a new game */ }
   }
 }

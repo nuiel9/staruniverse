@@ -100,6 +100,8 @@ export class Codex {
         <div class="cx-sub">DEEP SURVEY VESSEL PALE SEEKER · COMMISSION 1101</div>
         <div class="cx-stats">
           ${stat('SYSTEMS CHARTED', `${visited} / ${total}`)}
+          ${stat('LANES SURVEYED', `${g.lanes.charted.size} / ${g.lanes.edges.size}`)}
+          ${stat('LEDGER', `${g.economy.credits.toLocaleString('en-US')} cr`)}
           ${stat('BODIES CATALOGUED', g.discoveries.size)}
           ${stat('RESONANCE', `${g.state.resonance} / 7`)}
           ${stat('CURRENT SYSTEM', g.system.star.name)}

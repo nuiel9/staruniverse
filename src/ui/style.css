@@ -276,6 +276,21 @@ th.dk-num{text-align:right}
 .dk-act button:disabled{color:rgba(160,196,214,.28);border-color:rgba(143,228,255,.06)}
 .dk-note{margin-top:18px;font-size:9.5px;letter-spacing:.16em;color:var(--dim);text-align:center}
 .dk-note kbd{font-size:8.5px;border:1px solid var(--line-s);padding:1px 5px;margin:0 2px}
+.dk-charts{display:flex;align-items:center;justify-content:space-between;gap:18px;
+  margin-top:16px;padding:12px 14px;border:1px solid rgba(138,255,193,.22);
+  background:rgba(138,255,193,.04)}
+.dk-charts span{font-size:10.5px;letter-spacing:.12em;color:var(--txt)}
+.dk-charts button{font-size:10px;letter-spacing:.2em;color:var(--gn);
+  border:1px solid rgba(138,255,193,.4);padding:8px 14px;white-space:nowrap;transition:.15s}
+.dk-charts button:hover{background:rgba(138,255,193,.1)}
+.dk-h3{margin:30px 0 8px;font-size:10px;font-weight:400;letter-spacing:.3em;color:var(--dim)}
+.dk-reptable td{vertical-align:top}
+.dk-repcell{text-align:right}
+.dk-rep{display:inline-block;font-size:10px;letter-spacing:.14em;margin:2px 0 2px 14px;
+  padding:3px 8px;border:1px solid var(--line-s);color:var(--txt);white-space:nowrap}
+.dk-rep i{font-style:normal;font-size:8px;color:var(--dim);margin-left:3px}
+.dk-rep.want{color:var(--am);border-color:rgba(255,196,138,.3)}
+.dk-rep.prod{color:var(--gn);border-color:rgba(138,255,193,.28)}
 @media (max-width:640px){
   .dk-ledger{gap:12px;margin-right:10px}
   .dk-name em{display:none}

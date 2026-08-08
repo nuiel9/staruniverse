@@ -408,44 +408,60 @@ export class HoloMap {
    *  sections, welded into a single geometry so the whole network is one draw
    *  call, and they carry the same scan treatment as the rest of the volume. */
   _buildLanes() {
-    const gal = this.game.galaxy;
-    const seg = [];
-    for (let i = 0; i < gal.length; i++) {
-      const near = gal
-        .map((s, j) => ({ j, d: Math.hypot(s.x - gal[i].x, s.y - gal[i].y) }))
-        .filter((x) => x.j !== i).sort((a, b) => a.d - b.d).slice(0, 2);
-      for (const { j } of near) {
-        if (j < i) continue;
-        seg.push([this._posOf(gal[i]), this._posOf(gal[j])]);
-      }
+    /* The weave is no longer decoration: these are the game's real lanes, read
+       from the LaneGraph, and drawn in two registers — surveyed lanes in the
+       structural cyan, unsurveyed ones as faint amber dashes of intent. The
+       split is the player's frontier, visible from across the cabin. */
+    if (this.lanes) { this.spin.remove(this.lanes); this.lanes.geometry.dispose(); }
+    if (this.lanesDim) { this.spin.remove(this.lanesDim); this.lanesDim.geometry.dispose(); }
+    if (!this.matLaneDim) {
+      this.matLaneDim = holoMat(0xd8a26a, 0.30, G_STRUCT);
+      this.mats.push(this.matLaneDim);      // so it breathes with the volume
     }
-    const R = 0.0030, pos = [], idx = [];
+
+    const R = 0.0030;
     const dir = new THREE.Vector3(), sx = new THREE.Vector3(), sy = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0), alt = new THREE.Vector3(1, 0, 0);
-    for (const [a, b] of seg) {
-      dir.subVectors(b, a).normalize();
-      sx.crossVectors(Math.abs(dir.y) > 0.9 ? alt : up, dir).normalize();
-      sy.crossVectors(dir, sx).normalize();
-      const base = pos.length / 3;
-      for (const p of [a, b]) {
+    const weld = (segs) => {
+      const pos = [], idx = [];
+      for (const [a, b] of segs) {
+        dir.subVectors(b, a).normalize();
+        sx.crossVectors(Math.abs(dir.y) > 0.9 ? alt : up, dir).normalize();
+        sy.crossVectors(dir, sx).normalize();
+        const base = pos.length / 3;
+        for (const p of [a, b]) {
+          for (let k = 0; k < 3; k++) {
+            const t = (k / 3) * Math.PI * 2;
+            pos.push(p.x + (sx.x * Math.cos(t) + sy.x * Math.sin(t)) * R,
+              p.y + (sx.y * Math.cos(t) + sy.y * Math.sin(t)) * R,
+              p.z + (sx.z * Math.cos(t) + sy.z * Math.sin(t)) * R);
+          }
+        }
         for (let k = 0; k < 3; k++) {
-          const t = (k / 3) * Math.PI * 2;
-          pos.push(p.x + (sx.x * Math.cos(t) + sy.x * Math.sin(t)) * R,
-            p.y + (sx.y * Math.cos(t) + sy.y * Math.sin(t)) * R,
-            p.z + (sx.z * Math.cos(t) + sy.z * Math.sin(t)) * R);
+          const n = (k + 1) % 3;
+          idx.push(base + k, base + n, base + 3 + k, base + n, base + 3 + n, base + 3 + k);
         }
       }
-      for (let k = 0; k < 3; k++) {
-        const n = (k + 1) % 3;
-        idx.push(base + k, base + n, base + 3 + k, base + n, base + 3 + n, base + 3 + k);
-      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      g.setIndex(idx);
+      return g;
+    };
+
+    const gal = this.game.galaxy;
+    const charted = [], dim = [];
+    for (const e of this.game.lanes.edges.values()) {
+      const seg = [this._posOf(gal[e.a]), this._posOf(gal[e.b])];
+      (this.game.lanes.isCharted(e.key) ? charted : dim).push(seg);
     }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setIndex(idx);
-    this.lanes = new THREE.Mesh(g, this.matLane);
+    this.lanes = new THREE.Mesh(weld(charted), this.matLane);
+    this.lanesDim = new THREE.Mesh(weld(dim), this.matLaneDim);
     this.spin.add(this.lanes);
+    this.spin.add(this.lanesDim);
   }
+
+  /** Re-split the lane meshes after a survey. Cheap enough to just rebuild. */
+  refreshLanes() { this._buildLanes(); }
 
   _buildSystems() {
     this.nodes = [];
@@ -670,11 +686,11 @@ export class HoloMap {
     const g = this.game;
     const s = g.galaxy[this.sel];
     if (!s) return;
-    const cur = g.galaxy[g.currentSystemId];
-    const dist = Math.hypot(s.x - cur.x, s.y - cur.y);
-    const cost = Math.min(1, dist / 80);
+    const jc = g.jumpCost(g.currentSystemId, this.sel);
+    const { dist, cost } = jc;
     const isCur = this.sel === g.currentSystemId;
-    const canJump = !isCur && g.ship.foldCharge >= cost;
+    // A cost past a full charge is a wall, not a wait: say so.
+    const canJump = !isCur && cost <= 1 && g.ship.foldCharge >= cost;
 
     this.info.draw((c) => {
       const w = c.w;
@@ -689,11 +705,15 @@ export class HoloMap {
         c.text(label, 20, y, { size: 13, color: DIM, track: 2 });
         c.text(val, w - 20, y, { size: 15, color: col, align: 'right' });
       };
-      row('DISTANCE', `${dist.toFixed(1)} ly`, 140);
-      row('FOLD COST', `${Math.round(cost * 100)}%`, 168,
-        cost > g.ship.foldCharge ? '#ff8f7a' : '#dff4ff');
-      row('CHARGE', `${Math.round(g.ship.foldCharge * 100)}%`, 196);
-      if (g.resonatorSystems.has(this.sel) && s.visited) row('SIGNAL', 'RESONATOR', 224, AM);
+      row('DISTANCE', `${dist.toFixed(1)} ly`, 132);
+      row('LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE', 158,
+        jc.lane ? (jc.charted ? '#8fe4ff' : AM) : DIM);
+      row('NEBULA', `${Math.round(jc.density * 100)}%`, 184,
+        jc.density > 0.55 ? '#ff8f7a' : '#dff4ff');
+      row('FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`, 210,
+        cost > 1 ? '#ff8f7a' : cost > g.ship.foldCharge ? '#ffc48a' : '#dff4ff');
+      row('CHARGE', `${Math.round(g.ship.foldCharge * 100)}%`, 236);
+      if (g.resonatorSystems.has(this.sel) && s.visited) row('SIGNAL', 'RESONATOR', 262, AM);
 
       const y = c.h - 48;
       if (isCur) {
@@ -702,8 +722,10 @@ export class HoloMap {
       } else {
         c.fill(20, y, w - 40, 36, canJump ? 'rgba(255,170,110,0.16)' : 'rgba(120,140,150,0.08)');
         c.fill(20, y, 3, 36, canJump ? AM : DIM);
-        c.text(canJump ? 'PRESS  J  TO FOLD' : 'INSUFFICIENT CHARGE', w / 2, y + 24,
-          { size: 15, color: canJump ? '#ffe0c0' : DIM, align: 'center', track: 2 });
+        c.text(canJump ? 'PRESS  J  TO FOLD'
+          : cost > 1 ? 'NEBULA TOO DENSE · CHART A NEARER LANE' : 'INSUFFICIENT CHARGE',
+        w / 2, y + 24,
+        { size: 15, color: canJump ? '#ffe0c0' : DIM, align: 'center', track: 2 });
       }
     });
   }
@@ -711,9 +733,8 @@ export class HoloMap {
   confirm() {
     const g = this.game;
     if (this.sel === g.currentSystemId) return false;
-    const s = g.galaxy[this.sel], cur = g.galaxy[g.currentSystemId];
-    const cost = Math.min(1, Math.hypot(s.x - cur.x, s.y - cur.y) / 80);
-    if (g.ship.foldCharge < cost) { g.audio?.ping('deny'); return false; }
+    const { cost } = g.jumpCost(g.currentSystemId, this.sel);
+    if (cost > 1 || g.ship.foldCharge < cost) { g.audio?.ping('deny'); return false; }
     g.ship.foldCharge = Math.max(0, g.ship.foldCharge - cost);
     this.close();
     g.hyperjump(this.sel);

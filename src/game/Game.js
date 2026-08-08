@@ -26,6 +26,7 @@ import { HoloMap } from '../ship/HoloMap.js';
 import { Codex } from '../ui/Codex.js';
 import { DockScreen } from '../ui/DockScreen.js';
 import { Economy, buildMarket } from '../econ/Economy.js';
+import { LaneGraph } from '../econ/LaneGraph.js';
 import { Audio } from '../audio/Audio.js';
 import { CANTOS, LOGS, INTRO_LINES } from './lore.js';
 import { Directives, UPGRADES } from './directives.js';
@@ -225,6 +226,8 @@ export class Game {
     P(0.05, 'seeding the expanse');
     this.galaxySeed = 20260725;
     this.galaxy = generateGalaxy(this.galaxySeed, 14);
+    // The nebula between the stars: lanes, density, and what you have charted.
+    this.lanes = new LaneGraph(this.galaxy, this.galaxySeed);
 
     // seven systems hold Resonators; the first is always reachable early
     const rr = mulberry32(this.galaxySeed ^ 0x9e37);
@@ -572,6 +575,7 @@ export class Game {
           // Markets are dealt around the *system* seed so the stations
           // complement each other — see buildMarket for the guarantee.
           market: buildMarket(stub.seed, si),
+          idx: si,
         });
         si++;
       }
@@ -943,6 +947,7 @@ export class Game {
     this.encounters.update(dt);
     this.shake = Math.max(0, this.shake - dt * 1.6);
     this.hud.update(dt);
+    this.dock.update();
     this.audio.update(dt, this);
   }
 
@@ -985,6 +990,15 @@ export class Game {
     this.ship.vel.multiplyScalar(0);
     this.dockedAt = b;
     this._dockRel = this.ship.absPos.clone().sub(b.absPos);
+    // A dock's board covers the whole system: one visit teaches you both
+    // stations here, and their quotes ride the lanes with you from now on.
+    const stub = this.galaxy[this.currentSystemId];
+    for (const st of this.stations) {
+      this.economy.learnStation({
+        key: `${this.currentSystemId}:${st.idx}`, systemId: this.currentSystemId,
+        systemSeed: stub.seed, idx: st.idx, name: st.name,
+      });
+    }
     this.hud.log(`DOCKED · ${b.name}`, 'ok');
     this.audio.ping('arrive');
     this.dock.show(b);
@@ -2997,13 +3011,24 @@ export class Game {
     }
   }
 
+  /** Everything the map and the drive need to know about a jump. */
+  jumpCost(a, b) { return this.lanes.costBetween(a, b); }
+
   async hyperjump(id) {
     if (id === this.currentSystemId) return;
+    const from = this.currentSystemId;
     this.starmap.close();
     this.hud.setFlash(1);
     this.audio.ping('jump');
     await wait(420);
     await this.loadSystem(id);
+    // Flying an unsurveyed lane *is* surveying it. The chart is the prize:
+    // the lane is cheap for you now, and every dock will pay for the data.
+    const surveyed = this.lanes.chart(from, id);
+    if (surveyed) {
+      this.hud.log(`LANE CHARTED · ${this.galaxy[surveyed.a].name.toUpperCase()} — ${this.galaxy[surveyed.b].name.toUpperCase()} · sell the chart at any dock`, 'hi');
+      this.starmap.refreshLanes?.();
+    }
     this.hud.setFlash(0.85);
     this.ship.foldMode = false;
     this.hud.setFold(false);

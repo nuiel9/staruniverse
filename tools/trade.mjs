@@ -54,21 +54,27 @@ const setup = await page.evaluate(() => {
 });
 check('home system has two stations', setup.count === 2, setup.names.join(' / '));
 
-// A profitable run must exist by construction: something A produces, B pays
-// more for.
+// A profitable run must exist by construction, in at least one direction —
+// prices drift with time now, so ask the live price function, both ways.
 const spread = await page.evaluate(() => {
   const g = window.__game;
-  const [a, b] = g.bodies.filter((x) => x.kind === 'station');
+  const eco = g.economy;
+  const st = g.bodies.filter((x) => x.kind === 'station');
   let best = null;
-  for (const ga of a.station.market.goods) {
-    const gb = b.station.market.byId.get(ga.id);
-    const margin = gb.price - ga.price;
-    if (!best || margin > best.margin) best = { id: ga.id, buyAt: ga.price, sellAt: gb.price, margin, stock: ga.stock };
+  for (const [i, j] of [[0, 1], [1, 0]]) {
+    for (const gd of st[i].station.market.goods) {
+      const buyAt = eco.priceAt(st[i].station.market, gd.id, g.time);
+      const sellAt = eco.priceAt(st[j].station.market, gd.id, g.time);
+      const margin = sellAt - buyAt;
+      if (gd.stock > 0 && (!best || margin > best.margin)) {
+        best = { id: gd.id, from: i, to: j, buyAt, sellAt, margin, stock: gd.stock };
+      }
+    }
   }
   return best;
 });
-check('profitable route exists A→B', spread.margin > 0 && spread.stock > 0,
-  `${spread.id}: buy ${spread.buyAt} sell ${spread.sellAt} (+${spread.margin}/u)`);
+check('profitable route exists between the stations', spread.margin > 0,
+  `${spread.id}: buy ${spread.buyAt} @${spread.from} sell ${spread.sellAt} @${spread.to} (+${spread.margin}/u)`);
 
 // ---------------------------------------------------------- take the helm
 // Docking is a pilot's act — canDock refuses anyone standing in the cabin —
@@ -88,13 +94,13 @@ await page.waitForFunction(() => window.__game.mode === 'pilot',
 // ------------------------------------------------------------- dock at A
 // Teleport to the first station's doorstep — flying there for real is the
 // game, not the test — then dock through the same call the L key makes.
-await page.evaluate(() => {
+await page.evaluate((idx) => {
   const g = window.__game;
-  const a = g.bodies.filter((x) => x.kind === 'station')[0];
+  const a = g.bodies.filter((x) => x.kind === 'station')[idx];
   g.ship.absPos.copy(a.absPos);
   g.ship.absPos.x += a.radius * 1.6;
   g.ship.vel.set(0, 0, 0);
-});
+}, spread.from);
 await page.waitForFunction(() => window.__game.canDock(),
   undefined, { timeout: SLOW });
 const trade1 = await page.evaluate((goodId) => {
@@ -102,8 +108,7 @@ const trade1 = await page.evaluate((goodId) => {
   g.dockAt(g.canDock());
   const before = g.economy.credits;
   const market = g.dockedAt.station.market;
-  const price = market.byId.get(goodId).price;
-  const n = g.economy.buy(market, goodId, 5);
+  const { n, price } = g.economy.buy(market, goodId, 5);
   return {
     docked: !!g.dockedAt, screen: g.dock.open, station: g.dockedAt?.name,
     bought: n, before, after: g.economy.credits, price,
@@ -121,14 +126,14 @@ check('buy filled to the ledger\'s cap, debited exactly', trade1.bought === affo
 `${trade1.bought}u @ ${trade1.price} · ${trade1.before} → ${trade1.after} cr`);
 
 // ------------------------------------------------------------- cross to B
-await page.evaluate(() => {
+await page.evaluate((idx) => {
   const g = window.__game;
   g.undock();
-  const b = g.bodies.filter((x) => x.kind === 'station')[1];
+  const b = g.bodies.filter((x) => x.kind === 'station')[idx];
   g.ship.absPos.copy(b.absPos);
   g.ship.absPos.x += b.radius * 1.6;
   g.ship.vel.set(0, 0, 0);
-});
+}, spread.to);
 await page.waitForFunction(() => window.__game.canDock(),
   undefined, { timeout: SLOW });
 const trade2 = await page.evaluate((goodId) => {
@@ -136,19 +141,20 @@ const trade2 = await page.evaluate((goodId) => {
   g.dockAt(g.canDock());
   const before = g.economy.credits;
   const market = g.dockedAt.station.market;
-  const price = market.byId.get(goodId).price;
-  const n = g.economy.sell(market, goodId, 5);
+  const { n, price } = g.economy.sell(market, goodId, 5);
   return {
     station: g.dockedAt?.name, sold: n, before, after: g.economy.credits, price,
     held: g.economy.cargo[goodId] || 0,
   };
 }, spread.id);
-check('sold entire hold at B, credited exactly', trade2.sold === trade1.bought
+check('sold entire hold at destination, credited exactly', trade2.sold === trade1.bought
   && trade2.after === trade2.before + trade2.sold * trade2.price
   && trade2.held === 0,
 `${trade2.sold}u @ ${trade2.price} · ${trade2.before} → ${trade2.after} cr at ${trade2.station}`);
-check('the run turned a profit', trade2.after > 400,
-  `net ${trade2.after - 400 >= 0 ? '+' : ''}${trade2.after - 400} cr on 400 start`);
+// Prices drifted between the two docks, so assert direction, not arithmetic:
+// the strong produce→demand gap dwarfs the ±26% drift.
+check('the run turned a profit', trade2.after > trade1.before,
+  `net +${trade2.after - trade1.before} cr`);
 
 // ---------------------------------------------------------- persistence
 const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('star-universe.v1')));
