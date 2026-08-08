@@ -303,6 +303,7 @@ th.dk-num{text-align:right}
   padding:5px 12px;margin-left:6px;transition:.15s}
 .dk-act button:hover:not(:disabled){background:rgba(143,228,255,.1)}
 .dk-act button:disabled{color:rgba(160,196,214,.28);border-color:rgba(143,228,255,.06)}
+.dk-risk{color:var(--am);font-weight:400}
 .dk-max{font-size:9.5px;letter-spacing:.2em;color:rgba(160,196,214,.45)}
 .dk-note{margin-top:18px;font-size:9.5px;letter-spacing:.16em;color:var(--dim);text-align:center}
 .dk-note kbd{font-size:8.5px;border:1px solid var(--line-s);padding:1px 5px;margin:0 2px}

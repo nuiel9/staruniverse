@@ -32,6 +32,9 @@ import { Rumors } from './Rumors.js';
 import { Comms } from './Comms.js';
 import { Prospecting } from '../world/Prospecting.js';
 import { Outfitting } from '../ship/Outfitting.js';
+import { Events } from '../econ/Events.js';
+import { Contracts } from './Contracts.js';
+import { Crew } from './Crew.js';
 import { Audio } from '../audio/Audio.js';
 import { CANTOS, LOGS, INTRO_LINES } from './lore.js';
 import { Directives, UPGRADES } from './directives.js';
@@ -402,6 +405,11 @@ export class Game {
     this.prospect = new Prospecting(this);
     this.outfit = new Outfitting(this);
     this.outfit.apply();
+    // The galaxy carrying on without you: shocks, hauls, and people to hire.
+    this.events = new Events(this, this.galaxySeed);
+    this.contracts = new Contracts(this);
+    this.crew = new Crew(this);
+    this.crew.apply();
     // Cartography is an object in the room now, not a window over it. The
     // name is kept because the rest of the game asks `starmap.open` to decide
     // whether a UI is swallowing input.
@@ -586,7 +594,7 @@ export class Game {
           name: `${stub.name} ${['GATE', 'ANCHORAGE', 'YARDS'][si % 3]}`,
           // Markets are dealt around the *system* seed so the stations
           // complement each other — see buildMarket for the guarantee.
-          market: buildMarket(stub.seed, si),
+          market: Object.assign(buildMarket(stub.seed, si), { systemId: id }),
           idx: si,
         });
         si++;
@@ -1022,7 +1030,7 @@ export class Game {
     }
     this._droneDry = false;
     this.droneT = (this.droneT || 0) + dt;
-    const PER_TONNE = 1.4;
+    const PER_TONNE = 1.4 / (this.crew ? this.crew.mul('droneMul') : 1);
     while (this.droneT >= PER_TONNE) {
       this.droneT -= PER_TONNE;
       const got = this.prospect.extract(L.body, dep);
@@ -3110,7 +3118,8 @@ export class Game {
    *  way that makes a charted lane worth flying. Always at least one, so no
    *  jump is ever free. */
   fuelFor(jc) {
-    return Math.max(1, Math.round(jc.dist * 0.12 * (1 + jc.density * 0.8)));
+    const crewMul = this.crew ? this.crew.mul('fuelMul') : 1;
+    return Math.max(1, Math.round(jc.dist * 0.12 * (1 + jc.density * 0.8) * crewMul));
   }
 
   /** Whose sky a system is, by name — for the map and anyone else who asks. */
@@ -3126,6 +3135,9 @@ export class Game {
     await this.loadSystem(id);
     // Flying an unsurveyed lane *is* surveying it. The chart is the prize:
     // the lane is cheap for you now, and every dock will pay for the data.
+    this.contracts.expire(this.time);
+    const ev = this.events.at(id, this.time);
+    if (ev) this.hud.log(`${ev.label.toUpperCase()} · ${this.galaxy[id].name.toUpperCase()}`, 'hi');
     const surveyed = this.lanes.chart(from, id);
     if (surveyed) {
       this.hud.log(`LANE CHARTED · ${this.galaxy[surveyed.a].name.toUpperCase()} — ${this.galaxy[surveyed.b].name.toUpperCase()} · sell the chart at any dock`, 'hi');

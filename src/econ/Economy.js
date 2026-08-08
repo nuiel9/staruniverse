@@ -93,7 +93,12 @@ export function buildMarket(systemSeed, idx) {
       role,
     };
   });
-  return { goods, byId: new Map(goods.map((g) => [g.id, g])) };
+  return {
+    goods, byId: new Map(goods.map((g) => [g.id, g])),
+    // A market that does not know where it is cannot be shocked by anything
+    // happening there. `systemId` is stamped by whoever builds it.
+    systemSeed, idx, systemId: null,
+  };
 }
 
 export class Economy {
@@ -117,7 +122,9 @@ export class Economy {
   priceAt(market, id, t) {
     const g = market.byId.get(id);
     if (!g) return 0;
-    return Math.max(1, Math.round(g.price * drift(g.phase, t)));
+    const ev = (this.game.events && market.systemId !== null)
+      ? this.game.events.priceMult(market.systemId, id, g.role, t) : 1;
+    return Math.max(1, Math.round(g.price * drift(g.phase, t) * ev));
   }
 
   /** @returns {n, price} — units transacted at what unit price. n=0 refused. */
@@ -174,10 +181,12 @@ export class Economy {
       if (!Number.isFinite(ly)) continue;                        // no lane, no news
       const age = ly / NEWS_LY_PER_SEC;
       const market = buildMarket(k.systemSeed, k.idx);
+      market.systemId = k.systemId;
       const goods = market.goods
         .filter((g) => g.role)
         .map((g) => ({ id: g.id, role: g.role, price: this.priceAt(market, g.id, t - age) }));
-      out.push({ ...k, age, ly, goods });
+      const ev = this.game.events ? this.game.events.at(k.systemId, t - age) : null;
+      out.push({ ...k, age, ly, goods, event: ev });
     }
     return out.sort((a, b) => a.ly - b.ly);
   }

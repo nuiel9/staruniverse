@@ -51,6 +51,7 @@ const SUITES = [
   ['nebula', 'lanes, charts and dated news'],
   ['aliens', 'territories, postures and barter'],
   ['ground', 'deposits, the drone, fuel and outfitting'],
+  ['living', 'events, contracts and crew'],
 ];
 
 const failed = [];

@@ -1,5 +1,6 @@
 import { COMMODITIES } from '../econ/Economy.js';
 import { OUTFITS } from '../ship/Outfitting.js';
+import { ROLES } from '../game/Crew.js';
 
 /* ============================================================================
    The dock screen: what you see with your ship on a berth.
@@ -56,6 +57,36 @@ export class DockScreen {
         this.game.audio.ping(ok ? 'objective' : 'deny');
         if (ok) {
           this.game.hud.log(`FITTED · ${OUTFITS[b.dataset.id].name.toUpperCase()}`, 'ok');
+          this.render();
+        }
+        return;
+      }
+      if (b.dataset.act === 'take') {
+        const offer = this._offers.find((o) => o.id === b.dataset.id);
+        const ok = offer && this.game.contracts.accept(offer);
+        this.game.audio.ping(ok ? 'objective' : 'deny');
+        if (ok) {
+          this.game.hud.log(`CONTRACT TAKEN · ${this.game.contracts.label(offer)}`, 'ok');
+          this.render();
+        }
+        return;
+      }
+      if (b.dataset.act === 'deliver') {
+        const c = this.game.contracts.taken.find((x) => String(x.ref) === b.dataset.id);
+        const paid = c && this.game.contracts.deliver(c);
+        this.game.audio.ping(paid ? 'objective' : 'deny');
+        if (paid) {
+          this.game.hud.log(`DELIVERED · +${paid} cr`, 'ok');
+          this.render();
+        }
+        return;
+      }
+      if (b.dataset.act === 'hire') {
+        const rec = this._hires.find((h) => h.id === b.dataset.id);
+        const ok = rec && this.game.crew.hire(rec);
+        this.game.audio.ping(ok ? 'objective' : 'deny');
+        if (ok) {
+          this.game.hud.log(`SIGNED ON · ${rec.name.toUpperCase()}`, 'ok');
           this.render();
         }
         return;
@@ -184,6 +215,54 @@ export class DockScreen {
         <th>SYSTEM</th><th class="dk-num">FITTED</th><th></th></tr></thead>
       <tbody>${fitRows}</tbody></table>`;
 
+    /* The board. Deliveries you can settle right here come first — a player
+       holding finished cargo should never have to hunt for the button. */
+    const C = g.contracts;
+    C.expire(t);
+    const due = C.deliverable(g.currentSystemId, t);
+    const dueBlock = due.length ? due.map((c) => `<div class="dk-charts">
+        <span>Consignment ready: ${C.label(c)}</span>
+        <button data-act="deliver" data-id="${c.ref}">DELIVER · ${c.pay.toLocaleString('en-US')} cr</button>
+      </div>`).join('') : '';
+
+    this._offers = C.offers(g.currentSystemId, st.station.idx, t);
+    const mins = (secs) => `${Math.max(0, Math.round(secs / 60))} min`;
+    const offerRows = this._offers.map((o) => {
+      const taken = C.isTaken(o.id);
+      const holding = eco.cargo[o.goodId] || 0;
+      return `<tr>
+        <td class="dk-name">${C.label(o)}
+          <em>${o.ly.toFixed(1)} ly · due in ${mins(o.due - t)}${o.risk > 0.2 ? ' · <b class="dk-risk">HAZARD PAY</b>' : ''}
+          · holding ${holding}/${o.qty}</em></td>
+        <td class="dk-num">${o.pay.toLocaleString('en-US')} <i>cr</i></td>
+        <td class="dk-act">${taken
+    ? '<span class="dk-max">ACCEPTED</span>'
+    : `<button data-act="take" data-id="${o.id}">TAKE</button>`}</td></tr>`;
+    }).join('');
+    const boardBlock = `<h3 class="dk-h3">THE BOARD${C.taken.length ? ` · ${C.taken.length} IN HAND` : ''}</h3>
+      ${dueBlock}
+      <table class="dk-table"><thead><tr>
+        <th>CONSIGNMENT</th><th class="dk-num">FEE</th><th></th></tr></thead>
+      <tbody>${offerRows}</tbody></table>`;
+
+    /* The bar. One of each speciality, four berths, and whoever is drinking
+       here this week. */
+    this._hires = g.crew.roster(g.currentSystemId, st.station.idx, t);
+    const hireRows = this._hires.map((h) => {
+      const role = ROLES[h.role];
+      const have = g.crew.has(h.role);
+      const full = g.crew.aboard.length >= 4;
+      return `<tr>
+        <td class="dk-name">${h.name}<em>${role.title} — ${role.blurb}</em></td>
+        <td class="dk-num">${role.effect}</td>
+        <td class="dk-act">${have ? '<span class="dk-max">BERTH FILLED</span>'
+    : `<button data-act="hire" data-id="${h.id}" ${full || eco.credits < h.fee ? 'disabled' : ''}>
+             SIGN ON · ${h.fee.toLocaleString('en-US')} cr</button>`}</td></tr>`;
+    }).join('');
+    const crewBlock = `<h3 class="dk-h3">THE BAR${g.crew.aboard.length
+      ? ` · ${g.crew.aboard.length}/4 ABOARD` : ''}</h3>
+      <table class="dk-table"><tbody>${hireRows}</tbody></table>`;
+
     /* The traffic report: other boards, as stale as their distance. */
     const reports = eco.reports(g.currentSystemId, t, this.stationKey());
     const repRows = reports.map((r) => {
@@ -194,7 +273,8 @@ export class DockScreen {
         `<span class="dk-rep ${x.role === 'demands' ? 'want' : 'prod'}">
           ${x.id.toUpperCase()} ${x.price}<i>cr</i></span>`).join('');
       return `<tr><td class="dk-name">${r.name}<em>${r.ly.toFixed(1)} ly by lane ·
-        report ${age}</em></td><td class="dk-repcell">${cells}</td></tr>`;
+        report ${age}${r.event ? ` · <b class="dk-risk">${r.event.label.toUpperCase()}</b>` : ''}</em></td>
+        <td class="dk-repcell">${cells}</td></tr>`;
     }).join('');
     const repBlock = reports.length
       ? `<h3 class="dk-h3">TRAFFIC REPORTS</h3>
@@ -209,6 +289,8 @@ export class DockScreen {
       ${chartsBtn}
       <div class="dk-note">click trades one unit · <kbd>SHIFT</kbd>-click trades five
       · <kbd>ESC</kbd> departs</div>
+      ${boardBlock}
+      ${crewBlock}
       ${fuelBlock}
       ${fitBlock}
       ${repBlock}`;
