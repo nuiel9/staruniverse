@@ -50,7 +50,38 @@ for (const [name, js] of LANDINGS) {
   { stdio: 'inherit' });
 }
 
+/* The interfaces, which the original set had no reason to carry: this fork's
+   own work is a market, a negotiation and a chart, and all three are judged on
+   whether they can be *read* rather than on whether they are pretty. Shot with
+   the HUD left on, at dpr 2, because a sharpness verdict taken at one device
+   pixel per CSS pixel is worthless — see probe.mjs. */
+const INTERFACES = [
+  ['ui-a-market', `g.mode='pilot';
+     const st = g.bodies.filter(b=>b.kind==='station')[0];
+     g.ship.absPos.copy(st.absPos); g.ship.absPos.x += st.radius*1.6; g.ship.vel.set(0,0,0);
+     g.dockAt(st);
+     const m = g.dockedAt.station.market;
+     g.economy.buy(m, m.goods.find(x=>x.role==='produces').id, 3);
+     g.dock.render();`],
+  ['ui-b-chart', `g.mode='pilot'; g.starmap.show();
+     /* a frontier lane charted, so both registers are in frame */
+     const e = [...g.lanes.edges.values()].find(x=>!g.lanes.isCharted(x.key));
+     if (e) { g.lanes.chart(e.a, e.b); g.starmap.refreshLanes(); }
+     g.starmap.sel = (g.currentSystemId + 3) % g.galaxy.length;`],
+  ['ui-c-comms', `g.mode='pilot';
+     g.comms.openFor({kind:'craft', craftKind:'freighter', name:'BULK HAULER KESH', faction:'free'}, 'vess');
+     g.comms._act('posture','businesslike'); g.comms._act('trade');`],
+];
+console.log('\n— interfaces —');
+for (const [name, js] of INTERFACES) {
+  execFileSync('node', ['tools/probe.mjs',
+    `(()=>{ ${js} return null; })()`,
+    '--shot', `${OUT}/${name}.png`, '--settle', '2600', '--w', '1600', '--h', '900', '--dpr', '2'],
+  { stdio: 'inherit' });
+}
+
 console.log('\n— tone —');
 execFileSync('node', ['tools/levels.mjs', ...fs.readdirSync(OUT).map((f) => `${OUT}/${f}`)],
   { stdio: 'inherit' });
 console.log(`\n${fs.readdirSync(OUT).length} frames in ${OUT}`);
+console.log(`brief for the reviewer: tools/JUDGE.md`);

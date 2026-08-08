@@ -127,6 +127,34 @@ atmosphere shell above it.
 
 ## Verification
 
+Four acceptance suites, one per system, each written against the built bundle
+and waiting on *game state* rather than on wall-clock time, so they pass on a
+GPU in seconds and on a software renderer in minutes:
+
+```
+npm run smoke       # boots, takes the helm, gets the ship under way
+npm run trade       # docks, buys, crosses, sells, checks the ledger arithmetic
+npm run nebula      # lane graph, charting, chart sales, price drift, dated news
+npm run aliens      # territories, postures, barter convergence, rumor truth
+```
+
+### The judge gate
+
+The original game was built by refusing to call the visuals done until an
+independent critic said the frames stood beside Starfield's. That loop is
+still here, and now covers this fork's interfaces too:
+
+```
+npm run judge       # ~25 frames into shots/judge/, plus tone statistics
+```
+
+Then hand `shots/judge/` and [`tools/JUDGE.md`](tools/JUDGE.md) to a reviewer
+who has not been staring at the game — an independent agent will do. The brief
+is deliberately adversarial and is not to be softened to pass: editing the
+wording instead of the game is the tell. Interface frames get a second pass on
+legibility alone, because a panel can be beautiful and unreadable — this
+project has shipped that mistake and had to undo it twice.
+
 ```
 node tools/play.mjs        # 17 interaction assertions (flight, scan, fold, jump)
 node tools/survey.mjs      # screenshots every set-piece, reports fps/draws
