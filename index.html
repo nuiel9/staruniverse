@@ -130,6 +130,18 @@
     </div>
   </div>
 
+  <!-- The chart readout. It lives here rather than on a surface in the room
+       because it is the one thing in the map you *read*: a world-space panel
+       is at the mercy of the shader's bloom, the scanlines and the window's
+       aspect ratio, and loses a fight with all three. -->
+  <div id="navinfo" class="hidden">
+    <div class="nv-head">STELLAR CARTOGRAPHY</div>
+    <h2 id="nvName">UNCHARTED</h2>
+    <div class="nv-sub" id="nvSub"></div>
+    <div class="nv-rows" id="nvRows"></div>
+    <div class="nv-banner" id="nvBanner"></div>
+  </div>
+
   <div id="comms" class="panel hidden">
     <div class="p-head">
       <div><h2 id="commsName"></h2><div class="dk-sub" id="commsSub"></div></div>

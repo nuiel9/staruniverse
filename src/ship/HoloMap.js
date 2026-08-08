@@ -1,6 +1,5 @@
 import * as THREE from 'three';
 import { holoMat } from './Cockpit.js';
-import { HoloScreen, AM, DIM } from './HoloScreen.js';
 import { INTERIOR_LAYER } from './interiorMaterials.js';
 import { LOGD_V_PARS, LOGD_V } from '../gfx/glsl/noise.js';
 import { kelvinColor } from '../world/generate.js';
@@ -238,25 +237,19 @@ export class HoloMap {
     this._buildSystems();
     this._buildReticle();
 
-    this.info = new HoloScreen({
-      name: 'navinfo', w: 0.42, h: 0.27, res: 520, ss: 4, curve: 0.04, aniso: 16,
-      // This is the one panel in the ship that is *read* rather than glanced
-      // at, so it wears its CRT character lightly.
-      scanAmp: 0.06, grilleAmp: 0.10,
-    });
-    /* In front of the volume, not inside it. At its old berth on the disc's
-       rim the containment frame and the dust field rendered *between* the eye
-       and the glass, and no amount of type size wins against sparks crawling
-       over the text. It floats ahead of the field's front face now, in the
-       upper-right of the parked camera's frame — the one large area of the
-       cabin the chart never reaches into, so the panel overlaps nothing and
-       the volume stays whole. Billboarded every frame, so only the position
-       matters; the chart camera looks along +z, which puts screen-right at
-       *negative* x. */
-    this.info.mesh.scale.setScalar(0.95);
-    this.info.mesh.position.set(-0.20, 0.45, -0.72);
-    this.info.material.uniforms.uPower.value = 1;
-    g.add(this.info.mesh);
+    /* The readout used to be a HoloScreen on a surface beside the volume, and
+       it lost a three-way fight it could never win: the display shader blooms
+       bright strokes outward, the scanline and grille patterns chew small type,
+       and a world-space quad framed for one aspect ratio hangs off the edge of
+       another. It is DOM now — see #navinfo — where text is text. The chart
+       itself stays exactly what it was: an object in the room. */
+    this.dom = {
+      root: document.getElementById('navinfo'),
+      name: document.getElementById('nvName'),
+      sub: document.getElementById('nvSub'),
+      rows: document.getElementById('nvRows'),
+      banner: document.getElementById('nvBanner'),
+    };
 
     g.traverse((o) => o.layers.set(INTERIOR_LAYER));
     this._v = new THREE.Vector3();
@@ -575,10 +568,16 @@ export class HoloMap {
     this.sel = this.game.currentSystemId;
     this.root.visible = true;
     this.game.audio?.ping('boot');
-    this.info.boot(0.15);
+    this.dom.root.classList.remove('hidden');
+    this._sig = null;
+    this._drawInfo();
   }
 
-  close() { this.open = false; this.game.audio?.ping('ui'); }
+  close() {
+    this.open = false;
+    this.dom.root.classList.add('hidden');
+    this.game.audio?.ping('ui');
+  }
 
   cameraPose(out) {
     // Nearly level with the volume, so it reads as something floating rather
@@ -710,69 +709,49 @@ export class HoloMap {
       n.label.material.opacity = (isSel ? 1.0 : vis ? 0.50 : 0.20) * k;
     }
 
-    if (cam) {
-      this.info.mesh.quaternion.copy(cam.quaternion);
-      if (this.info.update(dt, cam.position, k)) this._drawInfo();
-    }
+    if (this.open) this._drawInfo();
   }
 
   _drawInfo() {
     const g = this.game;
     const s = g.galaxy[this.sel];
-    if (!s) return;
+    if (!s || !this.dom.root) return;
     const jc = g.jumpCost(g.currentSystemId, this.sel);
     const { dist, cost } = jc;
     const isCur = this.sel === g.currentSystemId;
     // A cost past a full charge is a wall, not a wait: say so.
     const canJump = !isCur && cost <= 1 && g.ship.foldCharge >= cost;
+    const charge = Math.round(g.ship.foldCharge * 100);
 
-    this.info.draw((c) => {
-      const w = c.w;
-      /* Every string on this panel is set with a weight and a dark halo. The
-         display is emissive and the shader bloats bright pixels outward, so
-         the legible combination is a *heavy stroke on a darkened surround*,
-         not a brighter one — turning the colour up alone only makes the glow
-         wider and the letterforms mushier. */
-      const T = (str, x, y, o) => c.text(str, x, y, { weight: '600', shadow: 5, ...o });
+    /* Repainting eleven nodes every frame for a readout that changes when the
+       selection does is wasteful; a signature is cheaper than the DOM writes. */
+    const sig = `${this.sel}|${charge}|${Math.round(cost * 100)}|${jc.charted}`;
+    if (sig === this._sig) return;
+    this._sig = sig;
 
-      T('STELLAR CARTOGRAPHY', 20, 28, { size: 13, color: 'rgba(196,226,242,0.95)', track: 2.6 });
-      c.line(20, 37, w - 20, 37, DIM, 1, 0.5);
-      T(s.visited ? s.name.toUpperCase() : 'UNCHARTED', 20, 74,
-        { size: 30, color: s.visited ? '#f4fdff' : '#dcf0fc', track: 0.5, weight: '700' });
-      T(`${s.designation}  ·  ${s.starClass.cls}-CLASS`, 20, 98,
-        { size: 15, color: AM, track: 1.2 });
+    this.dom.name.textContent = s.visited ? s.name.toUpperCase() : 'UNCHARTED';
+    this.dom.sub.textContent = `${s.designation}  ·  ${s.starClass.cls}-CLASS`;
 
-      /* Labels are information, not decoration: DIM's 42% alpha survives on a
-         big heading but a small label under scanlines reads as fog. */
-      const LBL = '#c9e4f6';
-      const row = (label, val, y, col = '#eaf8ff') => {
-        T(label, 20, y, { size: 16.5, color: LBL, track: 1.1 });
-        T(val, w - 20, y, { size: 19.5, color: col, align: 'right' });
-      };
-      row('TERRITORY', g.speciesName(this.sel).toUpperCase(), 128, AM);
-      row('DISTANCE', `${dist.toFixed(1)} ly`, 153);
-      row('LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE', 178,
-        jc.lane ? (jc.charted ? '#9fe9ff' : AM) : '#b3cfdf');
-      row('NEBULA', `${Math.round(jc.density * 100)}%`, 203,
-        jc.density > 0.55 ? '#ff9d8b' : '#eaf8ff');
-      row('FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`, 228,
-        cost > 1 ? '#ff9d8b' : cost > g.ship.foldCharge ? '#ffc48a' : '#eaf8ff');
-      row('CHARGE', `${Math.round(g.ship.foldCharge * 100)}%`, 253);
-      if (g.resonatorSystems.has(this.sel) && s.visited) row('SIGNAL', 'RESONATOR', 278, AM);
+    const rows = [
+      ['TERRITORY', g.speciesName(this.sel).toUpperCase(), 'am'],
+      ['DISTANCE', `${dist.toFixed(1)} ly`, ''],
+      ['LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE',
+        jc.lane ? (jc.charted ? 'cy' : 'am') : 'dim'],
+      ['NEBULA', `${Math.round(jc.density * 100)}%`, jc.density > 0.55 ? 'rd' : ''],
+      ['FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`,
+        cost > 1 ? 'rd' : cost > g.ship.foldCharge ? 'am' : ''],
+      ['CHARGE', `${charge}%`, ''],
+    ];
+    if (g.resonatorSystems.has(this.sel) && s.visited) rows.push(['SIGNAL', 'RESONATOR', 'am']);
 
-      const y = c.h - 48;
-      if (isCur) {
-        c.fill(20, y, w - 40, 36, 'rgba(143,228,255,0.08)');
-        T('CURRENT SYSTEM', w / 2, y + 24, { size: 18, color: LBL, align: 'center', track: 1.8 });
-      } else {
-        c.fill(20, y, w - 40, 36, canJump ? 'rgba(255,170,110,0.16)' : 'rgba(120,140,150,0.08)');
-        c.fill(20, y, 3, 36, canJump ? AM : DIM);
-        T(canJump ? 'PRESS  J  TO FOLD'
-          : cost > 1 ? 'NEBULA TOO DENSE · CHART A NEARER LANE' : 'INSUFFICIENT CHARGE',
-        w / 2, y + 24,
-        { size: 17.5, color: canJump ? '#ffe8d2' : LBL, align: 'center', track: 1.2, weight: '700' });
-      }
-    });
+    this.dom.rows.innerHTML = rows.map(([k, v, cls]) =>
+      `<b>${k}</b><span class="${cls}">${v}</span>`).join('');
+
+    this.dom.banner.textContent = isCur ? 'CURRENT SYSTEM'
+      : canJump ? 'PRESS  J  TO FOLD'
+        : cost > 1 ? 'NEBULA TOO DENSE · CHART A NEARER LANE'
+          : 'INSUFFICIENT CHARGE';
+    this.dom.banner.classList.toggle('go', canJump);
   }
 
   confirm() {
