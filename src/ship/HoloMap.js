@@ -244,10 +244,14 @@ export class HoloMap {
       // at, so it wears its CRT character lightly.
       scanAmp: 0.06, grilleAmp: 0.10,
     });
-    // A third larger than it was: from the parked chart camera on a wide
-    // window the panel's text was landing under ten screen pixels.
-    this.info.mesh.scale.setScalar(1.32);
-    this.info.mesh.position.set(0.50, 0.26, -0.22);
+    /* In front of the volume, not inside it. At its old berth on the disc's
+       rim the containment frame and the dust field rendered *between* the eye
+       and the glass, and no amount of type size wins against sparks crawling
+       over the text. It floats ahead of the field's front face now, screen-
+       left of the chart from the parked camera, with nothing in the air
+       before it. Billboarded every frame, so only the position matters. */
+    this.info.mesh.scale.setScalar(1.05);
+    this.info.mesh.position.set(0.34, 0.30, -0.72);
     this.info.material.uniforms.uPower.value = 1;
     g.add(this.info.mesh);
 
