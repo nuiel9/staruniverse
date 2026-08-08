@@ -106,12 +106,14 @@ const barter = await page.evaluate(() => {
     walk.push(s.price);
   }
   const pN = s.price;
+  // Accept clears the offer on success — remember the lot before it goes.
+  const lotId = s.offer.id;
   const qty = s.offer.qty;
   const before = eco.credits;
-  const held0 = eco.cargo[s.offer.id] || 0;
+  const held0 = eco.cargo[lotId] || 0;
   g.comms._act('accept');
   const after = eco.credits;
-  const held1 = eco.cargo[s.offer.id] || 0;
+  const held1 = eco.cargo[lotId] || 0;
   const n = mode === 'sell' ? held1 - held0 : held0 - held1;
   g.comms._act('end');
   const spent = s.contact.craft === undefined;  // fabricated contact has no craft
