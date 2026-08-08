@@ -1,4 +1,5 @@
 import { COMMODITIES } from '../econ/Economy.js';
+import { OUTFITS } from '../ship/Outfitting.js';
 
 /* ============================================================================
    The dock screen: what you see with your ship on a berth.
@@ -14,6 +15,11 @@ import { COMMODITIES } from '../econ/Economy.js';
    profitable run should be legible from a single screen: buy the green rows
    here, fly to the neighbour, sell into their green rows.
    ========================================================================== */
+
+/** What a station charges for a tonne of lucent. Flat everywhere: fuel is
+ *  infrastructure, not a commodity to arbitrage — that is what the hold is
+ *  for. Mining it out of a dead world is what makes it free. */
+const FUEL_PRICE = 14;
 
 export class DockScreen {
   constructor(game) {
@@ -43,6 +49,28 @@ export class DockScreen {
           this.game.hud.log(`CHARTS SOLD · +${paid} cr`, 'ok');
           this.render();
         }
+        return;
+      }
+      if (b.dataset.act === 'fit') {
+        const ok = this.game.outfit.buy(b.dataset.id);
+        this.game.audio.ping(ok ? 'objective' : 'deny');
+        if (ok) {
+          this.game.hud.log(`FITTED · ${OUTFITS[b.dataset.id].name.toUpperCase()}`, 'ok');
+          this.render();
+        }
+        return;
+      }
+      if (b.dataset.act === 'fuel') {
+        const ship = this.game.ship;
+        const want = e.shiftKey ? 10 : 1;
+        const room = Math.floor(ship.fuelCap - ship.fuel);
+        const n = Math.min(want, room, Math.floor(eco.credits / FUEL_PRICE));
+        if (n <= 0) { this.game.audio.ping('deny'); return; }
+        eco.credits -= n * FUEL_PRICE;
+        ship.fuel += n;
+        eco.save();
+        this.game.audio.ping('ui');
+        this.render();
         return;
       }
       const qty = e.shiftKey ? 5 : 1;
@@ -98,7 +126,8 @@ export class DockScreen {
     this.sub.textContent = 'BERTH GRANTED · MARKET LINK OPEN';
     this.ledger.innerHTML =
       `<span class="dk-cr">${eco.credits.toLocaleString('en-US')} <i>cr</i></span>`
-      + `<span class="dk-hold${held >= eco.cargoCap ? ' full' : ''}">HOLD ${held}/${eco.cargoCap}</span>`;
+      + `<span class="dk-hold${held >= eco.cargoCap ? ' full' : ''}">HOLD ${held}/${eco.cargoCap}</span>`
+      + `<span class="dk-hold${g.ship.fuel < 8 ? ' full' : ''}">LUCENT ${Math.floor(g.ship.fuel)}/${g.ship.fuelCap}</span>`;
 
     const rows = COMMODITIES.map((c) => {
       const gd = market.byId.get(c.id);
@@ -127,6 +156,34 @@ export class DockScreen {
          <button data-act="charts">SELL CHARTS · ${chartValue} cr</button></div>`
       : '';
 
+    /* The yard. Fuel first, because a ship that cannot leave has no use for
+       anything else on this screen. */
+    const ship = g.ship;
+    const dry = ship.fuelCap - ship.fuel;
+    const fuelBlock = `<h3 class="dk-h3">THE YARD</h3>
+      <div class="dk-charts">
+        <span>Lucent, ${FUEL_PRICE} cr the tonne — tank at
+          ${Math.floor(ship.fuel)} of ${ship.fuelCap}</span>
+        <button data-act="fuel" ${dry >= 1 && eco.credits >= FUEL_PRICE ? '' : 'disabled'}>
+          REFUEL · 1 t${dry >= 10 && eco.credits >= FUEL_PRICE * 10 ? ' · SHIFT for 10' : ''}</button>
+      </div>`;
+
+    const fitRows = Object.entries(OUTFITS).map(([id, o]) => {
+      const cur = g.outfit.spec(id);
+      const nx = g.outfit.next(id);
+      const afford = nx && eco.credits >= nx.cost;
+      return `<tr>
+        <td class="dk-name">${o.name}<em>${o.blurb}</em></td>
+        <td class="dk-num">${cur.label}</td>
+        <td class="dk-act">${nx
+    ? `<button data-act="fit" data-id="${id}" ${afford ? '' : 'disabled'}>
+             ${nx.label} · ${nx.cost.toLocaleString('en-US')} cr</button>`
+    : '<span class="dk-max">FULLY FITTED</span>'}</td></tr>`;
+    }).join('');
+    const fitBlock = `<table class="dk-table"><thead><tr>
+        <th>SYSTEM</th><th class="dk-num">FITTED</th><th></th></tr></thead>
+      <tbody>${fitRows}</tbody></table>`;
+
     /* The traffic report: other boards, as stale as their distance. */
     const reports = eco.reports(g.currentSystemId, t, this.stationKey());
     const repRows = reports.map((r) => {
@@ -152,6 +209,8 @@ export class DockScreen {
       ${chartsBtn}
       <div class="dk-note">click trades one unit · <kbd>SHIFT</kbd>-click trades five
       · <kbd>ESC</kbd> departs</div>
+      ${fuelBlock}
+      ${fitBlock}
       ${repBlock}`;
   }
 }

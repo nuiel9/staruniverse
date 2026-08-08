@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { buildHull } from './hull.js';
+import { buildHull, buildCargoPods } from './hull.js';
 
 /* ------------------------------------------------------------- flight model */
 
@@ -17,6 +17,11 @@ export class Ship {
     this.nacelles = built.nacelles;
     this.gear = built.gear;
     this.length = built.length;
+
+    /* Fitted hardware, hung off the hull rather than rebuilt into it: an
+       upgrade you cannot see from the chase camera is a number in a menu. */
+    this.pods = buildCargoPods();
+    this.pods.forEach((p) => { p.visible = false; this.model.add(p); });
 
     this.absPos = new THREE.Vector3(0, 0, 0);
     this.vel = new THREE.Vector3();
@@ -42,6 +47,12 @@ export class Ship {
     this.hullMax = 1;
     this.heat = 0.12;
     this.scanRate = 1;
+
+    /* Lucent: the drive's reaction mass, and the only thing standing between
+       the ship and being somewhere forever. Charge regenerates on its own —
+       fuel does not. It is bought, or it is dug out of a dead world. */
+    this.fuelCap = 40;
+    this.fuel = 40;
 
     this._fwd = new THREE.Vector3();
     this._tmp = new THREE.Vector3();

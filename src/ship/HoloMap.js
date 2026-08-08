@@ -720,12 +720,14 @@ export class HoloMap {
     const { dist, cost } = jc;
     const isCur = this.sel === g.currentSystemId;
     // A cost past a full charge is a wall, not a wait: say so.
-    const canJump = !isCur && cost <= 1 && g.ship.foldCharge >= cost;
+    const fuel = g.fuelFor(jc);
+    const dry = g.ship.fuel < fuel;
+    const canJump = !isCur && cost <= 1 && g.ship.foldCharge >= cost && !dry;
     const charge = Math.round(g.ship.foldCharge * 100);
 
     /* Repainting eleven nodes every frame for a readout that changes when the
        selection does is wasteful; a signature is cheaper than the DOM writes. */
-    const sig = `${this.sel}|${charge}|${Math.round(cost * 100)}|${jc.charted}`;
+    const sig = `${this.sel}|${charge}|${Math.round(cost * 100)}|${jc.charted}|${Math.round(g.ship.fuel)}`;
     if (sig === this._sig) return;
     this._sig = sig;
 
@@ -741,6 +743,7 @@ export class HoloMap {
       ['FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`,
         cost > 1 ? 'rd' : cost > g.ship.foldCharge ? 'am' : ''],
       ['CHARGE', `${charge}%`, ''],
+      ['LUCENT', `${fuel} of ${Math.floor(g.ship.fuel)}`, dry ? 'rd' : ''],
     ];
     if (g.resonatorSystems.has(this.sel) && s.visited) rows.push(['SIGNAL', 'RESONATOR', 'am']);
 
@@ -750,16 +753,23 @@ export class HoloMap {
     this.dom.banner.textContent = isCur ? 'CURRENT SYSTEM'
       : canJump ? 'PRESS  J  TO FOLD'
         : cost > 1 ? 'NEBULA TOO DENSE · CHART A NEARER LANE'
-          : 'INSUFFICIENT CHARGE';
+          : dry ? 'NOT ENOUGH LUCENT · REFUEL OR MINE FOR IT'
+            : 'INSUFFICIENT CHARGE';
     this.dom.banner.classList.toggle('go', canJump);
   }
 
   confirm() {
     const g = this.game;
     if (this.sel === g.currentSystemId) return false;
-    const { cost } = g.jumpCost(g.currentSystemId, this.sel);
-    if (cost > 1 || g.ship.foldCharge < cost) { g.audio?.ping('deny'); return false; }
+    const jc = g.jumpCost(g.currentSystemId, this.sel);
+    const { cost } = jc;
+    const fuel = g.fuelFor(jc);
+    if (cost > 1 || g.ship.foldCharge < cost || g.ship.fuel < fuel) {
+      g.audio?.ping('deny');
+      return false;
+    }
     g.ship.foldCharge = Math.max(0, g.ship.foldCharge - cost);
+    g.ship.fuel = Math.max(0, g.ship.fuel - fuel);
     this.close();
     g.hyperjump(this.sel);
     return true;

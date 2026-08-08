@@ -150,8 +150,10 @@ export class HUD {
     const canLand = !!(!g.landed && g.canLand && g.canLand());
     const canDock = !!(g.canDock && g.canDock());
     const canHail = !!(g.canHail && g.canHail());
+    const seamNow = g.landed && !g.landed.onFoot && g.prospect
+      ? (g.prospect.workable(g.landed.body)?.id || '') : '';
     const hintKey = `${g.mode}|${uiOpen ? 1 : 0}|${g.starmap.open ? 'm' : ''}|${canLand ? 1 : 0}|${canDock ? 1 : 0}`
-      + `|${canHail ? 1 : 0}|${g.landed ? (g.landed.onFoot ? 2 : 1) : 0}`;
+      + `|${canHail ? 1 : 0}|${g.landed ? (g.landed.onFoot ? 2 : 1) : 0}|${seamNow}`;
     if (this._hintKey !== hintKey) {
       const wasLand = this._canLand;
       const wasDock = this._canDock;
@@ -170,9 +172,11 @@ export class HUD {
         /* The ground has its own controls and used to borrow the flight row,
            which advertised a throttle, a scanner and an autopilot to somebody
            standing on a planet. */
+        const seam = g.prospect && g.prospect.workable(g.landed.body);
         keys = g.landed.onFoot
           ? [['WASD', 'walk'], ['MOUSE', 'look'], ['SHIFT', 'run'], ['E', 'board'], ['L', 'lift off']]
           : [['E', 'step out'], ['L', 'lift off'], ['TAB', 'archive']];
+        if (!g.landed.onFoot && seam) keys.splice(1, 0, ['F', `mine ${seam.id}`]);
       } else if (g.mode === 'walk') {
         keys = [['WASD', 'move'], ['MOUSE', 'look'], ['E', 'use'], ['SHIFT', 'run'],
           ['V', 'outside view']];

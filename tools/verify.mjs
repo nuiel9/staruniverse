@@ -50,6 +50,7 @@ const SUITES = [
   ['trade', 'the first trade run'],
   ['nebula', 'lanes, charts and dated news'],
   ['aliens', 'territories, postures and barter'],
+  ['ground', 'deposits, the drone, fuel and outfitting'],
 ];
 
 const failed = [];

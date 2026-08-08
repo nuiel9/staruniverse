@@ -11,6 +11,7 @@
     "trade": "node tools/trade.mjs",
     "nebula": "node tools/nebula.mjs",
     "aliens": "node tools/aliens.mjs",
+    "ground": "node tools/ground.mjs",
     "judge": "node tools/judgeset.mjs",
     "splash": "node tools/splash.mjs --pose --out public/og.png && sips -z 630 1200 --setProperty format jpeg --setProperty formatOptions 88 public/og.png --out public/og.jpg >/dev/null && rm public/og.png",
     "icons": "node tools/icons.mjs",

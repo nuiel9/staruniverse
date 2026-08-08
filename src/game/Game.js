@@ -30,6 +30,8 @@ import { LaneGraph } from '../econ/LaneGraph.js';
 import { assignTerritories, SPECIES } from './Species.js';
 import { Rumors } from './Rumors.js';
 import { Comms } from './Comms.js';
+import { Prospecting } from '../world/Prospecting.js';
+import { Outfitting } from '../ship/Outfitting.js';
 import { Audio } from '../audio/Audio.js';
 import { CANTOS, LOGS, INTRO_LINES } from './lore.js';
 import { Directives, UPGRADES } from './directives.js';
@@ -397,6 +399,9 @@ export class Game {
     this.dock = new DockScreen(this);
     this.rumors = new Rumors(this);
     this.comms = new Comms(this);
+    this.prospect = new Prospecting(this);
+    this.outfit = new Outfitting(this);
+    this.outfit.apply();
     // Cartography is an object in the room now, not a window over it. The
     // name is kept because the rest of the game asks `starmap.open` to decide
     // whether a UI is swallowing input.
@@ -826,6 +831,9 @@ export class Game {
         if (this.landed.onFoot) this.board(); else this.disembark();
       }
       if (input.tappedCode('KeyL') && !this.transition) this.liftOff();
+      /* The drone. Held, not tapped: extraction is work you stand there for,
+         and a seam that emptied on a single keypress would be a loot box. */
+      this.updateDrone(dt, input.held('scan'));
       // The crew controller runs on the ground too — the main update returns
       // before reaching it, so it has to be driven from here.
       if (this.landed && this.landed.onFoot) this.player.update(dt, input, uiOpen);
@@ -986,6 +994,51 @@ export class Game {
       if (d < b.radius * 2 + 5 && d < bd) { bd = d; best = b; }
     }
     return best;
+  }
+
+  /* ----------------------------------------------------------- the drone
+
+     Prospecting is deliberately the slowest verb in the game: a tonne every
+     1.4 seconds, out of a seam that does not refill, standing on a rock you
+     had to scan from orbit and then fly down to. It is the only loop here
+     that pays in *material* rather than in credits, which is what makes a
+     dead world worth the trip. */
+
+  updateDrone(dt, holding) {
+    const L = this.landed;
+    if (!L || L.onFoot === undefined) return;
+    if (!holding || this.transition) {
+      if (this.droneT) { this.droneT = 0; this.hud.setDrone?.(0); }
+      return;
+    }
+    const dep = this.prospect.workable(L.body);
+    if (!dep) {
+      if (!this._droneDry) {
+        this._droneDry = true;
+        this.hud.log(this.prospect.deposits(L.body).length
+          ? 'SEAMS EXHAUSTED HERE' : 'NOTHING WORTH DRILLING HERE', 'hi');
+      }
+      return;
+    }
+    this._droneDry = false;
+    this.droneT = (this.droneT || 0) + dt;
+    const PER_TONNE = 1.4;
+    while (this.droneT >= PER_TONNE) {
+      this.droneT -= PER_TONNE;
+      const got = this.prospect.extract(L.body, dep);
+      if (!got) {
+        this.hud.log(this.economy.cargoUsed() >= this.economy.cargoCap
+          ? 'HOLD FULL' : 'SEAM SPENT', 'hi');
+        this.droneT = 0;
+        break;
+      }
+      this.audio.ping('scan');
+      const left = this.prospect.remaining(L.body, dep);
+      this.hud.log(got === 'lucent'
+        ? `LUCENT +1 · TANK ${Math.floor(this.ship.fuel)}/${this.ship.fuelCap}`
+        : `${got.toUpperCase()} +1 t · seam ${left} t`, 'ok');
+    }
+    this.hud.setDrone?.(this.droneT / PER_TONNE);
   }
 
   /* ------------------------------------------------------------ hailing */
@@ -3051,6 +3104,14 @@ export class Game {
 
   /** Everything the map and the drive need to know about a jump. */
   jumpCost(a, b) { return this.lanes.costBetween(a, b); }
+
+  /** Lucent burned by a fold, in tonnes. Distance sets the bill and dust adds
+   *  to it — pushing a fold through a thick bank is expensive in exactly the
+   *  way that makes a charted lane worth flying. Always at least one, so no
+   *  jump is ever free. */
+  fuelFor(jc) {
+    return Math.max(1, Math.round(jc.dist * 0.12 * (1 + jc.density * 0.8)));
+  }
 
   /** Whose sky a system is, by name — for the map and anyone else who asks. */
   speciesName(systemId) { return SPECIES[this.territory.owner[systemId]].name; }

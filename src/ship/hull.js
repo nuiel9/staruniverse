@@ -2238,3 +2238,46 @@ export function buildHull() {
     length: 84 * M,
   };
 }
+
+/* ---------------------------------------------------------------- cargo pods
+
+   Fitted hardware, not hull. An upgrade the player cannot see from the chase
+   camera is a number in a menu, so the two hold tiers clamp real pods onto the
+   spine — one pair, then two — in the same paint and with the same plate law as
+   everything else, because a bolt-on that does not match reads as a bug.
+
+   Returned as separate groups rather than welded in: Ship.js toggles their
+   visibility as tiers are bought, and a welded geometry cannot be un-welded. */
+export function buildCargoPods() {
+  const paint = dress(new THREE.MeshStandardMaterial({
+    color: 0x83837c, metalness: 0.04, roughness: 0.78, envMapIntensity: 0.85,
+  }), { plate: 2.0, bleach: 0.8, soot: 0.5, livery: 0, glare: 0.8, edge: 0.26, frame: 1 });
+  const trim = dress(new THREE.MeshStandardMaterial({
+    color: 0xb2681f, metalness: 0.05, roughness: 0.62, envMapIntensity: 0.9,
+  }), { plate: 1.4, bleach: 0.7, soot: 0.4, edge: 0.3 });
+
+  const pods = [];
+  // Two tiers: the first hangs a pod on each flank amidships, the second adds
+  // a second pair further aft. Heavy end aft, like everything else here.
+  for (const [tier, z, span] of [[0, 2.0, 9.5], [1, 13.5, 8.0]]) {
+    const g = new THREE.Group();
+    for (const side of [-1, 1]) {
+      const body = [];
+      const trims = [];
+      // the pod itself, a lozenge with its long axis along the hull
+      body.push(place(slab(5.2, 4.4, span, 0.5), { pos: [side * 8.4, -1.4, z] }));
+      // the two collars that actually take the load
+      for (const dz of [-span * 0.32, span * 0.32]) {
+        trims.push(place(slab(5.9, 5.0, 0.8, 0.14), { pos: [side * 8.4, -1.4, z + dz] }));
+      }
+      // the strut back to the spine
+      body.push(place(slab(3.4, 0.9, 1.5, 0.1), { pos: [side * 5.6, -1.2, z] }));
+      weld(body, paint, g);
+      weld(trims, trim, g);
+    }
+    g.scale.setScalar(M);
+    g.userData.tier = tier;
+    pods.push(g);
+  }
+  return pods;
+}

@@ -189,6 +189,19 @@ export class Codex {
       const s = b.spec;
       const info = TYPE_INFO[s.type];
       const g0 = (s.radius / 6371) * 1.0;
+      /* What the scan found underneath. This is the whole return on the
+         scanner: before it, a world is a colour; after it, a manifest. */
+      const deps = g.prospect ? g.prospect.deposits(b) : [];
+      const depBlock = deps.length ? `<h3 class="cx-h3">SUBSURFACE SURVEY</h3>
+        <div class="cx-deps">${deps.map((dep) => {
+    const left = g.prospect.remaining(b, dep);
+    return `<div class="cx-dep${left ? '' : ' spent'}">
+            <b>${dep.id.toUpperCase()}</b>
+            <span>${left ? `${left} t ${dep.grade}` : 'worked out'}</span>
+            <em>bearing ${dep.bearing}°</em></div>`;
+  }).join('')}</div>
+        <div class="cx-note">Set down and hold <kbd>F</kbd> to work a seam.</div>`
+        : '<h3 class="cx-h3">SUBSURFACE SURVEY</h3><div class="cx-note">Nothing worth the fuel.</div>';
       return `<h1 class="cx-title">${b.name.toUpperCase()}</h1>
         <div class="cx-sub">${info.label.toUpperCase()}${b.kind === 'moon' ? ' · SATELLITE' : ''}</div>
         <div class="cx-stats">
@@ -204,7 +217,8 @@ export class Codex {
         <div class="cx-text">
           <p>${info.text}</p>
           ${s.night ? '<p class="q">Photometry of the night hemisphere shows structured emission along the coastlines. Someone lived here. The lights are still on.</p>' : ''}
-        </div>`;
+        </div>
+        ${depBlock}`;
     }
 
     return '<div class="cx-empty">no record</div>';
