@@ -721,18 +721,22 @@ export class HoloMap {
       c.text('STELLAR CARTOGRAPHY', 20, 28, { size: 12, color: DIM, track: 3 });
       c.line(20, 37, w - 20, 37, DIM, 1, 0.4);
       c.text(s.visited ? s.name.toUpperCase() : 'UNCHARTED', 20, 74,
-        { size: 28, color: s.visited ? '#eafaff' : DIM, track: 0.6 });
+        { size: 28, color: s.visited ? '#eafaff' : 'rgba(196,224,240,0.75)', track: 0.6 });
       c.text(`${s.designation}  ·  ${s.starClass.cls}-CLASS`, 20, 98,
-        { size: 13, color: AM, track: 1.6 });
+        { size: 14.5, color: AM, track: 1.4 });
 
+      /* Labels are information, not decoration: DIM's 42% alpha survives on a
+         big heading but a 13px label under scanlines reads as fog. Brighter,
+         bigger, and less tracked-out. */
+      const LBL = 'rgba(198,228,244,0.80)';
       const row = (label, val, y, col = '#dff4ff') => {
-        c.text(label, 20, y, { size: 13, color: DIM, track: 2 });
-        c.text(val, w - 20, y, { size: 15, color: col, align: 'right' });
+        c.text(label, 20, y, { size: 14.5, color: LBL, track: 1.4 });
+        c.text(val, w - 20, y, { size: 17, color: col, align: 'right' });
       };
       row('TERRITORY', g.speciesName(this.sel).toUpperCase(), 132, AM);
       row('DISTANCE', `${dist.toFixed(1)} ly`, 156);
       row('LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE', 180,
-        jc.lane ? (jc.charted ? '#8fe4ff' : AM) : DIM);
+        jc.lane ? (jc.charted ? '#8fe4ff' : AM) : 'rgba(170,205,222,0.7)');
       row('NEBULA', `${Math.round(jc.density * 100)}%`, 204,
         jc.density > 0.55 ? '#ff8f7a' : '#dff4ff');
       row('FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`, 228,
@@ -743,14 +747,14 @@ export class HoloMap {
       const y = c.h - 48;
       if (isCur) {
         c.fill(20, y, w - 40, 36, 'rgba(143,228,255,0.08)');
-        c.text('CURRENT SYSTEM', w / 2, y + 24, { size: 15, color: DIM, align: 'center', track: 2 });
+        c.text('CURRENT SYSTEM', w / 2, y + 24, { size: 16, color: LBL, align: 'center', track: 2 });
       } else {
         c.fill(20, y, w - 40, 36, canJump ? 'rgba(255,170,110,0.16)' : 'rgba(120,140,150,0.08)');
         c.fill(20, y, 3, 36, canJump ? AM : DIM);
         c.text(canJump ? 'PRESS  J  TO FOLD'
           : cost > 1 ? 'NEBULA TOO DENSE · CHART A NEARER LANE' : 'INSUFFICIENT CHARGE',
         w / 2, y + 24,
-        { size: 15, color: canJump ? '#ffe0c0' : DIM, align: 'center', track: 2 });
+        { size: 16, color: canJump ? '#ffe0c0' : LBL, align: 'center', track: 1.6 });
       }
     });
   }
