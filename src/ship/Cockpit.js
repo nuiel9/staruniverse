@@ -49,7 +49,17 @@ void main(){
   // horizontal build-up scan, plus fine slice lines: the two cues that read
   // instantly as "projected volume" rather than "solid object"
   float band = exp(-pow((vLocal.y - fract(uTime*0.11)*uScanH*2.0 + uScanH*0.5)/(uScanH*0.10), 2.0));
-  float slice = 0.55 + 0.45*sin(vLocal.y*260.0);
+  /* Slice lines, in *cycles* so the fade below has something to measure, and
+     faded out once a cycle is narrower than a pixel. Left unfaded — as this
+     was — forty-one cycles per centimetre on a lane seen from across the
+     cabin is not detail, it is moire: the pattern beats against the pixel
+     grid, crawls as the volume turns, and reads as though every line in the
+     chart were out of focus. Fading to the mean keeps each line's brightness
+     while its texture resolves away with distance, which is what the eye
+     expects of something projected in air. */
+  float sCyc = vLocal.y * 41.38;
+  float sFade = 1.0 - smoothstep(0.30, 0.85, fwidth(sCyc));
+  float slice = 0.55 + 0.45*sFade*sin(sCyc*6.2831853);
   // Additive blending, so anything over 1 clips to white and the volume
   // loses its shape. Kept under unity except on the build-up band.
   float a = uPower * (0.26 + band*0.85) * slice;

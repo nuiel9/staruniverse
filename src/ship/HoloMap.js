@@ -52,7 +52,7 @@ const DEPLOY = 1.06;         // deployed size, relative to the table
  * is the same value is the diagram problem again in a different form.
  */
 const G_GRID = 8;            // base plate, rings, spokes: the quiet layer
-const G_STRUCT = 17;         // lanes, stalks, footprints
+const G_STRUCT = 14;         // lanes, stalks, footprints
 const G_BODY = 4.5;          // containment wall and projector cone
 const G_WARM = 42;           // reticle, route, hub — the one warm layer
 const G_SWEEP = 16;
@@ -437,7 +437,7 @@ export class HoloMap {
       this.mats.push(this.matLaneDim);      // so it breathes with the volume
     }
 
-    const R = 0.0030;
+    const R = 0.0038;
     const dir = new THREE.Vector3(), sx = new THREE.Vector3(), sy = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0), alt = new THREE.Vector3(1, 0, 0);
     const weld = (segs) => {
@@ -511,11 +511,11 @@ export class HoloMap {
          pixels. 0.7 mm and 0.7 mm were a quarter of a pixel each. */
       const h = n.position.y + LIFT + 0.05;
       const stalk = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.0026, 0.0026, h, 5), this.matLane);
+        new THREE.CylinderGeometry(0.0032, 0.0032, h, 5), this.matLane);
       stalk.position.y = -h / 2;
       n.add(stalk);
       const foot = new THREE.Mesh(
-        new THREE.TorusGeometry(0.016, 0.0028, 5, 28), this.matLane);
+        new THREE.TorusGeometry(0.016, 0.0033, 5, 28), this.matLane);
       foot.rotation.x = Math.PI / 2;
       foot.position.y = -h;
       n.add(foot);
