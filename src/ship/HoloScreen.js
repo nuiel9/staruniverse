@@ -956,12 +956,28 @@ export class ScreenGfx {
 
   font(px, weight = '') { this.c.font = `${weight} ${px}px ui-monospace, "SF Mono", Menlo, monospace`; return this; }
 
-  text(s, x, y, { size = 16, color = CY, align = 'left', track = 0, alpha = 1 } = {}) {
+  /**
+   * @param weight  CSS font weight. A panel that is *read* rather than glanced
+   *                at wants strokes with some body: the shader's bloom eats
+   *                thin ones from the outside in.
+   * @param shadow  Radius of a dark halo under the glyphs. Contrast on an
+   *                emissive display cannot be won by making text brighter —
+   *                past a point the HDR gain just blooms it wider. It is won
+   *                by darkening what is immediately around each stroke.
+   */
+  text(s, x, y, {
+    size = 16, color = CY, align = 'left', track = 0, alpha = 1,
+    weight = '', shadow = 0,
+  } = {}) {
     const c = this.c;
     c.save();
     c.globalAlpha = alpha;
-    this.font(size);
+    this.font(size, weight);
     c.fillStyle = color;
+    if (shadow > 0) {
+      c.shadowColor = 'rgba(0,5,10,0.95)';
+      c.shadowBlur = shadow;
+    }
     if (track > 0) {
       let str = String(s);
       let total = 0;

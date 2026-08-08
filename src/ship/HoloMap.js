@@ -728,43 +728,49 @@ export class HoloMap {
 
     this.info.draw((c) => {
       const w = c.w;
-      c.text('STELLAR CARTOGRAPHY', 20, 28, { size: 12, color: DIM, track: 3 });
-      c.line(20, 37, w - 20, 37, DIM, 1, 0.4);
-      c.text(s.visited ? s.name.toUpperCase() : 'UNCHARTED', 20, 74,
-        { size: 28, color: s.visited ? '#eafaff' : 'rgba(196,224,240,0.75)', track: 0.6 });
-      c.text(`${s.designation}  ·  ${s.starClass.cls}-CLASS`, 20, 98,
+      /* Every string on this panel is set with a weight and a dark halo. The
+         display is emissive and the shader bloats bright pixels outward, so
+         the legible combination is a *heavy stroke on a darkened surround*,
+         not a brighter one — turning the colour up alone only makes the glow
+         wider and the letterforms mushier. */
+      const T = (str, x, y, o) => c.text(str, x, y, { weight: '600', shadow: 5, ...o });
+
+      T('STELLAR CARTOGRAPHY', 20, 28, { size: 12, color: 'rgba(186,220,238,0.9)', track: 3 });
+      c.line(20, 37, w - 20, 37, DIM, 1, 0.5);
+      T(s.visited ? s.name.toUpperCase() : 'UNCHARTED', 20, 74,
+        { size: 28, color: s.visited ? '#f4fdff' : '#d6ecfa', track: 0.6, weight: '700' });
+      T(`${s.designation}  ·  ${s.starClass.cls}-CLASS`, 20, 98,
         { size: 14.5, color: AM, track: 1.4 });
 
       /* Labels are information, not decoration: DIM's 42% alpha survives on a
-         big heading but a 13px label under scanlines reads as fog. Brighter,
-         bigger, and less tracked-out. */
-      const LBL = 'rgba(198,228,244,0.80)';
-      const row = (label, val, y, col = '#dff4ff') => {
-        c.text(label, 20, y, { size: 14.5, color: LBL, track: 1.4 });
-        c.text(val, w - 20, y, { size: 17, color: col, align: 'right' });
+         big heading but a small label under scanlines reads as fog. */
+      const LBL = '#c9e4f6';
+      const row = (label, val, y, col = '#eaf8ff') => {
+        T(label, 20, y, { size: 14.5, color: LBL, track: 1.4 });
+        T(val, w - 20, y, { size: 17, color: col, align: 'right' });
       };
       row('TERRITORY', g.speciesName(this.sel).toUpperCase(), 132, AM);
       row('DISTANCE', `${dist.toFixed(1)} ly`, 156);
       row('LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE', 180,
-        jc.lane ? (jc.charted ? '#8fe4ff' : AM) : 'rgba(170,205,222,0.7)');
+        jc.lane ? (jc.charted ? '#9fe9ff' : AM) : '#b3cfdf');
       row('NEBULA', `${Math.round(jc.density * 100)}%`, 204,
-        jc.density > 0.55 ? '#ff8f7a' : '#dff4ff');
+        jc.density > 0.55 ? '#ff9d8b' : '#eaf8ff');
       row('FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`, 228,
-        cost > 1 ? '#ff8f7a' : cost > g.ship.foldCharge ? '#ffc48a' : '#dff4ff');
+        cost > 1 ? '#ff9d8b' : cost > g.ship.foldCharge ? '#ffc48a' : '#eaf8ff');
       row('CHARGE', `${Math.round(g.ship.foldCharge * 100)}%`, 252);
       if (g.resonatorSystems.has(this.sel) && s.visited) row('SIGNAL', 'RESONATOR', 276, AM);
 
       const y = c.h - 48;
       if (isCur) {
         c.fill(20, y, w - 40, 36, 'rgba(143,228,255,0.08)');
-        c.text('CURRENT SYSTEM', w / 2, y + 24, { size: 16, color: LBL, align: 'center', track: 2 });
+        T('CURRENT SYSTEM', w / 2, y + 24, { size: 16, color: LBL, align: 'center', track: 2 });
       } else {
         c.fill(20, y, w - 40, 36, canJump ? 'rgba(255,170,110,0.16)' : 'rgba(120,140,150,0.08)');
         c.fill(20, y, 3, 36, canJump ? AM : DIM);
-        c.text(canJump ? 'PRESS  J  TO FOLD'
+        T(canJump ? 'PRESS  J  TO FOLD'
           : cost > 1 ? 'NEBULA TOO DENSE · CHART A NEARER LANE' : 'INSUFFICIENT CHARGE',
         w / 2, y + 24,
-        { size: 16, color: canJump ? '#ffe0c0' : LBL, align: 'center', track: 1.6 });
+        { size: 16, color: canJump ? '#ffe8d2' : LBL, align: 'center', track: 1.6, weight: '700' });
       }
     });
   }
