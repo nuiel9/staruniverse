@@ -127,8 +127,13 @@ check('extraction persists', mined.persisted);
 // ----------------------------------------------------------------- fuel
 const fuel = await page.evaluate(() => {
   const g = window.__game;
-  const to = g.galaxy.find((s) => s.id !== g.currentSystemId
-    && Number.isFinite(g.lanes.graphDist(g.currentSystemId, s.id)));
+  /* A *neighbour* down a charted lane. Any old system in the graph can be
+     sixty light-years away through raw dust, which the drive rightly refuses
+     — testing the fuel debit against a jump that cannot happen measures
+     nothing. */
+  const here = g.currentSystemId;
+  const edge = g.lanes.adj[here].find((e) => g.lanes.isCharted(e.key));
+  const to = g.galaxy[edge.a === here ? edge.b : edge.a];
   const jc = g.jumpCost(g.currentSystemId, to.id);
   const need = g.fuelFor(jc);
   g.ship.fuel = g.ship.fuelCap;

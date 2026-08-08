@@ -87,7 +87,7 @@ export class Outfitting {
     g.ship.scanRate = this.spec('scanner').scanRate;
     g.ship.foldRegen = this.spec('drive').foldRegen;
     g.ship.maxSpeed = this.spec('engine').maxSpeed;
-    g.ship.setOutfit?.(this.tier);        // visible hardware, if the hull cares
+    g.ship.setOutfit(this.tier);          // and the hardware you can see
   }
 
   /** @returns true if the upgrade was fitted. */

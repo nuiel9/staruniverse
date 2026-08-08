@@ -65,6 +65,12 @@ export class Ship {
   get forward() { return this._fwd.set(0, 0, -1).applyQuaternion(this.quat); }
   get speed() { return this.vel.length(); }
 
+  /** Show the hardware the current outfit tiers pay for. */
+  setOutfit(tier) {
+    const hold = tier?.hold || 0;
+    this.pods.forEach((p, i) => { p.visible = i < hold; });
+  }
+
   update(dt, input, env) {
     const q = this.quat;
 
