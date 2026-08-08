@@ -111,10 +111,14 @@ const trade1 = await page.evaluate((goodId) => {
   };
 }, spread.id);
 check('docked at A, screen open', trade1.docked && trade1.screen, trade1.station);
-check('bought 5 units, ledger debited', trade1.bought === 5
-  && trade1.after === trade1.before - 5 * trade1.price
-  && trade1.held === 5,
-`${trade1.before} → ${trade1.after} cr, hold ${trade1.held}`);
+// A buy is allowed to partial-fill: five requested, but the ledger, the
+// stock and the hold each cap it. What must hold is the arithmetic.
+const affordable = Math.min(5, Math.floor(trade1.before / trade1.price), spread.stock);
+check('buy filled to the ledger\'s cap, debited exactly', trade1.bought === affordable
+  && trade1.bought > 0
+  && trade1.after === trade1.before - trade1.bought * trade1.price
+  && trade1.held === trade1.bought,
+`${trade1.bought}u @ ${trade1.price} · ${trade1.before} → ${trade1.after} cr`);
 
 // ------------------------------------------------------------- cross to B
 await page.evaluate(() => {
@@ -139,10 +143,10 @@ const trade2 = await page.evaluate((goodId) => {
     held: g.economy.cargo[goodId] || 0,
   };
 }, spread.id);
-check('sold 5 units at B, ledger credited', trade2.sold === 5
-  && trade2.after === trade2.before + 5 * trade2.price
+check('sold entire hold at B, credited exactly', trade2.sold === trade1.bought
+  && trade2.after === trade2.before + trade2.sold * trade2.price
   && trade2.held === 0,
-`${trade2.before} → ${trade2.after} cr at ${trade2.station}`);
+`${trade2.sold}u @ ${trade2.price} · ${trade2.before} → ${trade2.after} cr at ${trade2.station}`);
 check('the run turned a profit', trade2.after > 400,
   `net ${trade2.after - 400 >= 0 ? '+' : ''}${trade2.after - 400} cr on 400 start`);
 
