@@ -202,6 +202,18 @@ export class HoloMap {
     this._k = 0;
     this._t = 0;
 
+    /* The chart camera is parked over the table while the map is open, and
+       the pointer is deliberately unlocked — so the *cursor*, not the gaze,
+       is the selection instrument. Gaze remains the fallback until the mouse
+       first moves (and for touch, which has no cursor at all). */
+    this._cursor = { x: 0, y: 0, live: false };
+    window.addEventListener('mousemove', (e) => {
+      if (!this.open) return;
+      this._cursor.x = (e.clientX / window.innerWidth) * 2 - 1;
+      this._cursor.y = -(e.clientY / window.innerHeight) * 2 + 1;
+      this._cursor.live = true;
+    });
+
     const g = new THREE.Group();
     g.position.copy(TABLE);
     g.scale.setScalar(0.001);
@@ -227,9 +239,12 @@ export class HoloMap {
     this._buildReticle();
 
     this.info = new HoloScreen({
-      name: 'navinfo', w: 0.42, h: 0.27, res: 520, ss: 4, curve: 0.04,
+      name: 'navinfo', w: 0.42, h: 0.27, res: 520, ss: 4, curve: 0.04, aniso: 16,
     });
-    this.info.mesh.position.set(0.50, 0.24, -0.22);
+    // A third larger than it was: from the parked chart camera on a wide
+    // window the panel's text was landing under ten screen pixels.
+    this.info.mesh.scale.setScalar(1.32);
+    this.info.mesh.position.set(0.50, 0.26, -0.22);
     this.info.material.uniforms.uPower.value = 1;
     g.add(this.info.mesh);
 
@@ -567,9 +582,8 @@ export class HoloMap {
     return out;
   }
 
-  _pickByGaze(cam) {
+  _pickAlong(cam, fwd) {
     let best = -1, bestDot = 0.988;
-    const fwd = this._v.set(0, 0, -1).applyQuaternion(cam.quaternion);
     const tmp = new THREE.Vector3();
     for (let i = 0; i < this.nodes.length; i++) {
       tmp.copy(this.nodes[i].group.position).applyMatrix4(this.spin.matrixWorld).sub(cam.position);
@@ -577,6 +591,16 @@ export class HoloMap {
       if (d > bestDot) { bestDot = d; best = i; }
     }
     return best;
+  }
+
+  _pickByGaze(cam) {
+    return this._pickAlong(cam, this._v.set(0, 0, -1).applyQuaternion(cam.quaternion));
+  }
+
+  _pickByCursor(cam) {
+    const dir = this._v.set(this._cursor.x, this._cursor.y, 0.5)
+      .unproject(cam).sub(cam.position).normalize();
+    return this._pickAlong(cam, dir);
   }
 
   update(dt, cam) {
@@ -644,7 +668,7 @@ export class HoloMap {
     });
 
     if (this.open && cam) {
-      const hit = this._pickByGaze(cam);
+      const hit = this._cursor.live ? this._pickByCursor(cam) : this._pickByGaze(cam);
       if (hit >= 0 && hit !== this.sel) { this.sel = hit; this.game.audio?.ping('switch'); }
     }
 

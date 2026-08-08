@@ -437,7 +437,7 @@ export class HoloScreen {
     this.tex.minFilter = THREE.LinearMipmapLinearFilter;
     this.tex.magFilter = THREE.LinearFilter;
     this.tex.generateMipmaps = true;
-    this.tex.anisotropy = 8;
+    this.tex.anisotropy = spec.aniso ?? 8;
 
     this.material = new THREE.ShaderMaterial({
       vertexShader: VERT, fragmentShader: FRAG,

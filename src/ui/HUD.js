@@ -150,7 +150,7 @@ export class HUD {
     const canLand = !!(!g.landed && g.canLand && g.canLand());
     const canDock = !!(g.canDock && g.canDock());
     const canHail = !!(g.canHail && g.canHail());
-    const hintKey = `${g.mode}|${uiOpen ? 1 : 0}|${canLand ? 1 : 0}|${canDock ? 1 : 0}`
+    const hintKey = `${g.mode}|${uiOpen ? 1 : 0}|${g.starmap.open ? 'm' : ''}|${canLand ? 1 : 0}|${canDock ? 1 : 0}`
       + `|${canHail ? 1 : 0}|${g.landed ? (g.landed.onFoot ? 2 : 1) : 0}`;
     if (this._hintKey !== hintKey) {
       const wasLand = this._canLand;
@@ -163,7 +163,9 @@ export class HUD {
       this._canHail = canHail;
       let keys;
       if (uiOpen) {
-        keys = [['ESC', 'close'], ['J', 'fold to target']];
+        keys = g.starmap.open
+          ? [['MOUSE', 'select system'], ['J', 'fold to target'], ['ESC', 'close']]
+          : [['ESC', 'close']];
       } else if (g.landed) {
         /* The ground has its own controls and used to borrow the flight row,
            which advertised a throttle, a scanner and an autopilot to somebody
