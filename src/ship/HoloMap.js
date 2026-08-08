@@ -705,15 +705,16 @@ export class HoloMap {
         c.text(label, 20, y, { size: 13, color: DIM, track: 2 });
         c.text(val, w - 20, y, { size: 15, color: col, align: 'right' });
       };
-      row('DISTANCE', `${dist.toFixed(1)} ly`, 132);
-      row('LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE', 158,
+      row('TERRITORY', g.speciesName(this.sel).toUpperCase(), 132, AM);
+      row('DISTANCE', `${dist.toFixed(1)} ly`, 156);
+      row('LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE', 180,
         jc.lane ? (jc.charted ? '#8fe4ff' : AM) : DIM);
-      row('NEBULA', `${Math.round(jc.density * 100)}%`, 184,
+      row('NEBULA', `${Math.round(jc.density * 100)}%`, 204,
         jc.density > 0.55 ? '#ff8f7a' : '#dff4ff');
-      row('FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`, 210,
+      row('FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`, 228,
         cost > 1 ? '#ff8f7a' : cost > g.ship.foldCharge ? '#ffc48a' : '#dff4ff');
-      row('CHARGE', `${Math.round(g.ship.foldCharge * 100)}%`, 236);
-      if (g.resonatorSystems.has(this.sel) && s.visited) row('SIGNAL', 'RESONATOR', 262, AM);
+      row('CHARGE', `${Math.round(g.ship.foldCharge * 100)}%`, 252);
+      if (g.resonatorSystems.has(this.sel) && s.visited) row('SIGNAL', 'RESONATOR', 276, AM);
 
       const y = c.h - 48;
       if (isCur) {

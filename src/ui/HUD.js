@@ -109,7 +109,7 @@ export class HUD {
   update(dt) {
     const g = this.game;
     const piloting = g.mode === 'pilot' || g.mode === 'exterior';
-    const uiOpen = g.starmap.open || g.codex.open || g.dock.open;
+    const uiOpen = g.starmap.open || g.codex.open || g.dock.open || g.comms.open;
 
     // ---- reticle only when you are actually flying
     this.el.reticle.classList.toggle('hidden', !piloting || uiOpen);
@@ -149,15 +149,18 @@ export class HUD {
        and says which of land or lift off it will do. */
     const canLand = !!(!g.landed && g.canLand && g.canLand());
     const canDock = !!(g.canDock && g.canDock());
+    const canHail = !!(g.canHail && g.canHail());
     const hintKey = `${g.mode}|${uiOpen ? 1 : 0}|${canLand ? 1 : 0}|${canDock ? 1 : 0}`
-      + `|${g.landed ? (g.landed.onFoot ? 2 : 1) : 0}`;
+      + `|${canHail ? 1 : 0}|${g.landed ? (g.landed.onFoot ? 2 : 1) : 0}`;
     if (this._hintKey !== hintKey) {
       const wasLand = this._canLand;
       const wasDock = this._canDock;
+      const wasHail = this._canHail;
       this._hintKey = hintKey;
       this._lastMode = g.mode;
       this._canLand = canLand;
       this._canDock = canDock;
+      this._canHail = canHail;
       let keys;
       if (uiOpen) {
         keys = [['ESC', 'close'], ['J', 'fold to target']];
@@ -182,6 +185,7 @@ export class HUD {
           ['E', 'stand']];
         if (canDock) keys.push(['L', 'dock']);
         else if (canLand) keys.push(['L', 'land']);
+        if (canHail) keys.push(['C', 'hail']);
       }
       this.el.hints.innerHTML = keys.map(([k, v]) => `<span><kbd>${k}</kbd>${v}</span>`).join('');
       this._syncTouchLabels();
@@ -191,6 +195,9 @@ export class HUD {
         this.log(`BERTH AVAILABLE · ${g.canDock().name.toUpperCase()} · L`, 'ok');
       } else if (canLand && !wasLand && g.target) {
         this.log(`LANDING AVAILABLE · ${g.target.name.toUpperCase()} · L`, 'ok');
+      }
+      if (canHail && !wasHail) {
+        this.log(`CONTACT IN RANGE · ${g.canHail().name.toUpperCase()} · C`, 'ok');
       }
     }
 

@@ -27,6 +27,9 @@ import { Codex } from '../ui/Codex.js';
 import { DockScreen } from '../ui/DockScreen.js';
 import { Economy, buildMarket } from '../econ/Economy.js';
 import { LaneGraph } from '../econ/LaneGraph.js';
+import { assignTerritories, SPECIES } from './Species.js';
+import { Rumors } from './Rumors.js';
+import { Comms } from './Comms.js';
 import { Audio } from '../audio/Audio.js';
 import { CANTOS, LOGS, INTRO_LINES } from './lore.js';
 import { Directives, UPGRADES } from './directives.js';
@@ -228,6 +231,8 @@ export class Game {
     this.galaxy = generateGalaxy(this.galaxySeed, 14);
     // The nebula between the stars: lanes, density, and what you have charted.
     this.lanes = new LaneGraph(this.galaxy, this.galaxySeed);
+    // And who owns which patch of it.
+    this.territory = assignTerritories(this.galaxy, this.galaxySeed);
 
     // seven systems hold Resonators; the first is always reachable early
     const rr = mulberry32(this.galaxySeed ^ 0x9e37);
@@ -390,6 +395,8 @@ export class Game {
     this.codex = new Codex(this);
     this.economy = new Economy(this);
     this.dock = new DockScreen(this);
+    this.rumors = new Rumors(this);
+    this.comms = new Comms(this);
     // Cartography is an object in the room now, not a window over it. The
     // name is kept because the rest of the game asks `starmap.open` to decide
     // whether a UI is swallowing input.
@@ -770,6 +777,7 @@ export class Game {
     }
     if (input.tappedCode('Escape')) {
       if (this.dock.open) this.undock();
+      this.comms.close();
       this.starmap.close(); this.codex.close();
     }
     if (input.tappedCode('KeyP')) document.getElementById('perf').classList.toggle('on');
@@ -779,7 +787,7 @@ export class Game {
     if (this.starmap.open && input.tappedCode('KeyJ')) { this.starmap.confirm(); return; }
     if (input.tappedCode('Tab')) { this.codex.toggle(); this.audio.ping('ui'); }
 
-    const uiOpen = this.starmap.open || this.codex.open || this.dock.open;
+    const uiOpen = this.starmap.open || this.codex.open || this.dock.open || this.comms.open;
     input.uiOpen = uiOpen;
     if (uiOpen && document.pointerLockElement) document.exitPointerLock();
 
@@ -879,6 +887,7 @@ export class Game {
         const berth = this.canDock();
         if (berth) this.dockAt(berth); else this.land();
       }
+      if (input.tappedCode('KeyC')) this.hail();
 
       ship.throttle = THREE.MathUtils.clamp(ship.throttle + input.state.throttleDelta * dt * 0.9, 0, 1);
       ship.boost += ((input.state.boost && !ship.foldMode ? 1 : 0) - ship.boost) * Math.min(1, dt * 5);
@@ -977,6 +986,35 @@ export class Game {
       if (d < b.radius * 2 + 5 && d < bd) { bd = d; best = b; }
     }
     return best;
+  }
+
+  /* ------------------------------------------------------------ hailing */
+
+  /** The nearest crewed, unspent contact close enough to talk to. The Choir
+   *  do not answer and drones have nothing to say. */
+  canHail() {
+    if (this.landed || this.transition || this.comms.open || this.dock.open) return null;
+    if (this.mode !== 'pilot' && this.mode !== 'exterior') return null;
+    if (!this.fleet) return null;
+    let best = null, bd = Infinity;
+    for (const c of this.fleet.craft) {
+      // `hailed` is the ambient flavor line and does not spend the channel;
+      // `talked` is a finished conversation, and does.
+      if (c.talked || c.faction === 'choir') continue;
+      if (c.kind === 'drone' || c.kind === 'mote') continue;
+      const d = c.absPos.distanceTo(this.ship.absPos);
+      if (d < c.length * 450 && d < bd) {
+        bd = d;
+        best = { kind: 'craft', craftKind: c.kind, name: c.name, faction: c.faction, craft: c };
+      }
+    }
+    return best;
+  }
+
+  hail(contact) {
+    const c = contact || this.canHail();
+    if (!c) { this.audio.ping('deny'); return; }
+    this.comms.openFor(c);
   }
 
   dockAt(body) {
@@ -3013,6 +3051,9 @@ export class Game {
 
   /** Everything the map and the drive need to know about a jump. */
   jumpCost(a, b) { return this.lanes.costBetween(a, b); }
+
+  /** Whose sky a system is, by name — for the map and anyone else who asks. */
+  speciesName(systemId) { return SPECIES[this.territory.owner[systemId]].name; }
 
   async hyperjump(id) {
     if (id === this.currentSystemId) return;

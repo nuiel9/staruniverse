@@ -130,6 +130,18 @@
     </div>
   </div>
 
+  <div id="comms" class="panel hidden">
+    <div class="p-head">
+      <div><h2 id="commsName"></h2><div class="dk-sub" id="commsSub"></div></div>
+      <button class="p-close dk-depart" data-do="close"
+        onclick="window.__game && window.__game.comms.close()">CLOSE ▸</button>
+    </div>
+    <div class="p-body comms-body">
+      <div class="comms-feed" id="commsFeed"></div>
+      <div class="comms-acts" id="commsActs"></div>
+    </div>
+  </div>
+
   <div id="starmap" class="panel hidden">
     <div class="p-head"><h2>STELLAR CARTOGRAPHY</h2><button class="p-close" data-close="starmap">✕</button></div>
     <div class="p-body map-body">

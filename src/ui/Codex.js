@@ -69,6 +69,9 @@ export class Codex {
           id: 'log:' + l.id, label: l.title, locked: !g.logsFound.has(l.id),
         })),
       },
+      ...(g.rumors && g.rumors.heard.length ? [{
+        title: 'RUMOR LEDGER', items: [{ id: 'rumors', label: `What the nebula says (${g.rumors.heard.length})` }],
+      }] : []),
     ];
 
     this.nav.innerHTML = groups.map((gr) =>
@@ -125,6 +128,24 @@ export class Codex {
         <div class="cx-sub">${c.sub}</div>
         <div class="cx-text">${c.body.map((p) => `<p>${p}</p>`).join('')}
         <p class="q">${c.q}</p></div>`;
+    }
+
+    if (id === 'rumors') {
+      const rs = [...g.rumors.heard].reverse();
+      const rows = rs.map((r) => {
+        const cor = g.rumors.isCorroborated(r);
+        return `<div class="cx-rumor${cor ? ' cor' : ''}">
+          <p>${r.text}</p>
+          <div class="cx-rmeta">${r.source.toUpperCase()}
+            ${cor ? ' · <b>CORROBORATED</b>' : ' · uncorroborated'}</div>
+        </div>`;
+      }).join('');
+      return `<h1 class="cx-title">RUMOR LEDGER</h1>
+        <div class="cx-sub">HEARSAY, FILED · BELIEVE IT AT YOUR OWN MARGIN</div>
+        <div class="cx-text">
+          <p>Everything anyone has told you, exactly as they told it. Two mouths
+          agreeing is worth something; one mouth is worth what you paid it.</p>
+        </div>${rows}`;
     }
 
     if (id.startsWith('log:')) {
