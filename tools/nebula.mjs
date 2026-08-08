@@ -28,7 +28,16 @@ const errs = [];
 page.on('pageerror', (e) => errs.push(e.message));
 
 const SLOW = 300000;
-await page.goto(URL, { waitUntil: 'domcontentloaded' });
+try {
+  await page.goto(URL, { waitUntil: 'domcontentloaded' });
+} catch {
+  console.error(`cannot reach ${URL}\n`
+    + '  The acceptance suites run against the BUILT bundle, not the dev server.\n'
+    + '  Either:  npm run verify            (builds, serves, runs all four)\n'
+    + '  or:      npm run build && npm run preview   in another terminal first.');
+  await browser.close();
+  process.exit(1);
+}
 await page.waitForFunction(() => {
   const b = document.getElementById('bootStart'); return b && !b.hidden;
 }, undefined, { timeout: SLOW });

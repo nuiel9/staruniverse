@@ -132,6 +132,15 @@ and waiting on *game state* rather than on wall-clock time, so they pass on a
 GPU in seconds and on a software renderer in minutes:
 
 ```
+npm run verify      # builds, serves, runs all four, tears the server down
+```
+
+They test the *built* bundle, not the dev server — minification and asset-path
+rewriting break things `vite dev` never shows — so each needs `vite preview` up
+on 4173. `verify` handles that; run one on its own only if a preview server is
+already listening:
+
+```
 npm run smoke       # boots, takes the helm, gets the ship under way
 npm run trade       # docks, buys, crosses, sells, checks the ledger arithmetic
 npm run nebula      # lane graph, charting, chart sales, price drift, dated news
@@ -154,6 +163,12 @@ is deliberately adversarial and is not to be softened to pass: editing the
 wording instead of the game is the tell. Interface frames get a second pass on
 legibility alone, because a panel can be beautiful and unreadable — this
 project has shipped that mistake and had to undo it twice.
+
+The capture tools drive `npm run dev` and address `localhost:5173` literally.
+If Vite says *"Port 5173 is in use, trying another one"* and serves 5174, then
+something older is still on 5173 and every shot will be of **that** — stale
+code, judged as current, with no clue in the output. Stop it first
+(`lsof -ti:5173 | xargs kill`) rather than pointing the tools somewhere else.
 
 ```
 node tools/play.mjs        # 17 interaction assertions (flight, scan, fold, jump)

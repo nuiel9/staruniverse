@@ -6,6 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 4173",
+    "verify": "node tools/verify.mjs",
     "smoke": "node tools/smoke.mjs",
     "trade": "node tools/trade.mjs",
     "nebula": "node tools/nebula.mjs",
