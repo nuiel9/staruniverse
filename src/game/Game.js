@@ -24,6 +24,8 @@ import { Cockpit } from '../ship/Cockpit.js';
 import { HUD } from '../ui/HUD.js';
 import { HoloMap } from '../ship/HoloMap.js';
 import { Codex } from '../ui/Codex.js';
+import { DockScreen } from '../ui/DockScreen.js';
+import { Economy, buildMarket } from '../econ/Economy.js';
 import { Audio } from '../audio/Audio.js';
 import { CANTOS, LOGS, INTRO_LINES } from './lore.js';
 import { Directives, UPGRADES } from './directives.js';
@@ -383,6 +385,8 @@ export class Game {
     P(0.70, 'charting the first system');
     this.hud = new HUD(this);
     this.codex = new Codex(this);
+    this.economy = new Economy(this);
+    this.dock = new DockScreen(this);
     // Cartography is an object in the room now, not a window over it. The
     // name is kept because the rest of the game asks `starmap.open` to decide
     // whether a UI is swallowing input.
@@ -546,6 +550,14 @@ export class Game {
       const srnd = mulberry32((stub.seed ^ 0x513a) >>> 0);
       const hosts = sys.planets.filter((p) => p.inhabited);
       if (!hosts.length && sys.planets.length) hosts.push(sys.planets[Math.min(1, sys.planets.length - 1)]);
+      // The home system always gets both stations: the first trade route has
+      // to exist before the player has a fold drive worth speaking of.
+      if (initial) {
+        for (const p of sys.planets) {
+          if (hosts.length >= 2) break;
+          if (!hosts.includes(p)) hosts.push(p);
+        }
+      }
       let si = 0;
       for (const host of hosts.slice(0, 2)) {
         const built = buildStation(stub.seed + si * 977, {});
@@ -557,6 +569,9 @@ export class Game {
           offset: new THREE.Vector3(Math.cos(ang) * rad, (srnd() - 0.5) * rad * 0.35, Math.sin(ang) * rad),
           absPos: new THREE.Vector3(),
           name: `${stub.name} ${['GATE', 'ANCHORAGE', 'YARDS'][si % 3]}`,
+          // Markets are dealt around the *system* seed so the stations
+          // complement each other — see buildMarket for the guarantee.
+          market: buildMarket(stub.seed, si),
         });
         si++;
       }
@@ -749,7 +764,10 @@ export class Game {
         && (input.tappedCode('Escape') || input.tappedCode('Space') || input.tapped('use'))) {
       this.director.stop();
     }
-    if (input.tappedCode('Escape')) { this.starmap.close(); this.codex.close(); }
+    if (input.tappedCode('Escape')) {
+      if (this.dock.open) this.undock();
+      this.starmap.close(); this.codex.close();
+    }
     if (input.tappedCode('KeyP')) document.getElementById('perf').classList.toggle('on');
     // The stations are how you *discover* these; the shortcuts are for players
     // who already know where they live.
@@ -757,7 +775,7 @@ export class Game {
     if (this.starmap.open && input.tappedCode('KeyJ')) { this.starmap.confirm(); return; }
     if (input.tappedCode('Tab')) { this.codex.toggle(); this.audio.ping('ui'); }
 
-    const uiOpen = this.starmap.open || this.codex.open;
+    const uiOpen = this.starmap.open || this.codex.open || this.dock.open;
     input.uiOpen = uiOpen;
     if (uiOpen && document.pointerLockElement) document.exitPointerLock();
 
@@ -850,7 +868,13 @@ export class Game {
       if (input.tapped('fold') || input.tapped('foldBtn')) this.toggleFold();
       if (input.tapped('target')) this.cycleTarget();
       if (input.tappedCode('KeyG') || input.tapped('auto')) this.toggleAutopilot();
-      if (input.tappedCode('KeyL')) this.land();
+      // L is the arrival key, and a berth outranks a beach: the dock window is
+      // a few kilometres around a station while canLand is 2.6 planet radii,
+      // so whenever both are true the station is what the player is looking at.
+      if (input.tappedCode('KeyL')) {
+        const berth = this.canDock();
+        if (berth) this.dockAt(berth); else this.land();
+      }
 
       ship.throttle = THREE.MathUtils.clamp(ship.throttle + input.state.throttleDelta * dt * 0.9, 0, 1);
       ship.boost += ((input.state.boost && !ship.foldMode ? 1 : 0) - ship.boost) * Math.min(1, dt * 5);
@@ -874,6 +898,14 @@ export class Game {
       ? this.applyAutopilot(dt, input.state)
       : { pitch: 0, yaw: 0, roll: 0, strafeX: 0, strafeY: 0 };
     ship.update(dt, flightInput, { time: this.time, foldCeiling });
+
+    // A berthed ship rides the berth. The station is orbiting all the while,
+    // and letting it slide out from under a parked ship would put the player
+    // kilometres off the ring by the time they finish reading a price table.
+    if (this.dockedAt) {
+      ship.absPos.copy(this.dockedAt.absPos).add(this._dockRel);
+      ship.vel.set(0, 0, 0);
+    }
 
     // ---- approach envelope: a soft floor rather than a wall
     this.updateProximity(dt);
@@ -922,6 +954,50 @@ export class Game {
     if (!b || !b.planet || b.planet.isGas) return null;
     const d = b.absPos.distanceTo(this.ship.absPos);
     return d < b.radius * 2.6 ? b : null;
+  }
+
+  /* ------------------------------------------------------------ docking */
+
+  /** The nearest station with the ship inside its approach volume, or null.
+   *  The window is deliberately tight — a station is one or two kilometres
+   *  across, and granting a berth from across the sky would make the approach,
+   *  which is the best-looking flying in the game, optional. */
+  canDock() {
+    if (this.landed || this.transition || this.dock.open) return null;
+    if (this.mode !== 'pilot' && this.mode !== 'exterior') return null;
+    let best = null, bd = Infinity;
+    for (const b of this.bodies) {
+      if (b.kind !== 'station') continue;
+      const d = b.absPos.distanceTo(this.ship.absPos) - b.radius;
+      if (d < b.radius * 2 + 5 && d < bd) { bd = d; best = b; }
+    }
+    return best;
+  }
+
+  dockAt(body) {
+    const b = body || this.canDock();
+    if (!b) { this.audio.ping('deny'); return; }
+    this.cancelAutopilot();
+    if (this.ship.foldMode) this.toggleFold(false);
+    // The berth takes the ship: no residual drift to carry it into the ring
+    // while the pilot is reading a price table.
+    this.ship.throttle = 0;
+    this.ship.vel.multiplyScalar(0);
+    this.dockedAt = b;
+    this._dockRel = this.ship.absPos.clone().sub(b.absPos);
+    this.hud.log(`DOCKED · ${b.name}`, 'ok');
+    this.audio.ping('arrive');
+    this.dock.show(b);
+  }
+
+  undock() {
+    const b = this.dockedAt;
+    this.dockedAt = null;
+    this.dock.close();
+    if (b) {
+      this.hud.log(`CLEAR OF ${b.name}`);
+      this.audio.ping('switch');
+    }
   }
 
   /* ==========================================================================

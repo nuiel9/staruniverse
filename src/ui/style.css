@@ -239,6 +239,47 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
 .p-close:hover{color:var(--cy)}
 .p-body{flex:1;min-height:0;overflow:hidden}
 
+/* dock market. One table; the ledger lives in the header so a trade and its
+   consequence are never in two places. */
+.dk-sub{font-size:9px;letter-spacing:.3em;color:var(--am);margin-top:5px}
+.dk-ledger{display:flex;gap:22px;align-items:baseline;margin-left:auto;margin-right:22px}
+.dk-cr{font-size:17px;color:#eafaff;font-variant-numeric:tabular-nums}
+.dk-cr i,.dk-num i{font-style:normal;font-size:9px;letter-spacing:.18em;color:var(--dim)}
+.dk-hold{font-size:10px;letter-spacing:.22em;color:var(--dim)}
+.dk-hold.full{color:var(--am)}
+.dk-depart{font-size:10.5px;letter-spacing:.26em;color:var(--cy);border:1px solid var(--line);
+  padding:8px 14px;transition:.2s}
+.dk-depart:hover{background:rgba(143,228,255,.08)}
+.dock-main{overflow-y:auto;padding:26px clamp(20px,5vw,64px) 60px;max-width:1060px;margin:0 auto;width:100%}
+.dk-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+.dk-table th{font-size:9px;font-weight:400;letter-spacing:.24em;color:var(--dim);
+  text-align:left;padding:0 12px 9px;border-bottom:1px solid var(--line-s)}
+.dk-table td{padding:9px 12px;border-bottom:1px solid var(--line-s);font-size:12.5px;
+  letter-spacing:.08em;color:var(--txt)}
+.dk-table tr.produces td{background:rgba(138,255,193,.03)}
+.dk-table tr.demands td{background:rgba(255,196,138,.03)}
+.dk-name{color:#dff4ff}
+.dk-name em{display:block;font-style:normal;font-size:9.5px;letter-spacing:.1em;
+  color:var(--dim);margin-top:3px}
+.dk-tag{font-style:normal;font-size:8px;letter-spacing:.22em;padding:2px 7px;margin-left:10px;
+  vertical-align:2px;border:1px solid}
+.dk-tag.mk{color:var(--gn);border-color:rgba(138,255,193,.35)}
+.dk-tag.want{color:var(--am);border-color:rgba(255,196,138,.4)}
+.dk-num{text-align:right;white-space:nowrap}
+th.dk-num{text-align:right}
+.dk-act{text-align:right;white-space:nowrap}
+.dk-act button{font-size:9.5px;letter-spacing:.2em;color:var(--cy);border:1px solid var(--line);
+  padding:5px 12px;margin-left:6px;transition:.15s}
+.dk-act button:hover:not(:disabled){background:rgba(143,228,255,.1)}
+.dk-act button:disabled{color:rgba(160,196,214,.28);border-color:rgba(143,228,255,.06)}
+.dk-note{margin-top:18px;font-size:9.5px;letter-spacing:.16em;color:var(--dim);text-align:center}
+.dk-note kbd{font-size:8.5px;border:1px solid var(--line-s);padding:1px 5px;margin:0 2px}
+@media (max-width:640px){
+  .dk-ledger{gap:12px;margin-right:10px}
+  .dk-name em{display:none}
+  .dk-table td,.dk-table th{padding:8px 6px}
+}
+
 /* archive */
 .codex-body{display:grid;grid-template-columns:224px 1fr}
 .codex-nav{overflow-y:auto;border-right:1px solid var(--line-s);padding:14px 0 40px}
