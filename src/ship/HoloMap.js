@@ -247,11 +247,14 @@ export class HoloMap {
     /* In front of the volume, not inside it. At its old berth on the disc's
        rim the containment frame and the dust field rendered *between* the eye
        and the glass, and no amount of type size wins against sparks crawling
-       over the text. It floats ahead of the field's front face now, screen-
-       left of the chart from the parked camera, with nothing in the air
-       before it. Billboarded every frame, so only the position matters. */
-    this.info.mesh.scale.setScalar(1.05);
-    this.info.mesh.position.set(0.34, 0.30, -0.72);
+       over the text. It floats ahead of the field's front face now, in the
+       upper-right of the parked camera's frame — the one large area of the
+       cabin the chart never reaches into, so the panel overlaps nothing and
+       the volume stays whole. Billboarded every frame, so only the position
+       matters; the chart camera looks along +z, which puts screen-right at
+       *negative* x. */
+    this.info.mesh.scale.setScalar(0.85);
+    this.info.mesh.position.set(-0.23, 0.46, -0.72);
     this.info.material.uniforms.uPower.value = 1;
     g.add(this.info.mesh);
 
