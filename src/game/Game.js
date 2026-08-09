@@ -21,7 +21,7 @@ import { setLogDepth } from '../ship/interiorMaterials.js';
 import { loadInteriorAssets } from '../ship/interiorAssets.js';
 import { Player } from '../ship/Player.js';
 import { Cockpit } from '../ship/Cockpit.js';
-import { HUD } from '../ui/HUD.js';
+import { HUD, fmtDist } from '../ui/HUD.js';
 import { HoloMap } from '../ship/HoloMap.js';
 import { Codex } from '../ui/Codex.js';
 import { DockScreen } from '../ui/DockScreen.js';
@@ -670,7 +670,12 @@ export class Game {
       } else if (a.type === 'derelict') {
         obj = buildDerelict(stub.seed + idx * 31, this.nebula.texture);
         scale = 2.6;
-        name = `${stub.name} STATION ${String.fromCharCode(65 + idx)}`;
+        /* Not "STATION". A derelict is a dead hull, and `canDock` only ever
+           considers `kind === 'station'` — so calling this one by the same
+           word the game uses for the thing you berth at promised a dock that
+           could not exist, and a player who flew to it and pressed L got
+           silence. Somebody reported exactly that. */
+        name = `${stub.name} DERELICT ${String.fromCharCode(65 + idx)}`;
       } else if (a.type === 'wreck') {
         obj = buildWreck(stub.seed + idx * 57);
         scale = 1.8;
@@ -903,7 +908,9 @@ export class Game {
       // so whenever both are true the station is what the player is looking at.
       if (input.tappedCode('KeyL')) {
         const berth = this.canDock();
-        if (berth) this.dockAt(berth); else this.land();
+        if (berth) this.dockAt(berth);
+        else if (this.canLand()) this.land();
+        else this._explainNoBerth();
       }
       if (input.tappedCode('KeyC')) this.hail();
 
@@ -1004,6 +1011,33 @@ export class Game {
       if (d < b.radius * 2 + 5 && d < bd) { bd = d; best = b; }
     }
     return best;
+  }
+
+  /* L pressed with nowhere to arrive. A deny beep says "no" and nothing
+     else, which is the same feedback a player gets for a key that does not
+     exist — so the one case that actually confuses people, sitting off a
+     derelict that looks every bit like somewhere you could tie up, gets a
+     reason instead of a noise. */
+  _explainNoBerth() {
+    this.audio.ping('deny');
+    const t = this.target;
+    if (t && t.kind === 'anomaly') {
+      const why = t.anomalyType === 'derelict' ? 'DERELICT · NO BERTH ANSWERS'
+        : t.anomalyType === 'wreck' ? 'WRECKAGE · NOTHING TO DOCK WITH'
+          : t.anomalyType === 'resonator' ? 'TINE · SCAN IT, YOU CANNOT BERTH ON IT'
+            : 'NOTHING HERE TAKES A LINE';
+      this.hud.log(why, 'hi');
+      return;
+    }
+    const near = this.bodies
+      .filter((b) => b.kind === 'station')
+      .map((b) => ({ b, d: b.absPos.distanceTo(this.ship.absPos) }))
+      .sort((a, c) => a.d - c.d)[0];
+    if (near) {
+      this.hud.log(`NO BERTH IN RANGE · ${near.b.name.toUpperCase()} ${fmtDist(near.d)}`, 'hi');
+    } else {
+      this.hud.log('NO BERTH IN RANGE', 'hi');
+    }
   }
 
   /* ----------------------------------------------------------- the drone

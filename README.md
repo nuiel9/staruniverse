@@ -183,12 +183,12 @@ atmosphere shell above it.
 
 ## Verification
 
-Four acceptance suites, one per system, each written against the built bundle
+Seven acceptance suites, one per system, each written against the built bundle
 and waiting on *game state* rather than on wall-clock time, so they pass on a
 GPU in seconds and on a software renderer in minutes:
 
 ```
-npm run verify      # builds, serves, runs all four, tears the server down
+npm run verify      # builds, serves, runs all seven, tears the server down
 ```
 
 They test the *built* bundle, not the dev server — minification and asset-path
@@ -260,3 +260,60 @@ reduced build — every feature worth looking at here is one a handset cannot
 afford, and a bad first impression is worse than none.
 
 Both drive a real headed Chromium with GPU rasterisation against `npm run dev`.
+
+---
+
+## Deploying
+
+The game is a static bundle: Vite emits `dist/` and nothing on the server ever
+executes game code. There is no database, no session store and no API — every
+save lives in the player's own `localStorage` — so the server's whole job is to
+hand over files with the right cache headers.
+
+### Cloud Run
+
+`Dockerfile` builds the bundle with the Node toolchain and then throws the
+toolchain away, shipping `dist/` on `nginx:alpine`. The runtime image carries
+no Node, no `node_modules` and no source.
+
+One-time, per project:
+
+```
+gcloud artifacts repositories create staruniverse \
+  --repository-format=docker --location=asia-southeast1
+```
+
+Then, to build and deploy:
+
+```
+gcloud builds submit --config cloudbuild.yaml \
+  --substitutions=_REGION=asia-southeast1
+```
+
+`cloudbuild.yaml` builds, pushes to Artifact Registry and deploys to Cloud Run,
+tagging each image with `$SHORT_SHA` and deploying *that* tag rather than
+`:latest` — so rolling back is redeploying a named revision instead of hoping a
+moving tag still points where you think it does. Point a Cloud Build trigger at
+the branch to make it automatic on push.
+
+512 MiB and one CPU is generous for nginx serving static files. The bundle is
+heavy for the *client*, not the server. It scales to zero by default; set
+`--min-instances 1` if the cold start before the title card bothers you.
+
+Two things the nginx config is deliberate about:
+
+- **`/assets/` is immutable, `index.html` is not.** Vite fingerprints every
+  asset, so a change produces a new filename and those can cache for a year.
+  The document that *references* them must not, or a deploy serves new assets
+  to browsers still holding the old index.
+- **Unknown paths 404 rather than rewriting to `index.html`.** There is no
+  client-side router here, so an SPA-style catch-all would only hide real
+  mistakes behind a page that happens to load.
+
+`/healthz` answers without pulling the bundle, for uptime checks.
+
+### Anywhere else
+
+Any static host works — the build has no server-side requirement at all. The
+`npm run deploy` script targets Cloudflare via `wrangler`, and is left in place for
+that path; it is unrelated to the Cloud Run route above.

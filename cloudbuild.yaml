@@ -1,0 +1,106 @@
+# Cloud Build pipeline for Star Universe.
+#
+# Same shape as the AIVDO pipeline this was modelled on — build, push to
+# Artifact Registry, deploy to Cloud Run — but far smaller, because the game is
+# a static bundle. There is no database, no Redis, no Secret Manager entry and
+# no migration step: nothing on the server holds state, and every save in this
+# game lives in the player's own localStorage.
+#
+# Substitutions (set on the trigger, or passed with --substitutions):
+#   _REGION   GCP region, e.g. asia-southeast1
+#   _SERVICE  Cloud Run service name, default below
+#
+# One-time setup, before the first run:
+#   gcloud artifacts repositories create staruniverse \
+#     --repository-format=docker --location=$_REGION
+#
+# Manual run:
+#   gcloud builds submit --config cloudbuild.yaml \
+#     --substitutions=_REGION=asia-southeast1
+
+substitutions:
+  _REGION: asia-southeast1
+  _SERVICE: staruniverse
+
+steps:
+  # ── Build ─────────────────────────────────────────────────────
+  # --cache-from wants the previous :latest present locally, and it is not on a
+  # fresh worker. `|| true` because a cold cache is a normal state, not a
+  # failure — the very first build has nothing to pull and must not go red.
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'pull-cache'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - 'docker pull ${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:latest || true'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:latest'
+      - '--cache-from'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:latest'
+      - '.'
+    waitFor: ['pull-cache']
+
+  # ── Push ──────────────────────────────────────────────────────
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}'
+    waitFor: ['build']
+
+  # ── Deploy ────────────────────────────────────────────────────
+  # Deployed by immutable digest-equivalent tag (${SHORT_SHA}) rather than
+  # :latest, so a rollback is redeploying an older revision rather than hoping
+  # a moving tag still points where you think it does.
+  #
+  # 512Mi and 1 CPU: nginx serving static files needs almost nothing. The
+  # bundle is heavy for the *client*, not the server. Concurrency is high for
+  # the same reason — one instance can serve a lot of file reads.
+  #
+  # min-instances 0 lets it scale to zero and cost nothing idle. Raise it to 1
+  # if the cold-start pause before the title card bothers you.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE}'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:${SHORT_SHA}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--port'
+      - '8080'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--concurrency'
+      - '200'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '4'
+      - '--allow-unauthenticated'
+    waitFor: ['push']
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+timeout: '1200s'
