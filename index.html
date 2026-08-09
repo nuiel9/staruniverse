@@ -166,6 +166,20 @@
     </div>
   </div>
 
+  <!-- The surface chart. Sites sit kilometres from the ship, so the ground
+       needs the same thing the nebula has: somewhere to decide *where to go*
+       before committing a charge to getting there. -->
+  <div id="groundmap" class="panel hidden">
+    <div class="p-head">
+      <h2 id="gmTitle">SURFACE CHART</h2>
+      <button class="p-close" data-close-gm>✕</button>
+    </div>
+    <div class="p-body map-body">
+      <canvas id="gmCanvas"></canvas>
+      <div class="map-side" id="gmSide"></div>
+    </div>
+  </div>
+
   <!-- ====================== TOUCH ====================== -->
   <div id="touchUI" class="hidden">
     <div id="stickL" class="stick"><i></i></div>

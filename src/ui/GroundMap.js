@@ -1,0 +1,254 @@
+import { t } from './i18n.js';
+import { PACK_RANGE } from '../ship/Rover.js';
+
+/* ============================================================================
+   The surface chart.
+
+   `Sites` put things kilometres from where the ship parks, and the rover made
+   them reachable — but between those two changes the ground became a place
+   you could get lost in. A bearing and a range printed in the Archive is a
+   navigation problem you solve by holding a heading and hoping; someone
+   playing it said as much. This is the instrument that closes it.
+
+   Deliberately a *chart*, not a minimap. It is a panel you open, read and
+   close, at the scale of the whole landing site, because the decision it
+   supports — which of four sites to spend the pack on, and in what order —
+   is made once before you set off rather than continuously while driving.
+
+   Three things it draws that the Archive's list cannot:
+
+     **The pack as a circle.** Two rings: everything you can reach, and
+     everything you can reach *and get back from*. The second is the one that
+     matters, and a number in a corner never communicated it.
+
+     **Where you actually are.** The rover's position and heading, updated
+     live, so the map answers "am I pointing at it" rather than only "where
+     is it".
+
+     **Relative distance.** Four ranges in a column are four numbers; four
+     ranges on a disc are a route.
+
+   The canvas is redrawn only while open, on the game's own frame — there is
+   nothing here worth a second timer.
+   ========================================================================== */
+
+/* Kind → colour and glyph. The palette is the HUD's: cyan is charted and
+   safe, amber is a thing to look at, red is spent. */
+const STYLE = {
+  seam: { fill: '#7fd7a8', glyph: 'diamond' },
+  wreck: { fill: '#e8a44c', glyph: 'cross' },
+  marker: { fill: '#c98bff', glyph: 'ring' },
+  survivor: { fill: '#ff6b6b', glyph: 'star' },
+};
+const SPENT = '#4a5560';
+
+export class GroundMap {
+  constructor(game) {
+    this.game = game;
+    this.root = document.getElementById('groundmap');
+    this.canvas = document.getElementById('gmCanvas');
+    this.side = document.getElementById('gmSide');
+    this.open = false;
+    this._dpr = 1;
+
+    this.root?.querySelectorAll('[data-close-gm]').forEach((b) => {
+      b.addEventListener('click', () => this.close());
+    });
+  }
+
+  toggle() { this.open ? this.close() : this.show(); }
+
+  show() {
+    if (!this.root || !this.game.landed) return;
+    this.open = true;
+    this.root.classList.remove('hidden', 'closing');
+    this.draw();
+  }
+
+  close() {
+    if (!this.open) return;
+    this.open = false;
+    this.root.classList.add('closing');
+    clearTimeout(this._t);
+    this._t = setTimeout(() => {
+      this.root.classList.remove('closing');
+      this.root.classList.add('hidden');
+    }, 200);
+  }
+
+  hide() {
+    this.open = false;
+    clearTimeout(this._t);
+    this.root?.classList.remove('closing');
+    this.root?.classList.add('hidden');
+  }
+
+  /* -------------------------------------------------------------- drawing */
+
+  draw() {
+    const g = this.game;
+    if (!this.open || !g.landed || !this.canvas) return;
+    const body = g.landed.body;
+    const sites = g.sites.manifest(body);
+
+    const cv = this.canvas;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = cv.clientWidth, h = cv.clientHeight;
+    if (cv.width !== w * dpr || cv.height !== h * dpr) {
+      cv.width = w * dpr; cv.height = h * dpr;
+    }
+    const c = cv.getContext('2d');
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, w, h);
+
+    /* Scale to hold every site with a margin, but never zoom in past the
+       pack's own reach — a chart that reframed itself as you drove would
+       make two glances at it incomparable. */
+    const far = Math.max(PACK_RANGE * 0.5, ...sites.map((s) => s.range)) * 1.15;
+    const cx = w / 2, cy = h / 2;
+    const R = Math.min(w, h) / 2 - 26;
+    const k = R / far;
+    const px = (x) => cx + x * k;
+    const py = (z) => cy - z * k;
+
+    // ---- ground tone and the graticule
+    c.fillStyle = 'rgba(8,16,22,0.55)';
+    c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
+
+    c.strokeStyle = 'rgba(120,170,190,0.14)';
+    c.lineWidth = 1;
+    for (let ring = 1000; ring <= far; ring += 1000) {
+      c.beginPath(); c.arc(cx, cy, ring * k, 0, Math.PI * 2); c.stroke();
+    }
+    c.beginPath();
+    c.moveTo(cx - R, cy); c.lineTo(cx + R, cy);
+    c.moveTo(cx, cy - R); c.lineTo(cx, cy + R);
+    c.stroke();
+
+    // ---- the pack, as the two circles that actually decide the trip
+    const rover = g.rover;
+    const reach = rover.metresLeft();
+    const ring = (m, colour, dash) => {
+      if (m <= 0 || m * k > R * 1.4) return;
+      c.save();
+      c.setLineDash(dash);
+      c.strokeStyle = colour;
+      c.lineWidth = 1.4;
+      c.beginPath(); c.arc(cx, cy, m * k, 0, Math.PI * 2); c.stroke();
+      c.restore();
+    };
+    ring(reach, 'rgba(232,164,76,0.40)', [4, 5]);          // one-way
+    ring(reach / 2, 'rgba(63,216,232,0.55)', [2, 4]);      // there and back
+
+    // ---- north
+    c.fillStyle = 'rgba(160,200,215,0.7)';
+    c.font = '10px ui-monospace, monospace';
+    c.textAlign = 'center';
+    c.fillText('N', cx, cy - R - 8);
+
+    // ---- the sites
+    for (const s of sites) {
+      const x = px(s.x), y = py(s.z);
+      const st = STYLE[s.kind] || STYLE.seam;
+      const spent = s.kind === 'seam'
+        ? g.prospect.remaining(body, s.dep) <= 0 : s.done;
+      const col = spent ? SPENT : st.fill;
+
+      c.strokeStyle = 'rgba(120,170,190,0.20)';
+      c.lineWidth = 1;
+      c.beginPath(); c.moveTo(cx, cy); c.lineTo(x, y); c.stroke();
+
+      c.fillStyle = col;
+      c.strokeStyle = col;
+      c.lineWidth = 1.6;
+      glyph(c, st.glyph, x, y, 5);
+
+      c.fillStyle = spent ? 'rgba(150,168,180,0.55)' : 'rgba(226,242,248,0.92)';
+      c.font = '9px ui-monospace, monospace';
+      c.textAlign = 'left';
+      const label = s.kind === 'seam' ? s.name : t(`cx.site.${s.kind}`);
+      c.fillText(label, x + 9, y + 3);
+    }
+
+    // ---- the ship, always at the origin of this frame
+    c.fillStyle = '#e2f2f8';
+    c.beginPath(); c.arc(cx, cy, 3.5, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = 'rgba(226,242,248,0.55)';
+    c.lineWidth = 1;
+    c.beginPath(); c.arc(cx, cy, 7, 0, Math.PI * 2); c.stroke();
+
+    // ---- and you
+    if (g.landed.driving && rover.deployed) {
+      const x = px(rover.pos.x), y = py(rover.pos.z);
+      const [fx, fz] = rover.forward();
+      c.save();
+      c.translate(x, y);
+      c.fillStyle = '#3fd8e8';
+      c.beginPath();
+      c.moveTo(fx * 8, -fz * 8);
+      c.lineTo(-fz * 5 - fx * 4, -fx * 5 + fz * 4);
+      c.lineTo(fz * 5 - fx * 4, fx * 5 + fz * 4);
+      c.closePath();
+      c.fill();
+      c.restore();
+    } else if (g.landed.onFoot) {
+      const x = px(g.player.pos.x), y = py(g.player.pos.z);
+      c.fillStyle = '#3fd8e8';
+      c.beginPath(); c.arc(x, y, 3, 0, Math.PI * 2); c.fill();
+    }
+
+    this._side(sites, body, reach);
+  }
+
+  _side(sites, body, reach) {
+    if (!this.side) return;
+    const g = this.game;
+    const km = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+    const rows = sites.map((s) => {
+      const spent = s.kind === 'seam'
+        ? g.prospect.remaining(body, s.dep) <= 0 : s.done;
+      const label = s.kind === 'seam' ? s.name : t(`cx.site.${s.kind}`);
+      const note = s.kind === 'seam' && !spent
+        ? `${g.prospect.remaining(body, s.dep)} t` : spent ? t('cx.site.done') : '';
+      /* Reachable means there and back, not there. The one-way number is the
+         one that strands people. */
+      const ok = s.dist * 2 <= reach;
+      return `<div class="gm-row${spent ? ' spent' : ''}">
+        <b class="k-${s.kind}">${label}</b>
+        <span>${s.bearing}° · ${km(s.dist)}</span>
+        <em class="${ok ? '' : 'far'}">${ok ? note : t('gm.beyond')}</em></div>`;
+    }).join('');
+
+    const packLine = g.landed.driving
+      ? `${t('gm.pack')} ${Math.round(g.rover.charge * 100)}% · ${km(reach)}`
+      : t('gm.stowed');
+
+    this.side.innerHTML = `<div class="gm-head">${t('gm.pack')}</div>
+      <div class="gm-pack">${packLine}</div>
+      <div class="gm-rows">${rows || `<div class="gm-note">${t('gm.empty')}</div>`}</div>
+      <div class="gm-note">${t('gm.note')}</div>`;
+  }
+}
+
+/* One tiny vector glyph per kind, so the chart reads without colour alone —
+   the palette is doing double duty as spent/unspent already. */
+function glyph(c, kind, x, y, r) {
+  c.beginPath();
+  if (kind === 'diamond') {
+    c.moveTo(x, y - r); c.lineTo(x + r, y); c.lineTo(x, y + r); c.lineTo(x - r, y);
+    c.closePath(); c.fill();
+  } else if (kind === 'cross') {
+    c.moveTo(x - r, y - r); c.lineTo(x + r, y + r);
+    c.moveTo(x + r, y - r); c.lineTo(x - r, y + r);
+    c.stroke();
+  } else if (kind === 'ring') {
+    c.arc(x, y, r * 0.85, 0, Math.PI * 2); c.stroke();
+  } else {
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + i * Math.PI * 0.8;
+      const fn = i ? 'lineTo' : 'moveTo';
+      c[fn](x + Math.cos(a) * r, y + Math.sin(a) * r);
+    }
+    c.closePath(); c.fill();
+  }
+}

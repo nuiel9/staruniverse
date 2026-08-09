@@ -118,7 +118,8 @@ export class HUD {
   update(dt) {
     const g = this.game;
     const piloting = g.mode === 'pilot' || g.mode === 'exterior';
-    const uiOpen = g.starmap.open || g.codex.open || g.dock.open || g.comms.open;
+    const uiOpen = g.starmap.open || g.codex.open || g.dock.open || g.comms.open
+      || g.groundmap.open;
 
     // ---- reticle only when you are actually flying
     this.el.reticle.classList.toggle('hidden', !piloting || uiOpen);
@@ -189,16 +190,16 @@ export class HUD {
              reachable from out here, and advertising L or E-to-step-out to
              somebody four kilometres away would be a lie. */
           keys = [['WASD', t('k.drive')], ['E', t('k.workSite')],
-            ['F', t('k.mine')], ['R', t('k.stow')]];
+            ['F', t('k.mine')], ['M', t('k.chart')], ['R', t('k.stow')]];
           this.el.hints.innerHTML = keys.map(([k, v]) => `<span><kbd>${k}</kbd>${v}</span>`).join('');
           this._syncTouchLabels();
           return;
         }
         keys = g.landed.onFoot
           ? [['WASD', t('k.move')], ['MOUSE', t('k.look')], ['SHIFT', t('k.run')],
-            ['E', t('k.board')], ['L', t('k.liftOff')]]
-          : [['E', t('k.stepOut')], ['R', t('k.rover')], ['L', t('k.liftOff')],
-            ['TAB', t('k.archive')]];
+            ['M', t('k.chart')], ['E', t('k.board')], ['L', t('k.liftOff')]]
+          : [['E', t('k.stepOut')], ['R', t('k.rover')], ['M', t('k.chart')],
+            ['L', t('k.liftOff')], ['TAB', t('k.archive')]];
         if (!g.landed.onFoot && seam) keys.splice(1, 0, ['F', `${t('k.mine')} ${seam.id}`]);
       } else if (g.mode === 'walk') {
         keys = [['WASD', t('k.move')], ['MOUSE', t('k.look')], ['E', t('k.use')], ['SHIFT', t('k.run')],

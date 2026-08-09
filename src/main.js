@@ -68,6 +68,8 @@ function desktopOnly() {
     const mpT = document.getElementById('mapTitle');
     if (cxT) cxT.textContent = t('cx.archive');
     if (mpT) mpT.textContent = t('map.title');
+    const gmT = document.getElementById('gmTitle');
+    if (gmT) gmT.textContent = t('gm.title');
   };
   onLangChange(paintBoot);
   paintBoot();

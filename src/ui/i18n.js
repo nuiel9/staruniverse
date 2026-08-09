@@ -158,6 +158,14 @@ const STRINGS = {
   'cx.mineHint': ['Set down and hold F to work a seam.',
     'ลงจอดแล้วกด F ค้างไว้เพื่อขุด'],
 
+  'gm.title': ['SURFACE CHART', 'แผนที่ภาคพื้น'],
+  'gm.pack': ['PACK', 'พลังงานสำรอง'],
+  'gm.stowed': ['rover stowed · deploy with R', 'ยานสำรวจเก็บอยู่ · กด R เพื่อนำออก'],
+  'gm.beyond': ['no return', 'ไปแล้วกลับไม่ได้'],
+  'gm.empty': ['Nothing surveyed here.', 'ยังไม่มีอะไรถูกสำรวจที่นี่'],
+  'gm.note': ['inner ring is there and back · outer is one way',
+    'วงในคือไปกลับได้ · วงนอกคือไปได้อย่างเดียว'],
+
   /* ------------------------------------------------------ control hints */
   'k.move': ['move', 'เดิน'],
   'k.look': ['look', 'มองรอบ'],
@@ -181,6 +189,7 @@ const STRINGS = {
   'k.workSite': ['work the site', 'สำรวจจุดนี้'],
   'k.stow': ['stow rover', 'เก็บยานสำรวจ'],
   'k.rover': ['rover', 'ยานสำรวจภาคพื้น'],
+  'k.chart': ['surface chart', 'แผนที่ภาคพื้น'],
   'k.archive': ['archive', 'คลังข้อมูล'],
   'k.close': ['close', 'ปิด'],
   'k.selectSystem': ['select system', 'เลือกระบบดาว'],

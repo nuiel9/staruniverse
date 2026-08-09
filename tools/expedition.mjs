@@ -267,6 +267,34 @@ check('surveying markers unlocks it', reading.withMarkers && reading.backAgain);
 check('without ground evidence it stays sealed', reading.withoutMarkers === false);
 check('the archive counts six readings, not five', reading.total === 6, `${reading.total}`);
 
+// ------------------------------------------------------------- the chart
+const chart = await page.evaluate(() => {
+  const g = window.__game;
+  if (!g.landed) return { skipped: true };
+  g.groundmap.show();
+  const opened = g.groundmap.open
+    && !document.getElementById('groundmap').classList.contains('hidden');
+  g.groundmap.draw();
+  const cv = document.getElementById('gmCanvas');
+  // Something was actually rasterised, rather than a panel opening on a
+  // blank canvas — the failure mode a "does it open" check would miss.
+  let painted = false;
+  try {
+    const c = cv.getContext('2d');
+    const d = c.getImageData(0, 0, cv.width, cv.height).data;
+    for (let i = 3; i < d.length; i += 4) { if (d[i] > 8) { painted = true; break; } }
+  } catch { painted = null; }
+  const rows = document.querySelectorAll('#gmSide .gm-row').length;
+  const sites = g.sites.at(g.landed.body).length;
+  g.groundmap.hide();
+  return { opened, painted, rows, sites, closed: !g.groundmap.open };
+});
+check('the surface chart opens on the ground', chart.opened);
+check('it draws something', chart.painted !== false);
+check('it lists every site on the world', chart.rows === chart.sites,
+  `${chart.rows} rows for ${chart.sites} sites`);
+check('and it closes again', chart.closed);
+
 // ------------------------------------------------------------- persistence
 const saved = await page.evaluate(() => {
   const g = window.__game;

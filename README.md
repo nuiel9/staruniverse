@@ -58,6 +58,13 @@ entry becomes a manifest — but every line on it has a bearing *and a range*.
 The seams are kilometres out, so the drone reaches nothing from where you
 parked. Take the rover out with `R` and drive.
 
+`M` on the ground opens the surface chart — the same verb the star map is,
+one scale down. It draws the sites around the ship with their bearings and
+ranges, where the rover currently is and which way it is pointing, and the
+pack as two circles: the outer one is everywhere you can reach, the inner one
+is everywhere you can reach *and get back from*. The second is the one that
+matters, and a percentage in a corner never communicated it.
+
 The rover follows the real height field: the wheels sample full detail, so a
 boulder under one corner tilts it, while the drive reads the landform, so a
 hill slows it and a mountain is something you go around. The pack is measured

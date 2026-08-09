@@ -33,6 +33,7 @@ import { Comms } from './Comms.js';
 import { Prospecting } from '../world/Prospecting.js';
 import { Sites } from '../world/Sites.js';
 import { Rover } from '../ship/Rover.js';
+import { GroundMap } from '../ui/GroundMap.js';
 import { Outfitting } from '../ship/Outfitting.js';
 import { Events } from '../econ/Events.js';
 import { Contracts } from './Contracts.js';
@@ -409,6 +410,7 @@ export class Game {
     this.prospect = new Prospecting(this);
     this.sites = new Sites(this);
     this.rover = new Rover(this);
+    this.groundmap = new GroundMap(this);
     this.outfit = new Outfitting(this);
     this.outfit.apply();
     // The galaxy carrying on without you: shocks, hauls, and people to hire.
@@ -803,16 +805,24 @@ export class Game {
     if (input.tappedCode('Escape')) {
       if (this.dock.open) this.undock();
       this.comms.close();
-      this.starmap.close(); this.codex.close();
+      this.starmap.close(); this.codex.close(); this.groundmap.close();
     }
     if (input.tappedCode('KeyP')) document.getElementById('perf').classList.toggle('on');
     // The stations are how you *discover* these; the shortcuts are for players
     // who already know where they live.
-    if (input.tappedCode('KeyM')) { this.starmap.toggle(); this.audio.ping('ui'); }
+    /* M is "show me the chart", and which chart depends on where you are
+       standing. On the ground the star map is useless — you cannot fold from
+       a surface — while the thing you actually need, sites kilometres out
+       across terrain, had no instrument at all until now. */
+    if (input.tappedCode('KeyM')) {
+      if (this.landed) this.groundmap.toggle(); else this.starmap.toggle();
+      this.audio.ping('ui');
+    }
     if (this.starmap.open && input.tappedCode('KeyJ')) { this.starmap.confirm(); return; }
     if (input.tappedCode('Tab')) { this.codex.toggle(); this.audio.ping('ui'); }
 
-    const uiOpen = this.starmap.open || this.codex.open || this.dock.open || this.comms.open;
+    const uiOpen = this.starmap.open || this.codex.open || this.dock.open || this.comms.open
+      || this.groundmap.open;
     input.uiOpen = uiOpen;
     if (uiOpen && document.pointerLockElement) document.exitPointerLock();
 
@@ -857,6 +867,7 @@ export class Game {
          ground that changes how far you can go, so it gets its own key rather
          than another meaning for E. */
       if (!uiOpen && input.tappedCode('KeyR') && !this.transition) this.toggleRover();
+      if (this.groundmap.open) this.groundmap.draw();
       /* The drone. Held, not tapped: extraction is work you stand there for,
          and a seam that emptied on a single keypress would be a loot box. */
       this.updateDrone(dt, input.held('scan'));
