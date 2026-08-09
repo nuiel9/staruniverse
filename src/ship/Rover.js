@@ -57,6 +57,17 @@ const GRADE_LOD = 14;
 const WHEELBASE = 2.9;
 const TRACK = 2.0;
 
+/* Where the four corner wheels touch, in model space. The wheels sit at
+   y = 0.55 with a 0.55 radius, so the contact patch is the model's own y = 0
+   plane, and the model is authored nose-toward +Z. */
+const CONTACTS = [
+  new THREE.Vector3(TRACK * 0.56, 0, WHEELBASE * 0.5),
+  new THREE.Vector3(-TRACK * 0.56, 0, WHEELBASE * 0.5),
+  new THREE.Vector3(TRACK * 0.56, 0, -WHEELBASE * 0.5),
+  new THREE.Vector3(-TRACK * 0.56, 0, -WHEELBASE * 0.5),
+];
+const _c = new THREE.Vector3();
+
 export class Rover {
   constructor(game) {
     this.game = game;
@@ -231,30 +242,83 @@ export class Rover {
     const rx = -fz, rz = fx;                    // right-hand side of travel
     const hb = WHEELBASE * 0.5, ht = TRACK * 0.5;
 
-    const p = (a, b) => gh(this.pos.x + fx * a + rx * b, this.pos.z + fz * a + rz * b);
-    const fl = p(hb, -ht), fr = p(hb, ht), bl = p(-hb, -ht), br = p(-hb, ht);
+    // The four wheel contacts, in the ground plane around the current centre.
+    const corners = [[hb, -ht], [hb, ht], [-hb, -ht], [-hb, ht]].map(([a, b]) => ({
+      a, b, y: gh(this.pos.x + fx * a + rx * b, this.pos.z + fz * a + rz * b),
+    }));
+    const [fl, fr, bl, br] = corners.map((c) => c.y);
 
-    this.pos.y = (fl + fr + bl + br) * 0.25;
+    /* The attitude from the contacts rather than from the height field's own
+       gradient: the wheels are what touches the ground, and a boulder under
+       one corner should tilt the vehicle even though the analytic normal at
+       the centre knows nothing about it. */
+    const pitch = Math.atan(((bl + br) - (fl + fr)) / (2 * WHEELBASE));
+    const roll = Math.atan(((fl + bl) - (fr + br)) / (2 * TRACK));
 
-    /* The normal from the four contact points, rather than from the height
-       field's own gradient: the wheels are what touches the ground, and a
-       boulder under one corner should tilt the vehicle even though the
-       analytic normal at the centre knows nothing about it. */
-    const pitch = ((bl + br) - (fl + fr)) / (2 * WHEELBASE);
-    const roll = ((fl + bl) - (fr + br)) / (2 * TRACK);
+    /* Seat it on the *lowest* wheel, measured rather than predicted.
 
-    this.object.position.copy(this.pos);
+       Two wrong answers came before this one. Averaging the four ground
+       heights is right only on a plane: the moment the body tilts, each
+       corner rises or falls by its own lever arm, so a convex rise buries the
+       uphill wheels and a concave dip lifts the whole vehicle clear. The
+       second case is what a player sees, and what they reported as a floating
+       rover. Predicting the corner offsets analytically was the second wrong
+       answer — after three successive rotateX/Y/Z calls, `object.rotation` is
+       not (pitch, yaw, roll), so the prediction and the mesh disagreed and it
+       still hung three metres up.
+
+       So: orient the body, let three.js compose the matrix, ask it where the
+       wheels actually ended up, and raise everything by whatever the deepest
+       one is short. Exact regardless of rotation order or Euler convention,
+       and the suite measures the same contacts it does. */
+    this.object.position.set(this.pos.x, 0, this.pos.z);
     this.object.rotation.set(0, 0, 0);
     // The model is authored nose-toward +Z; the world's forward at yaw 0 is
     // -Z, so the mesh carries a half turn the controller does not.
     this.object.rotateY(this.yaw + Math.PI);
-    this.object.rotateX(Math.atan(pitch));
-    this.object.rotateZ(Math.atan(roll));
+    this.object.rotateX(pitch);
+    this.object.rotateZ(roll);
+    this.object.updateMatrixWorld(true);
+
+    let lift = -Infinity;
+    for (const p of CONTACTS) {
+      _c.copy(p).applyMatrix4(this.object.matrixWorld);
+      lift = Math.max(lift, gh(_c.x, _c.z) - _c.y);
+    }
+    this.pos.y = lift;
+    this.object.position.y = lift;
+    this.object.updateMatrixWorld(true);
 
     // wheels spin at road speed
     const wr = 0.55;
     this._spin = (this._spin || 0) + this.speed / wr * 0.016;
     for (const w of this.object.userData.wheels) w.rotation.x = this._spin;
+  }
+
+  /**
+   * How the wheels are sitting, in metres.
+   *
+   * `low` is the gap under the *lowest* wheel and is the number that says
+   * whether the vehicle is planted: zero is resting, positive is the whole
+   * body hanging in the air, negative is a wheel through the ground. `spread`
+   * is low-to-high, which is just how uneven the terrain is under it — a
+   * rigid four-wheeled body on a rock will always have a wheel up, and that
+   * is what suspension exists for rather than a defect.
+   *
+   * The first version of this returned the largest *absolute* gap, which
+   * conflated the two and failed the vehicle for being on bumpy ground.
+   */
+  contacts() {
+    const gh = this._height.bind(this);
+    this.object.updateMatrixWorld(true);
+    let low = Infinity, high = -Infinity;
+    for (const p of CONTACTS) {
+      _c.copy(p).applyMatrix4(this.object.matrixWorld);
+      const d = _c.y - gh(_c.x, _c.z);
+      if (d < low) low = d;
+      if (d > high) high = d;
+    }
+    return { low, spread: high - low };
   }
 
   _height(x, z, lod = 1.0) {

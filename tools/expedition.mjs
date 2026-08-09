@@ -144,9 +144,15 @@ const drive = await page.evaluate(() => {
      site can be and 22 m/s is the flat-ground top speed, so the ceiling has
      to clear ~280 s with room for the climbs. The first cut allowed 133 s and
      reported a failure that was only ever the clock running out. */
+  let worstLow = 0, maxSpread = 0;
   while (Math.hypot(g.rover.pos.x - s.x, g.rover.pos.z - s.z) > s.reach * 0.7
          && steps < 12000 && g.rover.charge > 0) {
     g.rover.update(1 / 30, input, false);
+    if (steps % 20 === 0) {
+      const c = g.rover.contacts();
+      if (Math.abs(c.low) > Math.abs(worstLow)) worstLow = c.low;
+      if (c.spread > maxSpread) maxSpread = c.spread;
+    }
     steps++;
   }
   const dist = Math.hypot(g.rover.pos.x - s.x, g.rover.pos.z - s.z);
@@ -157,12 +163,22 @@ const drive = await page.evaluate(() => {
     chargeUsed: +(c0 - g.rover.charge).toFixed(3),
     seconds: Math.round(steps / 30),
     onGround: Math.abs(g.rover.pos.y - g.surface.heightAt(g.rover.pos.x, g.rover.pos.z, 1)) < 0.5,
+    /* The centre matching the ground under the centre proves almost nothing —
+       a tilted body can match at the middle and hang clear at every wheel,
+       which is exactly what "the rover floats" looks like. What matters is
+       the gap under the *lowest* wheel, sampled the whole way. */
+    worstLow: +worstLow.toFixed(2),
+    maxSpread: +maxSpread.toFixed(2),
   };
 });
 check('the rover deploys from the parked ship', drive.deployed);
 check('it drives to a site under its own power', drive.arrived,
   `${drive.travelled} m of a ${drive.target} m run, ${drive.seconds} s`);
 check('it sits on the terrain, not through it', drive.onGround);
+check('it stays planted for the whole drive — no floating, no sinking',
+  Math.abs(drive.worstLow) < 0.05,
+  `lowest wheel off by at most ${drive.worstLow} m`
+  + ` · terrain asked for ${drive.maxSpread} m of articulation`);
 check('driving costs charge in proportion to distance', drive.chargeUsed > 0.02,
   `${Math.round(drive.chargeUsed * 100)}% of the pack for ${drive.travelled} m`);
 

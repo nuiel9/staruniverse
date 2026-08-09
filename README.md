@@ -82,12 +82,17 @@ zeroes the tracking, drops the forced capitals and lifts the line box; the
 font stack takes whatever Thai face the platform has, because this project
 ships no downloaded assets.
 
-`M` on the ground opens the surface chart — the same verb the star map is,
-one scale down. It draws the sites around the ship with their bearings and
-ranges, where the rover currently is and which way it is pointing, and the
-pack as two circles: the outer one is everywhere you can reach, the inner one
-is everywhere you can reach *and get back from*. The second is the one that
+`M` on the ground opens the surface chart, in the top-right corner. It draws
+the sites around the ship, where the rover is and which way it is pointing,
+bearings and ranges measured *from you* rather than from the parked ship, and
+the pack as two circles: the outer is everywhere you can reach, the inner is
+everywhere you can reach *and get back from*. The second is the one that
 matters, and a percentage in a corner never communicated it.
+
+It is an instrument, not a panel — it does not take the frame, does not block
+a control, and redraws every frame the wheels are turning. A star chart is
+consulted between journeys; a surface chart is consulted during one, and a map
+that stops the world to be read cannot answer "am I still pointed at it".
 
 The rover follows the real height field: the wheels sample full detail, so a
 boulder under one corner tilts it, while the drive reads the landform, so a

@@ -34,6 +34,7 @@ import { Prospecting } from '../world/Prospecting.js';
 import { Sites } from '../world/Sites.js';
 import { Rover } from '../ship/Rover.js';
 import { GroundMap } from '../ui/GroundMap.js';
+import { t as T, goodName } from '../ui/i18n.js';
 import { Outfitting } from '../ship/Outfitting.js';
 import { Events } from '../econ/Events.js';
 import { Contracts } from './Contracts.js';
@@ -821,8 +822,10 @@ export class Game {
     if (this.starmap.open && input.tappedCode('KeyJ')) { this.starmap.confirm(); return; }
     if (input.tappedCode('Tab')) { this.codex.toggle(); this.audio.ping('ui'); }
 
-    const uiOpen = this.starmap.open || this.codex.open || this.dock.open || this.comms.open
-      || this.groundmap.open;
+    /* The surface chart is deliberately NOT in this list. It is an instrument in
+       the corner rather than a panel over the frame, and a map you have to
+       close before you can steer cannot answer "am I still pointed at it". */
+    const uiOpen = this.starmap.open || this.codex.open || this.dock.open || this.comms.open;
     input.uiOpen = uiOpen;
     if (uiOpen && document.pointerLockElement) document.exitPointerLock();
 
@@ -1048,10 +1051,10 @@ export class Game {
     this.audio.ping('deny');
     const t = this.target;
     if (t && t.kind === 'anomaly') {
-      const why = t.anomalyType === 'derelict' ? 'DERELICT · NO BERTH ANSWERS'
-        : t.anomalyType === 'wreck' ? 'WRECKAGE · NOTHING TO DOCK WITH'
-          : t.anomalyType === 'resonator' ? 'TINE · SCAN IT, YOU CANNOT BERTH ON IT'
-            : 'NOTHING HERE TAKES A LINE';
+      const why = t.anomalyType === 'derelict' ? T('g.noBerthDerelict')
+        : t.anomalyType === 'wreck' ? T('g.noBerthWreck')
+          : t.anomalyType === 'resonator' ? T('g.noBerthTine')
+            : T('g.noBerthOther');
       this.hud.log(why, 'hi');
       return;
     }
@@ -1060,9 +1063,10 @@ export class Game {
       .map((b) => ({ b, d: b.absPos.distanceTo(this.ship.absPos) }))
       .sort((a, c) => a.d - c.d)[0];
     if (near) {
-      this.hud.log(`NO BERTH IN RANGE · ${near.b.name.toUpperCase()} ${fmtDist(near.d)}`, 'hi');
+      this.hud.log(T('g.noBerthRange',
+        { '%S': near.b.name.toUpperCase(), '%D': fmtDist(near.d) }), 'hi');
     } else {
-      this.hud.log('NO BERTH IN RANGE', 'hi');
+      this.hud.log(T('g.noBerthNone'), 'hi');
     }
   }
 
@@ -1090,23 +1094,23 @@ export class Game {
       const home = Math.hypot(this.rover.pos.x, this.rover.pos.z);
       const R = this.ship.length * 1000;
       if (home > R * 1.6) {
-        this.hud.log('TOO FAR FROM THE SHIP TO STOW', 'hi');
+        this.hud.log(T('g.tooFarStow'), 'hi');
         this.audio.ping('deny');
         return;
       }
       const r = this.rover.stow();
       L.driving = false;
       this.ship.model.visible = true;
-      if (r && r.moved) this.hud.log(`${r.moved} t TRANSFERRED TO THE HOLD`, 'ok');
-      if (r && r.spilled) this.hud.log(`${r.spilled} t LEFT BEHIND · HOLD FULL`, 'hi');
-      this.hud.log('ROVER STOWED · PACK RECHARGED', 'ok');
+      if (r && r.moved) this.hud.log(T('g.transferred', { '%N': r.moved }), 'ok');
+      if (r && r.spilled) this.hud.log(T('g.leftBehind', { '%N': r.spilled }), 'hi');
+      this.hud.log(T('g.roverStowed'), 'ok');
       this.audio.ping('ui');
       return;
     }
     const R = this.ship.length * 1000;
     this.rover.deploy(this.surfaceScene, R * 0.55, R * 0.30);
     L.driving = true;
-    this.hud.log('ROVER DEPLOYED · WASD TO DRIVE · R TO STOW', 'ok');
+    this.hud.log(T('g.roverOut'), 'ok');
     this.audio.ping('ui');
   }
 
@@ -1122,11 +1126,14 @@ export class Game {
     const done = this.sites.isDone(L.body, s);
     if (s.kind === 'seam') {
       const left = this.prospect.remaining(L.body, s.dep);
-      this.hud.log(left ? `${s.name} SEAM · ${left} t · HOLD F` : `${s.name} SEAM · WORKED OUT`, left ? 'ok' : 'hi');
+      const nm = goodName(s.dep.id, s.name);
+      this.hud.log(left ? T('g.seamHere', { '%S': nm, '%N': left })
+        : T('g.seamOut', { '%S': nm }), left ? 'ok' : 'hi');
     } else if (done) {
-      this.hud.log(`${s.name} · ALREADY WORKED`, 'hi');
+      this.hud.log(T('g.alreadyWorked', { '%S': s.name }), 'hi');
     } else {
-      this.hud.log(`${s.name} · E TO ${s.kind === 'wreck' ? 'BOARD' : s.kind === 'survivor' ? 'ANSWER' : 'SURVEY'}`, 'ok');
+      const key = s.kind === 'wreck' ? 'g.eBoard' : s.kind === 'survivor' ? 'g.eAnswer' : 'g.eSurvey';
+      this.hud.log(T(key, { '%S': s.name }), 'ok');
     }
     this.audio.ping('ui');
   }
@@ -1137,27 +1144,24 @@ export class Game {
     if (!L) return;
     const here = this.groundPos();
     const s = this.sites.nearest(L.body, here.x, here.z);
-    if (!s) { this.hud.log('NOTHING HERE', 'hi'); this.audio.ping('deny'); return; }
-    if (s.kind === 'seam') { this.hud.log('HOLD F TO WORK THE SEAM', 'hi'); return; }
+    if (!s) { this.hud.log(T('g.nothingHere'), 'hi'); this.audio.ping('deny'); return; }
+    if (s.kind === 'seam') { this.hud.log(T('g.holdFHere'), 'hi'); return; }
     const r = this.sites.visit(L.body, s);
     if (!r) return;
-    if (r.already) { this.hud.log('ALREADY WORKED', 'hi'); this.audio.ping('deny'); return; }
+    if (r.already) { this.hud.log(T('g.alreadyDone'), 'hi'); this.audio.ping('deny'); return; }
 
     if (r.kind === 'wreck') {
-      this.hud.narrate(`The ${s.name} came out here a century before you did and never left. `
-        + 'The log is still readable.', 'SALVAGE');
-      if (r.newLog) this.hud.log('LOG RECOVERED · FILED TO THE ARCHIVE', 'hi');
+      this.hud.narrate(T('g.narr.wreck', { '%S': s.name }), T('g.who.salvage'));
+      if (r.newLog) this.hud.log(T('g.logRecovered'), 'hi');
       if (r.salvaged) this.hud.log(`${r.salvageId.toUpperCase()} +${r.salvaged} t`, 'ok');
       this.audio.ping('objective');
     } else if (r.kind === 'marker') {
-      this.hud.narrate('It is not a monument and it is not a grave. It is tuned — and it is '
-        + 'tuned to the same phase the Tines are.', 'HUSH MARKER');
-      this.hud.log(`MARKER SURVEYED · ${r.surveyed} ON RECORD`, 'hi');
+      this.hud.narrate(T('g.narr.marker'), T('g.who.marker'));
+      this.hud.log(T('g.markerDone', { '%N': r.surveyed }), 'hi');
       this.audio.ping('resonate');
     } else if (r.kind === 'survivor') {
-      this.hud.narrate(`${s.name} has been down here nineteen years and is in no hurry. `
-        + '"They are not dead," they say. "I have been listening to them the whole time."', 'SURVIVOR');
-      this.hud.log('ACCOUNT FILED · A SECOND SOURCE', 'hi');
+      this.hud.narrate(T('g.narr.survivor', { '%S': s.name }), T('g.who.survivor'));
+      this.hud.log(T('g.accountFiled'), 'hi');
       this.audio.ping('objective');
     }
     this.codex.markDirty();
@@ -1190,10 +1194,10 @@ export class Game {
         this._droneDry = true;
         const any = this.sites.at(L.body).some((x) => x.kind === 'seam'
           && this.prospect.remaining(L.body, x.dep) > 0);
-        this.hud.log(dep ? 'SEAM SPENT'
-          : any ? 'NO SEAM HERE · DRIVE TO ONE'
+        this.hud.log(dep ? T('g.seamSpent')
+          : any ? T('g.noSeamHere')
             : this.prospect.deposits(L.body).length
-              ? 'SEAMS EXHAUSTED HERE' : 'NOTHING WORTH DRILLING HERE', 'hi');
+              ? T('g.seamsExhausted') : T('g.nothingToDrill'), 'hi');
       }
       return;
     }
@@ -1209,17 +1213,17 @@ export class Game {
       const got = this.prospect.extract(L.body, dep, sink);
       if (!got) {
         this.hud.log(L.driving && this.rover.holdUsed() >= this.rover.holdCap
-          ? 'ROVER BIN FULL · RETURN TO THE SHIP'
+          ? T('g.binFull')
           : this.economy.cargoUsed() >= this.economy.cargoCap
-            ? 'HOLD FULL' : 'SEAM SPENT', 'hi');
+            ? T('g.holdFull') : T('g.seamSpent'), 'hi');
         this.droneT = 0;
         break;
       }
       this.audio.ping('scan');
       const left = this.prospect.remaining(L.body, dep);
       this.hud.log(got === 'lucent'
-        ? `LUCENT +1 · TANK ${Math.floor(this.ship.fuel)}/${this.ship.fuelCap}`
-        : `${got.toUpperCase()} +1 t · seam ${left} t`, 'ok');
+        ? T('g.lucentGot', { '%A': Math.floor(this.ship.fuel), '%B': this.ship.fuelCap })
+        : T('g.oreGot', { '%S': goodName(got, got).toUpperCase(), '%N': left }), 'ok');
     }
     this.hud.setDrone?.(this.droneT / PER_TONNE);
   }
@@ -2750,7 +2754,13 @@ export class Game {
            reason to drive rather than teleport is that the ground has shape,
            and a camera pinned level would throw that away. */
         this.rover.cameraPose(_v, _v3);
-        this.camera.position.lerp(_v, Math.min(1, dt * 6));
+        /* Snap into place the first frame. Easing from wherever the landing
+           crane left the camera meant the first two seconds of every drive
+           were a shot of the rover from high and to one side, which reads as
+           the vehicle hanging in the air rather than as the camera moving. */
+        if (!this._wasDriving) this.camera.position.copy(_v);
+        else this.camera.position.lerp(_v, Math.min(1, dt * 6));
+        this._wasDriving = true;
         _m4.lookAt(this.camera.position, _v3, this.rover.object.up);
         this.camera.quaternion.slerp(
           _q1.setFromRotationMatrix(_m4), Math.min(1, dt * 7));
@@ -2765,6 +2775,8 @@ export class Game {
         this.interiorRig.visible = false;
         return;
       }
+
+      this._wasDriving = L.driving ? this._wasDriving : false;
 
       if (L.onFoot) {
         // Standing on the planet. The eye is the player's, not a rig's.

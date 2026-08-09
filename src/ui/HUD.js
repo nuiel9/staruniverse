@@ -118,8 +118,7 @@ export class HUD {
   update(dt) {
     const g = this.game;
     const piloting = g.mode === 'pilot' || g.mode === 'exterior';
-    const uiOpen = g.starmap.open || g.codex.open || g.dock.open || g.comms.open
-      || g.groundmap.open;
+    const uiOpen = g.starmap.open || g.codex.open || g.dock.open || g.comms.open;
 
     // ---- reticle only when you are actually flying
     this.el.reticle.classList.toggle('hidden', !piloting || uiOpen);

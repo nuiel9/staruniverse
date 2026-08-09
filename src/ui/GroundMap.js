@@ -1,4 +1,4 @@
-import { t } from './i18n.js';
+import { t, goodName } from './i18n.js';
 import { PACK_RANGE } from '../ship/Rover.js';
 
 /* ============================================================================
@@ -10,10 +10,12 @@ import { PACK_RANGE } from '../ship/Rover.js';
    navigation problem you solve by holding a heading and hoping; someone
    playing it said as much. This is the instrument that closes it.
 
-   Deliberately a *chart*, not a minimap. It is a panel you open, read and
-   close, at the scale of the whole landing site, because the decision it
-   supports — which of four sites to spend the pack on, and in what order —
-   is made once before you set off rather than continuously while driving.
+   It began as a full-screen panel and that was the wrong shape. A star chart
+   is consulted *between* journeys; a surface chart is consulted *during* one.
+   A map that stops the world to be read cannot answer the question you have
+   while driving — am I still pointed at it, and how much closer am I — so it
+   sits in the corner, does not take the frame, does not block a control, and
+   redraws every frame the wheels are turning.
 
    Three things it draws that the Archive's list cannot:
 
@@ -42,12 +44,20 @@ const STYLE = {
 };
 const SPENT = '#4a5560';
 
+/* Seam rows are labelled by what is in them, and a commodity already has a
+   translated name — printing the raw id left VOLATILES and FOOD in English on
+   an otherwise Thai chart. */
+function labelFor(s) {
+  return s.kind === 'seam' ? goodName(s.dep.id, s.name) : t(`cx.site.${s.kind}`);
+}
+
 export class GroundMap {
   constructor(game) {
     this.game = game;
     this.root = document.getElementById('groundmap');
     this.canvas = document.getElementById('gmCanvas');
     this.side = document.getElementById('gmSide');
+    this.packEl = document.getElementById('gmPack');
     this.open = false;
     this._dpr = 1;
 
@@ -89,7 +99,12 @@ export class GroundMap {
     const g = this.game;
     if (!this.open || !g.landed || !this.canvas) return;
     const body = g.landed.body;
-    const sites = g.sites.manifest(body);
+    /* From where you *are*, not from where the ship is parked. Measuring from
+       the origin made every range on the panel a constant — the map looked
+       broken while driving because the numbers never moved, and the numbers
+       never moved because they were answering a different question. */
+    const me = g.groundPos();
+    const sites = g.sites.manifest(body, me.x, me.z);
 
     const cv = this.canvas;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -106,7 +121,7 @@ export class GroundMap {
        make two glances at it incomparable. */
     const far = Math.max(PACK_RANGE * 0.5, ...sites.map((s) => s.range)) * 1.15;
     const cx = w / 2, cy = h / 2;
-    const R = Math.min(w, h) / 2 - 26;
+    const R = Math.min(w, h) / 2 - 18;
     const k = R / far;
     const px = (x) => cx + x * k;
     const py = (z) => cy - z * k;
@@ -142,9 +157,9 @@ export class GroundMap {
 
     // ---- north
     c.fillStyle = 'rgba(160,200,215,0.7)';
-    c.font = '10px ui-monospace, monospace';
+    c.font = '9px ui-monospace, monospace';
     c.textAlign = 'center';
-    c.fillText('N', cx, cy - R - 8);
+    c.fillText('N', cx, cy - R - 6);
 
     // ---- the sites
     for (const s of sites) {
@@ -164,10 +179,9 @@ export class GroundMap {
       glyph(c, st.glyph, x, y, 5);
 
       c.fillStyle = spent ? 'rgba(150,168,180,0.55)' : 'rgba(226,242,248,0.92)';
-      c.font = '9px ui-monospace, monospace';
+      c.font = '8.5px ui-monospace, monospace';
       c.textAlign = 'left';
-      const label = s.kind === 'seam' ? s.name : t(`cx.site.${s.kind}`);
-      c.fillText(label, x + 9, y + 3);
+      c.fillText(labelFor(s), x + 8, y + 3);
     }
 
     // ---- the ship, always at the origin of this frame
@@ -204,10 +218,15 @@ export class GroundMap {
     if (!this.side) return;
     const g = this.game;
     const km = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+    const me = g.groundPos();
+    const bearingTo = (s) => {
+      const a = Math.atan2(s.x - me.x, s.z - me.z) * 180 / Math.PI;
+      return Math.round((a + 360) % 360);
+    };
     const rows = sites.map((s) => {
       const spent = s.kind === 'seam'
         ? g.prospect.remaining(body, s.dep) <= 0 : s.done;
-      const label = s.kind === 'seam' ? s.name : t(`cx.site.${s.kind}`);
+      const label = labelFor(s);
       const note = s.kind === 'seam' && !spent
         ? `${g.prospect.remaining(body, s.dep)} t` : spent ? t('cx.site.done') : '';
       /* Reachable means there and back, not there. The one-way number is the
@@ -215,17 +234,17 @@ export class GroundMap {
       const ok = s.dist * 2 <= reach;
       return `<div class="gm-row${spent ? ' spent' : ''}">
         <b class="k-${s.kind}">${label}</b>
-        <span>${s.bearing}° · ${km(s.dist)}</span>
+        <span>${bearingTo(s)}° · ${km(s.dist)}</span>
         <em class="${ok ? '' : 'far'}">${ok ? note : t('gm.beyond')}</em></div>`;
     }).join('');
 
-    const packLine = g.landed.driving
-      ? `${t('gm.pack')} ${Math.round(g.rover.charge * 100)}% · ${km(reach)}`
-      : t('gm.stowed');
-
-    this.side.innerHTML = `<div class="gm-head">${t('gm.pack')}</div>
-      <div class="gm-pack">${packLine}</div>
-      <div class="gm-rows">${rows || `<div class="gm-note">${t('gm.empty')}</div>`}</div>
+    if (this.packEl) {
+      this.packEl.textContent = g.landed.driving
+        ? `${Math.round(g.rover.charge * 100)}% · ${km(reach)}`
+        : t('gm.stowed');
+    }
+    this.side.innerHTML = `<div class="gm-rows">${
+      rows || `<div class="gm-note">${t('gm.empty')}</div>`}</div>
       <div class="gm-note">${t('gm.note')}</div>`;
   }
 }
