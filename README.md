@@ -58,6 +58,30 @@ entry becomes a manifest — but every line on it has a bearing *and a range*.
 The seams are kilometres out, so the drone reaches nothing from where you
 parked. Take the rover out with `R` and drive.
 
+### Two languages
+
+`EN`/`TH` on the title card and top-left of the HUD, saved, with the browser's
+locale as the first-run hint. Everything a player reads is translated: the
+interface, the catalogue copy, and the fiction — the seven Tones, the
+recovered logs, the world and star entries, the opening transmission and every
+line the four cultures speak.
+
+The English lives in its content module and the Thai in `src/ui/story.th.js`,
+keyed by the same id, so the two copies cannot drift. `npm run lang` walks the
+content and asserts a translation exists for every field that reaches a
+player, in both directions — a missing string fails, and so does a key nothing
+reads, which is how a typo'd id announces itself instead of silently
+rendering English.
+
+Thai needed more than a string table. This UI is monospace capitals at 9–11px
+with a quarter-em of tracking, which is a look for Latin and damage to Thai:
+no capitals to make, marks that stack above and below the line, and — the real
+problem — no spaces between words, so the reader finds boundaries by glyph
+shape. Tracking the glyphs apart removes the only cue there is. `html[lang=th]`
+zeroes the tracking, drops the forced capitals and lifts the line box; the
+font stack takes whatever Thai face the platform has, because this project
+ships no downloaded assets.
+
 `M` on the ground opens the surface chart — the same verb the star map is,
 one scale down. It draws the sites around the ship with their bearings and
 ranges, where the rover currently is and which way it is pointing, and the
@@ -204,12 +228,13 @@ atmosphere shell above it.
 
 ## Verification
 
-Eight acceptance suites, one per system, each written against the built bundle
+A translation-coverage check plus eight acceptance suites, one per system,
+each written against the built bundle
 and waiting on *game state* rather than on wall-clock time, so they pass on a
 GPU in seconds and on a software renderer in minutes:
 
 ```
-npm run verify      # builds, serves, runs all eight, tears the server down
+npm run verify      # coverage, then builds, serves, runs all eight
 ```
 
 They test the *built* bundle, not the dev server — minification and asset-path
@@ -226,6 +251,7 @@ npm run ground      # deposits, the drone, fuel burn, outfitting
 npm run living      # events, contracts, crew
 npm run mystery     # the question: gates, contradictions, the ending
 npm run expedition  # surface sites, the rover, salvage, the ground reading
+npm run lang        # every written string has a translation (no browser needed)
 ```
 
 They are written to be strict about the things that are easy to get quietly

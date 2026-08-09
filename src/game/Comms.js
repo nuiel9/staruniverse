@@ -1,7 +1,7 @@
 import { mulberry32 } from '../world/generate.js';
 import { commodity } from '../econ/Economy.js';
 import { SPECIES, VOICE, POSTURES, postureFit } from './Species.js';
-import { t, goodName } from '../ui/i18n.js';
+import { t, tx, goodName } from '../ui/i18n.js';
 
 /* ============================================================================
    Comms: hailing a ship and talking to whoever answers.
@@ -130,16 +130,20 @@ export class Comms {
     if (s.done) return;
     const g = this.game;
     const v = VOICE[s.sp.id];
+    /* Species.js owns the voices and their English; only the line that gets
+       spoken crosses over, keyed by species and field. One accessor rather
+       than fourteen call sites each remembering to ask. */
+    const say = (path, fallback) => tx(`voice.${s.sp.id}.${path}`, fallback);
 
     if (what === 'posture') {
       s.posture = arg;
       s.fit = postureFit(s.sp, arg, g.rumors.rep[s.sp.id] || 0);
       if (s.fit <= CUT) {
-        this._line(v.insulted, 'them');
+        this._line(say('insulted', v.insulted), 'them');
         return this._end(-1);
       }
       const tier = s.fit >= WARM ? 'warm' : s.fit >= COLD ? 'cool' : 'cold';
-      this._line(v.greet[tier], 'them');
+      this._line(say(`greet.${tier}`, v.greet[tier]), 'them');
       g.audio.ping('switch');
       return this._menu();
     }
@@ -147,25 +151,25 @@ export class Comms {
     if (what === 'ask') {
       s.rumorGiven = true;
       if (s.fit < COLD) {
-        this._line(v.rumorRefuse, 'them');
+        this._line(say('rumorRefuse', v.rumorRefuse), 'them');
       } else {
         const rumor = g.rumors.generate(s.sp.id, s.seed);
         if (!rumor) {
-          this._line(v.rumorRefuse, 'them');
+          this._line(say('rumorRefuse', v.rumorRefuse), 'them');
         } else if (s.fit >= WARM) {
           g.rumors.hear(rumor);
-          this._line(fmt(v.rumorGive, rumor.text), 'them');
+          this._line(fmt(say('rumorGive', v.rumorGive), rumor.text), 'them');
           this._line(t('comms.filed'), 'sys');
         } else {
           const fee = 20 + Math.floor(s.rnd() * 40);
           if (g.economy.credits < fee) {
-            this._line(fmt(v.rumorPaid, fee), 'them');
+            this._line(fmt(say('rumorPaid', v.rumorPaid), fee), 'them');
             this._line(t('comms.cannotPay'), 'sys');
           } else {
             g.economy.credits -= fee;
             g.economy.save();
             g.rumors.hear(rumor);
-            this._line(fmt(v.rumorPaid, fee), 'them');
+            this._line(fmt(say('rumorPaid', v.rumorPaid), fee), 'them');
             this._line(`Paid ${fee} cr. Filed to the rumor ledger.`, 'sys');
           }
         }
@@ -174,7 +178,7 @@ export class Comms {
     }
 
     if (what === 'trade') {
-      if (!s.offer) { this._line(v.tradeOpen, 'them'); return this._menu(); }
+      if (!s.offer) { this._line(say('tradeOpen', v.tradeOpen), 'them'); return this._menu(); }
       const o = s.offer;
       const noun = goodName(o.id, commodity(o.id).name).toLowerCase();
       // Their walk starts padded away from a reservation you never see.
@@ -183,7 +187,8 @@ export class Comms {
       s.reservation = res;
       s.price = Math.max(1, Math.round(o.mode === 'sell' ? res * (1 + pad) : res * (1 - pad)));
       s.rounds = 0;
-      this._line(fmt(o.mode === 'sell' ? v.tradeSell : v.tradeBuy, o.qty, noun, s.price), 'them');
+      this._line(fmt(o.mode === 'sell' ? say('tradeSell', v.tradeSell) : say('tradeBuy', v.tradeBuy),
+        o.qty, noun, s.price), 'them');
       return this._buttons([
         { do: 'accept', label: `${t('comms.accept')} · ${s.price}/u` },
         { do: 'counter', label: t('comms.counter') },
@@ -204,13 +209,13 @@ export class Comms {
       const moved = next !== s.price;
       s.price = next;
       if (s.rounds >= patience || !moved) {
-        this._line(fmt(VOICE[s.sp.id].counterBad, s.price), 'them');
+        this._line(fmt(tx(`voice.${s.sp.id}.counterBad`, VOICE[s.sp.id].counterBad), s.price), 'them');
         return this._buttons([
           { do: 'accept', label: `${t('comms.accept')} · ${s.price}/u` },
           { do: 'walk', label: t('comms.walk') },
         ]);
       }
-      this._line(fmt(VOICE[s.sp.id].counterGood, s.price), 'them');
+      this._line(fmt(tx(`voice.${s.sp.id}.counterGood`, VOICE[s.sp.id].counterGood), s.price), 'them');
       return this._buttons([
         { do: 'accept', label: `${t('comms.accept')} · ${s.price}/u` },
         { do: 'counter', label: t('comms.counter') },
@@ -247,14 +252,14 @@ export class Comms {
         eco.save();
         this._line(`${n} ${noun} away · +${n * s.price} cr.`, 'sys');
       }
-      this._line(VOICE[s.sp.id].accept, 'them');
+      this._line(tx(`voice.${s.sp.id}.accept`, VOICE[s.sp.id].accept), 'them');
       g.audio.ping('objective');
       s.offer = null;
       return this._menu();
     }
 
     if (what === 'walk') {
-      this._line(VOICE[s.sp.id].walk, 'them');
+      this._line(tx(`voice.${s.sp.id}.walk`, VOICE[s.sp.id].walk), 'them');
       return this._menu();
     }
 
@@ -267,7 +272,7 @@ export class Comms {
     if (repDelta) g.rumors.bumpRep(s.sp.id, repDelta);
     if (s.contact.craft) s.contact.craft.talked = true;    // channel spent
     s.done = true;
-    this._line(VOICE[s.sp.id].farewell, 'them');
+    this._line(tx(`voice.${s.sp.id}.farewell`, VOICE[s.sp.id].farewell), 'them');
     this._buttons([{ do: 'close', label: t('comms.close') }]);
     g.audio.ping('ui');
   }

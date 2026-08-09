@@ -45,6 +45,12 @@ if (!up) {
   process.exit(1);
 }
 
+/* Translation coverage first: it needs no browser and no server, takes about
+   a second, and a missing string is the kind of thing you want to hear about
+   before spending forty minutes rendering frames in software GL. */
+console.log('\n— lang: translation coverage —');
+const langFailed = run('node', ['tools/lang.mjs']).status !== 0;
+
 const SUITES = [
   ['smoke', 'boot and fly'],
   ['trade', 'the first trade run'],
@@ -56,7 +62,7 @@ const SUITES = [
   ['expedition', 'sites, the rover, and what the ground is worth'],
 ];
 
-const failed = [];
+const failed = langFailed ? ['lang'] : [];
 for (const [name, what] of SUITES) {
   console.log(`\n— ${name}: ${what} —`);
   if (run('node', [`tools/${name}.mjs`]).status !== 0) failed.push(name);

@@ -28,11 +28,15 @@
    player compares two purchases with, and a shopping decision made in a
    second language is a worse decision.
 
-   Not translated: the long-form fiction — the Tones, the station logs, the
-   alien dialogue, the revelations. Translating prose that carries the story
-   is a different job from translating a button, and doing it badly would be
-   worse than not doing it at all.
+   And, since it turned out a half-Thai game is worse than either whole one:
+   the fiction too. The seven Tones, the recovered logs, the world and star
+   entries, the opening transmission and every line the four cultures speak.
+   That prose lives in `story.th.js` rather than here — it is edited when the
+   fiction changes, which is almost never, and this file is edited whenever a
+   button does.
    ========================================================================== */
+
+import { STORY_TH } from './story.th.js';
 
 const KEY = 'star-universe.lang';
 
@@ -392,6 +396,12 @@ const STRINGS = {
   'c.luxuries': ['Luxuries', 'ของฟุ่มเฟือย'],
   'c.lucent': ['Lucent', 'ลูเซนต์'],
 };
+
+/* The prose lives in `story.th.js` and carries no English: the English is
+   already in `lore.js` and `Species.js`, and a second copy here would be the
+   copy nobody remembers to update. Empty first slot, caller supplies the
+   original as the fallback — see `pick`. */
+for (const k in STORY_TH) STRINGS[k] = ['', STORY_TH[k]];
 
 let lang = 'en';
 const listeners = new Set();

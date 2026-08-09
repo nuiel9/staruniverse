@@ -1,5 +1,5 @@
 import './ui/style.css';
-import { initLang, mountToggle, t, onLangChange } from './ui/i18n.js';
+import { initLang, mountToggle, t, tx, onLangChange } from './ui/i18n.js';
 import { Game } from './game/Game.js';
 import { INTRO_LINES } from './game/lore.js';
 
@@ -103,8 +103,13 @@ function desktopOnly() {
     try { await game.audio.resume(); } catch { /* autoplay policy */ }
 
     // opening beats
+    /* Resolved at fire time, not at schedule time: the language control is on
+       the title card, so a player who switches and then hits WAKE would
+       otherwise get English for the first fifteen seconds of their game. */
     INTRO_LINES.forEach((l, i) => {
-      setTimeout(() => game.hud.narrate(l.text, l.who), 1200 + i * 5200);
+      setTimeout(() => game.hud.narrate(
+        tx(`lore.intro.${i}.text`, l.text), tx(`lore.intro.${i}.who`, l.who)),
+      1200 + i * 5200);
     });
     setTimeout(() => {
       game.hud.log('SCANNER ONLINE', 'ok');

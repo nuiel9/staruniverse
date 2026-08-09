@@ -63,13 +63,13 @@ export class Codex {
       },
       {
         title: t('cx.cantos'), items: CANTOS.map((c, i) => ({
-          id: 'canto:' + c.id, label: c.title,
+          id: 'canto:' + c.id, label: tx(`lore.${c.id}.title`, c.title),
           locked: !g.cantos.includes(c.id),
         })),
       },
       {
         title: t('cx.records'), items: LOGS.map((l) => ({
-          id: 'log:' + l.id, label: l.title, locked: !g.logsFound.has(l.id),
+          id: 'log:' + l.id, label: tx(`lore.${l.id}.title`, l.title), locked: !g.logsFound.has(l.id),
         })),
       },
       ...(g.mystery ? [{
@@ -130,10 +130,11 @@ export class Codex {
     if (id.startsWith('canto:')) {
       const c = CANTOS.find((x) => 'canto:' + x.id === id);
       if (!c) return '';
-      return `<h1 class="cx-title">${c.title.toUpperCase()}</h1>
-        <div class="cx-sub">${c.sub}</div>
-        <div class="cx-text">${c.body.map((p) => `<p>${p}</p>`).join('')}
-        <p class="q">${c.q}</p></div>`;
+      return `<h1 class="cx-title">${tx(`lore.${c.id}.title`, c.title).toUpperCase()}</h1>
+        <div class="cx-sub">${tx(`lore.${c.id}.sub`, c.sub)}</div>
+        <div class="cx-text">${c.body.map((p, i) =>
+    `<p>${tx(`lore.${c.id}.b${i}`, p)}</p>`).join('')}
+        <p class="q">${tx(`lore.${c.id}.q`, c.q)}</p></div>`;
     }
 
     if (id === 'question') {
@@ -189,9 +190,10 @@ export class Codex {
     if (id.startsWith('log:')) {
       const l = LOGS.find((x) => 'log:' + x.id === id);
       if (!l) return '';
-      return `<h1 class="cx-title">${l.title.toUpperCase()}</h1>
-        <div class="cx-sub">${l.sub}</div>
-        <div class="cx-text">${l.body.map((p) => `<p>${p}</p>`).join('')}</div>`;
+      return `<h1 class="cx-title">${tx(`lore.${l.id}.title`, l.title).toUpperCase()}</h1>
+        <div class="cx-sub">${tx(`lore.${l.id}.sub`, l.sub)}</div>
+        <div class="cx-text">${l.body.map((p, i) =>
+    `<p>${tx(`lore.${l.id}.b${i}`, p)}</p>`).join('')}</div>`;
     }
 
     if (id.startsWith('body:')) {
@@ -209,19 +211,19 @@ export class Codex {
             ${stat(t('cx.s.lum'), `${s.luminosity.toFixed(2)} L☉`)}
             ${stat('RANGE', fmtDist(d))}
           </div>
-          <div class="cx-text"><p>${STAR_INFO[s.cls] || ''}</p></div>`;
+          <div class="cx-text"><p>${tx(`lore.star.${s.cls}`, STAR_INFO[s.cls] || '')}</p></div>`;
       }
 
       if (b.kind === 'anomaly') {
         const info = ANOMALY_INFO[b.anomalyType];
         return `<h1 class="cx-title">${b.name.toUpperCase()}</h1>
-          <div class="cx-sub">${info.label} · ${t('cx.nonNatural')}</div>
+          <div class="cx-sub">${tx(`lore.anom.${b.anomalyType}.label`, info.label)} · ${t('cx.nonNatural')}</div>
           <div class="cx-stats">
-            ${stat(t('cx.s.classif'), info.label)}
+            ${stat(t('cx.s.classif'), tx(`lore.anom.${b.anomalyType}.label`, info.label))}
             ${stat('RANGE', fmtDist(d))}
             ${stat(t('cx.s.inSystem'), g.system.star.name)}
           </div>
-          <div class="cx-text"><p>${info.text}</p></div>`;
+          <div class="cx-text"><p>${tx(`lore.anom.${b.anomalyType}.text`, info.text)}</p></div>`;
       }
 
       const s = b.spec;
@@ -253,7 +255,7 @@ export class Codex {
         : `<h3 class="cx-h3">${t('cx.sites')}</h3><div class="cx-note">${
           deps.length ? t('cx.nothingWorth') : t('cx.nothingWorth')}</div>`;
       return `<h1 class="cx-title">${b.name.toUpperCase()}</h1>
-        <div class="cx-sub">${info.label.toUpperCase()}${b.kind === 'moon' ? ` · ${t('cx.satellite')}` : ''}</div>
+        <div class="cx-sub">${tx(`lore.type.${s.type}.label`, info.label).toUpperCase()}${b.kind === 'moon' ? ` · ${t('cx.satellite')}` : ''}</div>
         <div class="cx-stats">
           ${stat('RADIUS', `${Math.round(s.radius)} km`)}
           ${stat(t('cx.s.gravity'), `${g0.toFixed(2)} g`)}
@@ -265,7 +267,7 @@ export class Codex {
           ${stat(t('cx.s.rings'), s.rings ? t('cx.v.yes') : t('cx.v.no'))}
         </div>
         <div class="cx-text">
-          <p>${info.text}</p>
+          <p>${tx(`lore.type.${s.type}.text`, info.text)}</p>
           ${s.night ? `<p class="q">${t('cx.night')}</p>` : ''}
         </div>
         ${depBlock}`;
