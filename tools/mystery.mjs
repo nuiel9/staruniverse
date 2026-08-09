@@ -113,6 +113,15 @@ const gates = await page.evaluate(() => {
   M.update();
   out.twelveBurned = M.found.has('lucent');
 
+  /* The survey reading wants six charted lanes and four catalogued worlds,
+     and nothing above gathers either — so leaving it out and then asserting
+     "all five reachable" was testing that the game gives away a revelation
+     nobody earned. Earn it. */
+  for (const e of [...g.lanes.edges.values()].slice(0, 6)) g.lanes.charted.add(e.key);
+  for (let i = 0; i < 4; i++) g.discoveries.add(`probe:${i}`);
+  M.update();
+  out.census = M.found.has('census');
+
   // The ending fires with the seventh canto, and states the answer.
   let narrated = null;
   const realNarrate = g.hud.narrate.bind(g.hud);
@@ -137,6 +146,7 @@ check('eleven tonnes of lucent is not twelve',
   gates.elevenBurned === false && gates.twelveBurned === true);
 check('the seventh Canto ends it', gates.ending && !!gates.narrated,
   gates.narrated ? `"${gates.narrated.text.slice(0, 52)}…"` : 'no narration');
+check('survey evidence unlocks the census reading', gates.census === true);
 check('all five readings reachable', gates.all === 5, `${gates.all}/5`);
 check('the question persists', gates.savedFound === 5 && gates.savedBurned === 12,
   `${gates.savedFound} found, ${gates.savedBurned} t burned`);
