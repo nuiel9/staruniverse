@@ -52,8 +52,8 @@ const CARD = `${TMP}/card.png`;
       <circle cx="60" cy="60" r="4" class="d"/>
       <path d="M60 4 L60 18 M60 102 L60 116 M4 60 L18 60 M102 60 L116 60" class="r"/>
     </svg>
-    <h1>THE LONG SILENCE</h1>
-    <div class="s">DEEP SURVEY VESSEL &middot; PALE SEEKER</div>
+    <h1>STAR UNIVERSE</h1>
+    <div class="s">DEEP SURVEY VESSEL &middot; LONG MARGIN</div>
     <div class="u">longsilence.anshu.dev</div>
   </div>`, { waitUntil: 'load' });
   await p.screenshot({ path: CARD });

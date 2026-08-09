@@ -24,15 +24,15 @@ import { mulberry32 } from '../world/generate.js';
    **Territory is geography.** Species hold clusters of systems, dealt from
    the same seed as everything else: the far anchors of the chart go to the
    three cultures, and every system belongs to whoever is nearest. The home
-   cluster stays with the Institute, which is why the early game sounds like
+   cluster stays with the Registry, which is why the early game sounds like
    home and the deep game does not.
    ========================================================================== */
 
 export const SPECIES = {
   institute: {
     id: 'institute',
-    name: 'The Institute',
-    adj: 'Institute',
+    name: 'The Registry',
+    adj: 'Registry',
     desc: 'Your own registry. Surveyors, patrols and haulers on the ledger.',
     // Straight dealers: posture barely matters, nothing is negotiable.
     posture: { friendly: 1, businesslike: 1, obsequious: 0, hostile: -2 },
@@ -83,20 +83,20 @@ export const POSTURES = ['friendly', 'businesslike', 'obsequious', 'hostile'];
 export const VOICE = {
   institute: {
     greet: {
-      warm: 'Pale Seeker. Good to see Institute iron out here. What do you need?',
-      cool: 'Registry confirmed, Seeker. Keep it brief, we are on schedule.',
-      cold: 'This is a working channel, Seeker. State your business or clear it.',
+      warm: 'Long Margin. Good to see Registry iron out here. What do you need?',
+      cool: 'Registry confirmed, captain. Keep it brief, we are on schedule.',
+      cold: 'This is a working channel, captain. State your business or clear it.',
     },
     rumorGive: 'Off the log: %s',
     rumorPaid: 'The bulletin service is not free, even for you. %d credits.',
     rumorRefuse: 'Nothing for you today. File a request at the Gate.',
-    tradeOpen: 'We are not a market stall, Seeker. Try the stations.',
+    tradeOpen: 'We are not a market stall, captain. Try the stations.',
     farewell: 'Vigil out. Fly straight.',
     insulted: 'Logged. Do not do that again.',
   },
   vess: {
     greet: {
-      warm: 'A ledger walks in with legs. Speak, Seeker — time is margin.',
+      warm: 'A ledger walks in with legs. Speak, captain — time is margin.',
       cool: 'Combine hull. We are listening, provisionally.',
       cold: 'You are costing us attention. It is not cheap.',
     },
@@ -110,11 +110,11 @@ export const VOICE = {
     accept: 'Sealed. The Combine remembers a clean deal.',
     walk: 'No deal. The margin walks with you.',
     insulted: 'Grovelling is a discount you pay us. Channel closed.',
-    farewell: 'Margins to you, Seeker.',
+    farewell: 'Margins to you, captain.',
   },
   korrim: {
     greet: {
-      warm: 'You speak like someone worth answering. Go on, Seeker.',
+      warm: 'You speak like someone worth answering. Go on, captain.',
       cool: 'A lodge does not chatter. Say your piece.',
       cold: 'Soft words from a soft hull. Careful.',
     },
@@ -132,7 +132,7 @@ export const VOICE = {
   },
   szethi: {
     greet: {
-      warm: 'Ah — the loud little ship that listens. We hear you gently, Seeker.',
+      warm: 'Ah — the loud little ship that listens. We hear you gently, captain.',
       cool: 'The Drift hears you. Speak as the dust settles, slowly.',
       cold: 'So much noise in so small a hull. Softly, or go.',
     },
@@ -155,7 +155,7 @@ export const VOICE = {
 /**
  * Deal the chart to the cultures. Three far anchors go to the alien species
  * (greedy farthest-point pick, so they spread), the home system anchors the
- * Institute, and every system belongs to its nearest anchor. Deterministic in
+ * Registry, and every system belongs to its nearest anchor. Deterministic in
  * the galaxy seed like everything else.
  */
 export function assignTerritories(galaxy, seed) {

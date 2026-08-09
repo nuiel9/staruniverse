@@ -1,6 +1,7 @@
 import { COMMODITIES } from '../econ/Economy.js';
 import { OUTFITS } from '../ship/Outfitting.js';
 import { ROLES } from '../game/Crew.js';
+import { t, goodName, onLangChange } from './i18n.js';
 
 /* ============================================================================
    The dock screen: what you see with your ship on a berth.
@@ -36,6 +37,7 @@ export class DockScreen {
     this.root.querySelector('[data-depart]').addEventListener('click', () => {
       this.game.undock();
     });
+    onLangChange(() => { if (this.open) this.render(); });
     // Buy/sell is one delegated listener; rows re-render too often to own any.
     this.main.addEventListener('click', (e) => {
       const b = e.target.closest('button[data-act]');
@@ -47,7 +49,7 @@ export class DockScreen {
         if (paid) {
           eco.credits += paid;
           eco.save();
-          this.game.hud.log(`CHARTS SOLD · +${paid} cr`, 'ok');
+          this.game.hud.log(`${t('dock.logChartsSold')} · +${paid} cr`, 'ok');
           this.render();
         }
         return;
@@ -56,7 +58,7 @@ export class DockScreen {
         const ok = this.game.outfit.buy(b.dataset.id);
         this.game.audio.ping(ok ? 'objective' : 'deny');
         if (ok) {
-          this.game.hud.log(`FITTED · ${OUTFITS[b.dataset.id].name.toUpperCase()}`, 'ok');
+          this.game.hud.log(`${t('dock.logFitted')} · ${OUTFITS[b.dataset.id].name.toUpperCase()}`, 'ok');
           this.render();
         }
         return;
@@ -66,7 +68,7 @@ export class DockScreen {
         const ok = offer && this.game.contracts.accept(offer);
         this.game.audio.ping(ok ? 'objective' : 'deny');
         if (ok) {
-          this.game.hud.log(`CONTRACT TAKEN · ${this.game.contracts.label(offer)}`, 'ok');
+          this.game.hud.log(`${t('dock.logTaken')} · ${this.game.contracts.label(offer)}`, 'ok');
           this.render();
         }
         return;
@@ -76,7 +78,7 @@ export class DockScreen {
         const paid = c && this.game.contracts.deliver(c);
         this.game.audio.ping(paid ? 'objective' : 'deny');
         if (paid) {
-          this.game.hud.log(`DELIVERED · +${paid} cr`, 'ok');
+          this.game.hud.log(`${t('dock.logDelivered')} · +${paid} cr`, 'ok');
           this.render();
         }
         return;
@@ -86,7 +88,7 @@ export class DockScreen {
         const ok = rec && this.game.crew.hire(rec);
         this.game.audio.ping(ok ? 'objective' : 'deny');
         if (ok) {
-          this.game.hud.log(`SIGNED ON · ${rec.name.toUpperCase()}`, 'ok');
+          this.game.hud.log(`${t('dock.logSigned')} · ${rec.name.toUpperCase()}`, 'ok');
           this.render();
         }
         return;
@@ -151,30 +153,31 @@ export class DockScreen {
     const st = this.station;
     const market = st.station.market;
     const held = eco.cargoUsed();
-    const t = g.time;
+    const now = g.time;
 
     this.head.textContent = st.name;
-    this.sub.textContent = 'BERTH GRANTED · MARKET LINK OPEN';
+    this.sub.textContent = t('dock.berth');
+    this.root.querySelector('[data-depart]').textContent = t('dock.depart');
     this.ledger.innerHTML =
       `<span class="dk-cr">${eco.credits.toLocaleString('en-US')} <i>cr</i></span>`
-      + `<span class="dk-hold${held >= eco.cargoCap ? ' full' : ''}">HOLD ${held}/${eco.cargoCap}</span>`
-      + `<span class="dk-hold${g.ship.fuel < 8 ? ' full' : ''}">LUCENT ${Math.floor(g.ship.fuel)}/${g.ship.fuelCap}</span>`;
+      + `<span class="dk-hold${held >= eco.cargoCap ? ' full' : ''}">${t('dock.hold')} ${held}/${eco.cargoCap}</span>`
+      + `<span class="dk-hold${g.ship.fuel < 8 ? ' full' : ''}">${t('dock.lucent')} ${Math.floor(g.ship.fuel)}/${g.ship.fuelCap}</span>`;
 
     const rows = COMMODITIES.map((c) => {
       const gd = market.byId.get(c.id);
-      const price = eco.priceAt(market, c.id, t);
+      const price = eco.priceAt(market, c.id, now);
       const have = eco.cargo[c.id] || 0;
       const canBuy = gd.stock > 0 && eco.credits >= price && held < eco.cargoCap;
-      const tag = gd.role === 'produces' ? '<i class="dk-tag prod">PRODUCES</i>'
-        : gd.role === 'demands' ? '<i class="dk-tag want">WANTED</i>' : '';
+      const tag = gd.role === 'produces' ? `<i class="dk-tag prod">${t('dock.produces')}</i>`
+        : gd.role === 'demands' ? `<i class="dk-tag want">${t('dock.wanted')}</i>` : '';
       return `<tr class="${gd.role || ''}">
-        <td class="dk-name">${c.name}${tag}<em>${c.desc}</em></td>
+        <td class="dk-name">${goodName(c.id, c.name)}${tag}<em>${c.desc}</em></td>
         <td class="dk-num">${price} <i>cr</i></td>
         <td class="dk-num">${gd.stock || '—'}</td>
         <td class="dk-num">${have || '—'}</td>
         <td class="dk-act">
-          <button data-act="buy" data-id="${c.id}" ${canBuy ? '' : 'disabled'}>BUY</button>
-          <button data-act="sell" data-id="${c.id}" ${have ? '' : 'disabled'}>SELL</button>
+          <button data-act="buy" data-id="${c.id}" ${canBuy ? '' : 'disabled'}>${t('dock.buy')}</button>
+          <button data-act="sell" data-id="${c.id}" ${have ? '' : 'disabled'}>${t('dock.sell')}</button>
         </td></tr>`;
     }).join('');
 
@@ -184,19 +187,18 @@ export class DockScreen {
     const chartsBtn = sellable.length
       ? `<div class="dk-charts"><span>${sellable.length} lane survey${sellable.length > 1 ? 's' : ''} aboard —
           ${sellable.map((e) => `${g.galaxy[e.a].name}–${g.galaxy[e.b].name}`).join(' · ')}</span>
-         <button data-act="charts">SELL CHARTS · ${chartValue} cr</button></div>`
+         <button data-act="charts">${t('dock.charts')} · ${chartValue} cr</button></div>`
       : '';
 
     /* The yard. Fuel first, because a ship that cannot leave has no use for
        anything else on this screen. */
     const ship = g.ship;
     const dry = ship.fuelCap - ship.fuel;
-    const fuelBlock = `<h3 class="dk-h3">THE YARD</h3>
+    const fuelBlock = `<h3 class="dk-h3">${t('dock.yard')}</h3>
       <div class="dk-charts">
-        <span>Lucent, ${FUEL_PRICE} cr the tonne — tank at
-          ${Math.floor(ship.fuel)} of ${ship.fuelCap}</span>
+        <span>${t('dock.fuelLine', { '%P': FUEL_PRICE, '%A': Math.floor(ship.fuel), '%B': ship.fuelCap })}</span>
         <button data-act="fuel" ${dry >= 1 && eco.credits >= FUEL_PRICE ? '' : 'disabled'}>
-          REFUEL · 1 t${dry >= 10 && eco.credits >= FUEL_PRICE * 10 ? ' · SHIFT for 10' : ''}</button>
+          ${t('dock.refuel')} · 1 t${dry >= 10 && eco.credits >= FUEL_PRICE * 10 ? ' · SHIFT for 10' : ''}</button>
       </div>`;
 
     const fitRows = Object.entries(OUTFITS).map(([id, o]) => {
@@ -209,45 +211,46 @@ export class DockScreen {
         <td class="dk-act">${nx
     ? `<button data-act="fit" data-id="${id}" ${afford ? '' : 'disabled'}>
              ${nx.label} · ${nx.cost.toLocaleString('en-US')} cr</button>`
-    : '<span class="dk-max">FULLY FITTED</span>'}</td></tr>`;
+    : `<span class="dk-max">${t('dock.fullyFitted')}</span>`}</td></tr>`;
     }).join('');
     const fitBlock = `<table class="dk-table"><thead><tr>
-        <th>SYSTEM</th><th class="dk-num">FITTED</th><th></th></tr></thead>
+        <th>${t('dock.system')}</th><th class="dk-num">${t('dock.fitted')}</th><th></th></tr></thead>
       <tbody>${fitRows}</tbody></table>`;
 
     /* The board. Deliveries you can settle right here come first — a player
        holding finished cargo should never have to hunt for the button. */
     const C = g.contracts;
-    C.expire(t);
-    const due = C.deliverable(g.currentSystemId, t);
+    C.expire(now);
+    const due = C.deliverable(g.currentSystemId, now);
     const dueBlock = due.length ? due.map((c) => `<div class="dk-charts">
-        <span>Consignment ready: ${C.label(c)}</span>
-        <button data-act="deliver" data-id="${c.ref}">DELIVER · ${c.pay.toLocaleString('en-US')} cr</button>
+        <span>${t('dock.ready')}: ${C.label(c)}</span>
+        <button data-act="deliver" data-id="${c.ref}">${t('dock.deliver')} · ${c.pay.toLocaleString('en-US')} cr</button>
       </div>`).join('') : '';
 
-    this._offers = C.offers(g.currentSystemId, st.station.idx, t);
-    const mins = (secs) => `${Math.max(0, Math.round(secs / 60))} min`;
+    this._offers = C.offers(g.currentSystemId, st.station.idx, now);
+    const mins = (secs) => `${Math.max(0, Math.round(secs / 60))} ${t('dock.min')}`;
     const offerRows = this._offers.map((o) => {
       const taken = C.isTaken(o.id);
       const holding = eco.cargo[o.goodId] || 0;
       return `<tr>
         <td class="dk-name">${C.label(o)}
-          <em>${o.ly.toFixed(1)} ly · due in ${mins(o.due - t)}${o.risk > 0.2 ? ' · <b class="dk-risk">HAZARD PAY</b>' : ''}
-          · holding ${holding}/${o.qty}</em></td>
+          <em>${o.ly.toFixed(1)} ly · ${t('dock.due')} ${mins(o.due - now)}${o.risk > 0.2 ? ` · <b class="dk-risk">${t('dock.hazard')}</b>` : ''}
+          · ${t('dock.holding')} ${holding}/${o.qty}</em></td>
         <td class="dk-num">${o.pay.toLocaleString('en-US')} <i>cr</i></td>
         <td class="dk-act">${taken
-    ? '<span class="dk-max">ACCEPTED</span>'
-    : `<button data-act="take" data-id="${o.id}">TAKE</button>`}</td></tr>`;
+    ? `<span class="dk-max">${t('dock.accepted')}</span>`
+    : `<button data-act="take" data-id="${o.id}">${t('dock.take')}</button>`}</td></tr>`;
     }).join('');
-    const boardBlock = `<h3 class="dk-h3">THE BOARD${C.taken.length ? ` · ${C.taken.length} IN HAND` : ''}</h3>
+    const boardBlock = `<h3 class="dk-h3">${t('dock.board')}${C.taken.length
+      ? ` · ${C.taken.length} ${t('dock.inHand')}` : ''}</h3>
       ${dueBlock}
       <table class="dk-table"><thead><tr>
-        <th>CONSIGNMENT</th><th class="dk-num">FEE</th><th></th></tr></thead>
+        <th>${t('dock.consignment')}</th><th class="dk-num">${t('dock.fee')}</th><th></th></tr></thead>
       <tbody>${offerRows}</tbody></table>`;
 
     /* The bar. One of each speciality, four berths, and whoever is drinking
        here this week. */
-    this._hires = g.crew.roster(g.currentSystemId, st.station.idx, t);
+    this._hires = g.crew.roster(g.currentSystemId, st.station.idx, now);
     const hireRows = this._hires.map((h) => {
       const role = ROLES[h.role];
       const have = g.crew.has(h.role);
@@ -255,40 +258,39 @@ export class DockScreen {
       return `<tr>
         <td class="dk-name">${h.name}<em>${role.title} — ${role.blurb}</em></td>
         <td class="dk-num">${role.effect}</td>
-        <td class="dk-act">${have ? '<span class="dk-max">BERTH FILLED</span>'
+        <td class="dk-act">${have ? `<span class="dk-max">${t('dock.berthFilled')}</span>`
     : `<button data-act="hire" data-id="${h.id}" ${full || eco.credits < h.fee ? 'disabled' : ''}>
-             SIGN ON · ${h.fee.toLocaleString('en-US')} cr</button>`}</td></tr>`;
+             ${t('dock.signOn')} · ${h.fee.toLocaleString('en-US')} cr</button>`}</td></tr>`;
     }).join('');
-    const crewBlock = `<h3 class="dk-h3">THE BAR${g.crew.aboard.length
-      ? ` · ${g.crew.aboard.length}/4 ABOARD` : ''}</h3>
+    const crewBlock = `<h3 class="dk-h3">${t('dock.bar')}${g.crew.aboard.length
+      ? ` · ${g.crew.aboard.length}/4 ${t('dock.aboard')}` : ''}</h3>
       <table class="dk-table"><tbody>${hireRows}</tbody></table>`;
 
     /* The traffic report: other boards, as stale as their distance. */
-    const reports = eco.reports(g.currentSystemId, t, this.stationKey());
+    const reports = eco.reports(g.currentSystemId, now, this.stationKey());
     const repRows = reports.map((r) => {
-      const age = r.age < 1 ? 'live'
-        : r.age < 90 ? `${Math.round(r.age)}s old`
-          : `${Math.round(r.age / 60)}m old`;
+      const age = r.age < 1 ? t('dock.live')
+        : r.age < 90 ? `${Math.round(r.age)}s ${t('dock.old')}`
+          : `${Math.round(r.age / 60)}m ${t('dock.old')}`;
       const cells = r.goods.map((x) =>
         `<span class="dk-rep ${x.role === 'demands' ? 'want' : 'prod'}">
           ${x.id.toUpperCase()} ${x.price}<i>cr</i></span>`).join('');
-      return `<tr><td class="dk-name">${r.name}<em>${r.ly.toFixed(1)} ly by lane ·
-        report ${age}${r.event ? ` · <b class="dk-risk">${r.event.label.toUpperCase()}</b>` : ''}</em></td>
+      return `<tr><td class="dk-name">${r.name}<em>${r.ly.toFixed(1)} ly ${t('dock.byLane')} ·
+        ${t('dock.report')} ${age}${r.event ? ` · <b class="dk-risk">${r.event.label.toUpperCase()}</b>` : ''}</em></td>
         <td class="dk-repcell">${cells}</td></tr>`;
     }).join('');
     const repBlock = reports.length
-      ? `<h3 class="dk-h3">TRAFFIC REPORTS</h3>
+      ? `<h3 class="dk-h3">${t('dock.reports')}</h3>
          <table class="dk-table dk-reptable"><tbody>${repRows}</tbody></table>
-         <div class="dk-note">quotes ride the freighters — the farther the board, the older the news</div>`
+         <div class="dk-note">${t('dock.reportsNote')}</div>`
       : '';
 
     this.main.innerHTML = `<table class="dk-table">
-      <thead><tr><th>COMMODITY</th><th class="dk-num">PRICE</th>
-        <th class="dk-num">STOCK</th><th class="dk-num">HELD</th><th></th></tr></thead>
+      <thead><tr><th>${t('dock.commodity')}</th><th class="dk-num">${t('dock.price')}</th>
+        <th class="dk-num">${t('dock.stock')}</th><th class="dk-num">${t('dock.held')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table>
       ${chartsBtn}
-      <div class="dk-note">click trades one unit · <kbd>SHIFT</kbd>-click trades five
-      · <kbd>ESC</kbd> departs</div>
+      <div class="dk-note">${t('dock.note')}</div>
       ${boardBlock}
       ${crewBlock}
       ${fuelBlock}

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 
    The traffic exists whether or not you talk to it, which is the point: this
    module adds no entities and moves nothing. It watches distances, and when the
-   Pale Seeker gets close enough to something crewed, that something says
+   Long Margin gets close enough to something crewed, that something says
    whatever a ship of its trade would say to a survey vessel it did not expect.
 
    Two rules keep it from becoming noise:
@@ -16,7 +16,7 @@ import * as THREE from 'three';
 
    **Say something only they could say.** A hauler talks about mass and margins,
    a patrol about your registration, a salvager about what it is cutting up. The
-   Choir motes do not talk at all — the silence *is* the content, and nothing
+   Hush motes do not talk at all — the silence *is* the content, and nothing
    would spend it faster than giving them dialogue.
    ========================================================================== */
 
@@ -28,32 +28,32 @@ const HAIL_RANGE = 900;
 const LINES = {
   freighter: [
     ['Survey vessel, you are inside my braking cone. I cannot stop. You can.', 'BULK HAULER'],
-    ['Institute markings. Long way out for a chart-maker.', 'BULK HAULER'],
+    ['Registry markings. Long way out for a chart-maker.', 'BULK HAULER'],
     ['Nine hundred tonnes of nothing anyone needs. Same as last run.', 'BULK HAULER'],
     ['We keep the lanes lit. Nobody keeps them safe. Mind that.', 'BULK HAULER'],
   ],
   courier: [
     ['Courier on schedule. Do not follow me, I have nothing aboard worth it.', 'COURIER'],
-    ['You are the Pale Seeker. They talk about you at the Gate.', 'COURIER'],
+    ['You are the Long Margin. They talk about you at the Gate.', 'COURIER'],
     ['Whatever you are looking for out here — it was gone before we got here.', 'COURIER'],
   ],
   tug: [
     ['Working. Keep your wash off my cable.', 'YARD TENDER'],
     ['Found a hull last month with the coffee still in the cups. Forty thousand years.', 'YARD TENDER'],
-    ['If you are going near the Resonator, do not touch anything. Ask the last one who did.', 'YARD TENDER'],
+    ['If you are going near the Tine, do not touch anything. Ask the last one who did.', 'YARD TENDER'],
   ],
   patrol: [
-    ['Pale Seeker, Institute Vigil. Registration confirmed. Carry on.', 'INSTITUTE PATROL'],
-    ['We log everything that moves in this system. Today that is you and four freighters.', 'INSTITUTE PATROL'],
-    ['Chart it, scan it, do not attune to it without telling us first.', 'INSTITUTE PATROL'],
+    ['Long Margin, Registry Vigil. Registration confirmed. Carry on.', 'REGISTRY PATROL'],
+    ['We log everything that moves in this system. Today that is you and four freighters.', 'REGISTRY PATROL'],
+    ['Chart it, scan it, do not attune to it without telling us first.', 'REGISTRY PATROL'],
   ],
   drone: [
     ['<automated survey drone — carrier tone only>', 'CONTACT'],
     ['<telemetry burst · 4.2 Mb · unencrypted · a mineral survey>', 'CONTACT'],
   ],
   station: [
-    ['Pale Seeker, you have the outer berth. Mind the tender traffic.', 'TRAFFIC CONTROL'],
-    ['Welcome in, Seeker. Eleven thousand souls aboard and every one of them wants news.', 'TRAFFIC CONTROL'],
+    ['Long Margin, you have the outer berth. Mind the tender traffic.', 'TRAFFIC CONTROL'],
+    ['Welcome in, Long Margin. Eleven thousand souls aboard and every one of them wants news.', 'TRAFFIC CONTROL'],
   ],
 };
 
@@ -93,7 +93,7 @@ export class Encounters {
       return;
     }
 
-    // The Choir answer differently, and only once per system.
+    // The Hush answer differently, and only once per system.
     const mote = g.fleet.craft.find((c) => c.faction === 'choir' && !c.hailed);
     if (mote && _v.copy(mote.absPos).sub(shipPos).lengthSq() < (mote.length * 600) ** 2) {
       mote.hailed = true;

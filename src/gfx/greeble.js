@@ -5,7 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
    The greeble kit.
 
    Everything built out of hard vacuum-rated matter in this game — the player's
-   hull, freighters, stations, derelicts, Choir monuments — is surfaced by the
+   hull, freighters, stations, derelicts, Hush monuments — is surfaced by the
    same code, because a universe whose objects were shaded by five different
    authors reads as five different games. One plate-seam law, one weathering
    law, one rim term, one set of base materials.
@@ -648,7 +648,7 @@ export function decalSheet() {
   bar(8, 28, 644, 33, LIGHT);
   bar(8, 91, 644, 96, LIGHT);
   txt('PS-114', 26, 78, 44, LIGHT, 6);
-  txt('PALE SEEKER', 258, 76, 38, LIGHT, 11);
+  txt('LONG MARGIN', 258, 76, 38, LIGHT, 11);
   // The two service lines are the smallest lettering on the ship. Set them at
   // a size that survives the mip chain rather than one that fits comfortably.
   txt('CREW 04', 26, 23, 17, LIGHT, 3);
@@ -656,7 +656,7 @@ export function decalSheet() {
 
   // --- dorsal wordmark ------------------------------------------------------
   cell('name', 8, 124, 700, 222);
-  txt('PALE SEEKER', 354, 190, 62, LIGHT, 22, 'center');
+  txt('LONG MARGIN', 354, 190, 62, LIGHT, 22, 'center');
   bar(60, 202, 648, 209, LIGHT);
   bar(60, 132, 300, 138, OXIDE);
   bar(408, 132, 648, 138, OXIDE);
@@ -1938,7 +1938,7 @@ export function weld(list, mat, parent) {
      raising the segment count did nothing at all. Averaging across joints under
      the crease angle makes a gauged cylinder round while a chamfer or a corner
      still cuts. The player's hull already does this; everything the same kit
-     builds — stations, freighters, derelicts, the Resonator — gets it here. */
+     builds — stations, freighters, derelicts, the Tine — gets it here. */
   creaseNormals(g, 32);
   const m = new THREE.Mesh(g, mat);
   m.frustumCulled = false;
@@ -2059,7 +2059,7 @@ export function emitter(hex, gain = 1) {
   });
 }
 
-/* The one saturated emissive in the game, reserved for Choir artefacts. Using
+/* The one saturated emissive in the game, reserved for Hush artefacts. Using
    it anywhere else spends the only colour that carries meaning. */
 export const CHOIR_HUE = 0xbfe07a;
 

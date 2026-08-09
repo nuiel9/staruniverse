@@ -1,12 +1,12 @@
 /* ============================================================================
    Written content. The mystery only works if there is something to actually
-   find, so: seven Cantos (one per Resonator), a set of derelict logs, and
+   find, so: seven Tones (one per Tine), a set of derelict logs, and
    reference entries that unlock as you scan.
    ========================================================================== */
 
 export const CANTOS = [
   {
-    id: 'canto1', title: 'The First Canto', sub: 'RESONATOR I — ATTUNED',
+    id: 'canto1', title: 'The First Tone', sub: 'TINE I — ATTUNED',
     body: [
       'We built the listening towers first, before the cities, before the ships.',
       'Not to speak. To hear.',
@@ -15,7 +15,7 @@ export const CANTOS = [
     q: 'The sky is not empty. It is holding its breath.',
   },
   {
-    id: 'canto2', title: 'The Second Canto', sub: 'RESONATOR II — ATTUNED',
+    id: 'canto2', title: 'The Second Tone', sub: 'TINE II — ATTUNED',
     body: [
       'A signal is a shape pressed into noise. We had assumed the noise was the medium and the shape was the message.',
       'It is the other way around.',
@@ -24,7 +24,7 @@ export const CANTOS = [
     q: 'What speaks does not need a mouth. It needs only somewhere quiet.',
   },
   {
-    id: 'canto3', title: 'The Third Canto', sub: 'RESONATOR III — ATTUNED',
+    id: 'canto3', title: 'The Third Tone', sub: 'TINE III — ATTUNED',
     body: [
       'The Assembly voted to answer. The vote was not close.',
       'Nine hundred worlds tuned themselves to a single note and held it for a year, and at the end of that year the note came back changed, and we understood that we had been asked a question.',
@@ -33,7 +33,7 @@ export const CANTOS = [
     q: 'We were so proud to be heard that we forgot to ask who was listening.',
   },
   {
-    id: 'canto4', title: 'The Fourth Canto', sub: 'RESONATOR IV — ATTUNED',
+    id: 'canto4', title: 'The Fourth Tone', sub: 'TINE IV — ATTUNED',
     body: [
       'There was no war. Let that be recorded plainly, because those who come after will assume there was a war.',
       'There was a decision, and it was unanimous, and it took four days.',
@@ -42,16 +42,16 @@ export const CANTOS = [
     q: 'A civilisation that leaves the door unlocked did not flee. It walked.',
   },
   {
-    id: 'canto5', title: 'The Fifth Canto', sub: 'RESONATOR V — ATTUNED',
+    id: 'canto5', title: 'The Fifth Tone', sub: 'TINE V — ATTUNED',
     body: [
-      'Attunement is not travel. Nothing moves. The Resonators do not open a path — they widen an aperture that was always there, the way an eye widens.',
+      'Attunement is not travel. Nothing moves. The Tines do not open a path — they widen an aperture that was always there, the way an eye widens.',
       'You do not go through. You are simply, afterwards, on the other side of having gone.',
       'Those who returned could not describe it. Those who could describe it did not return.',
     ],
     q: 'Distance was a habit of ours. We are trying to break it.',
   },
   {
-    id: 'canto6', title: 'The Sixth Canto', sub: 'RESONATOR VI — ATTUNED',
+    id: 'canto6', title: 'The Sixth Tone', sub: 'TINE VI — ATTUNED',
     body: [
       'Seven towers. Seven notes. We placed them apart so that no single accident, no single madness, no single grief could sound them all.',
       'And then we sounded them all.',
@@ -60,14 +60,14 @@ export const CANTOS = [
     q: 'Curiosity is the only thing that has ever cost us everything, and the only thing worth the price.',
   },
   {
-    id: 'canto7', title: 'The Seventh Canto', sub: 'RESONATOR VII — ATTUNED',
+    id: 'canto7', title: 'The Seventh Tone', sub: 'TINE VII — ATTUNED',
     body: [
       'The Aperture is open.',
       'We are not gone. We are not dead. We are quiet, which is a thing you will understand in a moment, and never afterwards be able to explain.',
       'Come in. Or do not. Both are answers, and we have learned to respect the second one.',
       'The towers will keep sounding either way. Someone should be listening.',
     ],
-    q: 'This is the long silence. It is not empty. It is full of everyone who came before you, waiting to see what you do.',
+    q: 'This is the Stillness. It is not empty. It is full of everyone who came before you, waiting to see what you do.',
   },
 ];
 
@@ -84,24 +84,24 @@ export const LOGS = [
     id: 'log_veyle', title: 'Survey Vessel VEYLE', sub: 'PARTIAL TRANSCRIPT',
     body: [
       '— it is not a language, it is an invitation, and the difference matters —',
-      '— tell the Institute the towers are not artefacts, they are instruments, and they are still in tune —',
+      '— tell the Registry the towers are not artefacts, they are instruments, and they are still in tune —',
       '— if you are hearing this do not approach the seventh, I am asking you, I am —',
     ],
   },
   {
     id: 'log_hollow', title: 'The Hollow Fleet', sub: 'ARCHIVE FRAGMENT',
     body: [
-      'Eleven hundred vessels are recorded as entering the Silence in the last two centuries. Ninety-four returned.',
+      'Eleven hundred vessels are recorded as entering the Stillness in the last two centuries. Ninety-four returned.',
       'Of those, every crew reported the same detail unprompted: that the stars appeared, briefly, to be arranged.',
       'No two crews agreed on the arrangement.',
     ],
   },
   {
-    id: 'log_seeker', title: 'PALE SEEKER — Commission', sub: 'YOUR ORDERS',
+    id: 'log_seeker', title: 'LONG MARGIN — Commission', sub: 'YOUR ORDERS',
     body: [
       'You are the eleven hundred and first.',
       'Chart what you can. Scan what you find. Attune what will let you.',
-      'The Institute does not expect you back. The Institute has never expected anyone back. Please prove the Institute wrong, or at least prove it interesting.',
+      'The Registry does not expect you back. The Registry has never expected anyone back. Please prove the Registry wrong, or at least prove it interesting.',
     ],
   },
 ];
@@ -109,7 +109,7 @@ export const LOGS = [
 export const TYPE_INFO = {
   terran: {
     label: 'Terrestrial · Class T',
-    text: 'Silicate world with liquid-water hydrosphere and an oxidising atmosphere. Rare, and rarely quiet — where the Choir settled, they settled here.',
+    text: 'Silicate world with liquid-water hydrosphere and an oxidising atmosphere. Rare, and rarely quiet — where the Hush settled, they settled here.',
   },
   ocean: {
     label: 'Pelagic · Class O',
@@ -117,7 +117,7 @@ export const TYPE_INFO = {
   },
   desert: {
     label: 'Arid · Class D',
-    text: 'Hydrosphere lost to escape or subduction. Preserves surface structures better than any other world type, which is why the Institute keeps sending people here.',
+    text: 'Hydrosphere lost to escape or subduction. Preserves surface structures better than any other world type, which is why the Registry keeps sending people here.',
   },
   barren: {
     label: 'Barren · Class B',
@@ -141,7 +141,7 @@ export const TYPE_INFO = {
   },
   gas: {
     label: 'Gas Giant · Class G',
-    text: 'Hydrogen–helium envelope with no meaningful surface. Zonal banding driven by internal heat. The Choir used them as anchors, never as homes.',
+    text: 'Hydrogen–helium envelope with no meaningful surface. Zonal banding driven by internal heat. The Hush used them as anchors, never as homes.',
   },
 };
 
@@ -159,16 +159,16 @@ export const STAR_INFO = {
 
 export const ANOMALY_INFO = {
   resonator: {
-    label: 'RESONATOR',
-    text: 'A Choir instrument. Non-reflective across every band we can generate. It is not inert — it is waiting, and it can tell the difference between a rock and a visitor.',
+    label: 'TINE',
+    text: 'A Hush instrument. Non-reflective across every band we can generate. It is not inert — it is waiting, and it can tell the difference between a rock and a visitor.',
   },
   derelict: {
     label: 'DERELICT STATION',
-    text: 'Choir orbital infrastructure. Undamaged, unpowered in the conventional sense, and still holding station to within a metre after forty millennia.',
+    text: 'Hush orbital infrastructure. Undamaged, unpowered in the conventional sense, and still holding station to within a metre after forty millennia.',
   },
   wreck: {
     label: 'WRECKAGE',
-    text: 'Not Choir. Hull alloys and fabrication signatures consistent with the last two centuries of human expeditions into the Silence.',
+    text: 'Not Hush. Hull alloys and fabrication signatures consistent with the last two centuries of human expeditions into the Stillness.',
   },
   beacon: {
     label: 'SIGNAL BEACON',
@@ -177,7 +177,7 @@ export const ANOMALY_INFO = {
 };
 
 export const INTRO_LINES = [
-  { who: 'INSTITUTE RELAY', text: 'Fold complete. You are inside the Silence, Seeker.' },
-  { who: 'INSTITUTE RELAY', text: 'Forty thousand years ago nine hundred worlds went quiet in four days. Find out why.' },
-  { who: 'PALE SEEKER', text: 'Scanner online. Seven Resonators are out there. Bring back what they say.' },
+  { who: 'REGISTRY RELAY', text: 'Fold complete. You are inside the Stillness, Long Margin.' },
+  { who: 'REGISTRY RELAY', text: 'Forty thousand years ago nine hundred worlds went quiet in four days. Find out why.' },
+  { who: 'LONG MARGIN', text: 'Scanner online. Seven Tines are out there. Bring back what they say.' },
 ];

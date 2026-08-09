@@ -63,7 +63,7 @@ const terr = await page.evaluate(() => {
   for (const sp of owner) counts[sp] = (counts[sp] || 0) + 1;
   return { home: owner[0], counts, total: owner.length, all: owner.every(Boolean) };
 });
-check('every system has an owner, home is Institute',
+check('every system has an owner, home is Registry',
   terr.all && terr.home === 'institute', JSON.stringify(terr.counts));
 check('at least three cultures hold territory', Object.keys(terr.counts).length >= 3);
 

@@ -66,7 +66,7 @@ const EDL = [
   /* The last shot is the same landing, widest, because ending on another world
      is an unmotivated jump and this one has forty seconds of investment in it.
      It holds, because the title lands on it. */
-  { src: 'f-landing', in: 14.30, dur: 5.60, note: 'and the long silence' },
+  { src: 'f-landing', in: 14.30, dur: 5.60, note: 'and the stillness in it' },
 ];
 
 /* The title lands over the last shot rather than on a card of its own: a hard
@@ -104,8 +104,8 @@ const TITLE_HTML = `<!doctype html><meta charset="utf-8"><style>
      color:rgba(168,204,222,.80);text-align:center}
   .a{color:#ffc48a}
 </style><div class="w"><div>
-  <h1>THE LONG SILENCE</h1>
-  <p>DEEP SURVEY VESSEL &middot; <span class="a">PALE SEEKER</span></p>
+  <h1>STAR UNIVERSE</h1>
+  <p>DEEP SURVEY VESSEL &middot; <span class="a">LONG MARGIN</span></p>
 </div></div>`;
 
 const browser = await chromium.launch({ headless: true, args: ['--hide-scrollbars'] });
@@ -186,7 +186,7 @@ run(['-i', `${TMP}/joined.mp4`, '-loop', '1', '-i', `${TMP}/title.png`,
  *
  * loudnorm rather than a gain: this is going to a feed, and a feed will
  * normalise it anyway. Doing it here means the platform's normaliser has
- * nothing left to do and the quiet beats — the ground, the Choir — survive on
+ * nothing left to do and the quiet beats — the ground, the Hush — survive on
  * a phone speaker. -14 LUFS with 9 LU of range keeps the touchdown and the
  * fold as hits without flattening the two places the score gets out of the way.
  */

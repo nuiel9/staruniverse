@@ -224,7 +224,7 @@ export const SEQUENCES = {
     };
   },
 
-  /** Attuning to a Resonator: the one moment the Choir answers. */
+  /** Attuning to a Tine: the one moment the Hush answers. */
   attune(game, body) {
     const R = body.radius;
     const subj = { absPos: body.absPos };

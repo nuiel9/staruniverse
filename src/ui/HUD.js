@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { t, mountToggle, onLangChange } from './i18n.js';
 
 /* ============================================================================
    The screen-space layer.
@@ -51,6 +52,14 @@ export class HUD {
     });
 
     if (game.input.hasTouch) this.el.touchUI.classList.remove('hidden');
+
+    /* The language control is reachable in flight, not only at the title card:
+       a player who guesses wrong at boot should not have to reload. The hint
+       row is memoised on a signature key, so switching language has to
+       invalidate it or the old strings would sit there until the context
+       happened to change. */
+    mountToggle(document.getElementById('hudLang'));
+    onLangChange(() => { this._hintKey = null; });
   }
 
   show() { this.root.classList.remove('hidden'); requestAnimationFrame(() => this.root.classList.add('on')); }
@@ -166,32 +175,33 @@ export class HUD {
       let keys;
       if (uiOpen) {
         keys = g.starmap.open
-          ? [['MOUSE', 'select system'], ['J', 'fold to target'], ['ESC', 'close']]
-          : [['ESC', 'close']];
+          ? [['MOUSE', t('k.selectSystem')], ['J', t('k.foldTo')], ['ESC', t('k.close')]]
+          : [['ESC', t('k.close')]];
       } else if (g.landed) {
         /* The ground has its own controls and used to borrow the flight row,
            which advertised a throttle, a scanner and an autopilot to somebody
            standing on a planet. */
         const seam = g.prospect && g.prospect.workable(g.landed.body);
         keys = g.landed.onFoot
-          ? [['WASD', 'walk'], ['MOUSE', 'look'], ['SHIFT', 'run'], ['E', 'board'], ['L', 'lift off']]
-          : [['E', 'step out'], ['L', 'lift off'], ['TAB', 'archive']];
-        if (!g.landed.onFoot && seam) keys.splice(1, 0, ['F', `mine ${seam.id}`]);
+          ? [['WASD', t('k.move')], ['MOUSE', t('k.look')], ['SHIFT', t('k.run')],
+            ['E', t('k.board')], ['L', t('k.liftOff')]]
+          : [['E', t('k.stepOut')], ['L', t('k.liftOff')], ['TAB', t('k.archive')]];
+        if (!g.landed.onFoot && seam) keys.splice(1, 0, ['F', `${t('k.mine')} ${seam.id}`]);
       } else if (g.mode === 'walk') {
-        keys = [['WASD', 'move'], ['MOUSE', 'look'], ['E', 'use'], ['SHIFT', 'run'],
-          ['V', 'outside view']];
+        keys = [['WASD', t('k.move')], ['MOUSE', t('k.look')], ['E', t('k.use')], ['SHIFT', t('k.run')],
+          ['V', t('k.outside')]];
       } else {
         /* V has always existed and has never been on this row, which is most of
            why the view "changed by itself" — the only other things that move it
            are sitting down and standing up. And free-look is quoted with the
            mouse button first: Alt is a modifier the window manager may eat, the
            right button is not, and both have always been wired to it. */
-        keys = [['MOUSE', 'fly'], ['W/S', 'throttle'], ['F', 'scan'], ['G', 'autopilot'],
-          ['J', 'fold'], ['RMB', 'look'], ['V', g.mode === 'exterior' ? 'cockpit' : 'chase cam'],
-          ['E', 'stand']];
-        if (canDock) keys.push(['L', 'dock']);
-        else if (canLand) keys.push(['L', 'land']);
-        if (canHail) keys.push(['C', 'hail']);
+        keys = [['MOUSE', t('k.fly')], ['W/S', t('k.throttle')], ['F', t('k.scan')],
+          ['G', t('k.autopilot')], ['J', t('k.fold')], ['RMB', t('k.look')],
+          ['V', g.mode === 'exterior' ? t('k.cockpit') : t('k.chase')], ['E', t('k.stand')]];
+        if (canDock) keys.push(['L', t('k.dock')]);
+        else if (canLand) keys.push(['L', t('k.land')]);
+        if (canHail) keys.push(['C', t('k.hail')]);
       }
       this.el.hints.innerHTML = keys.map(([k, v]) => `<span><kbd>${k}</kbd>${v}</span>`).join('');
       this._syncTouchLabels();

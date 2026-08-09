@@ -26,10 +26,10 @@ npm run build      # static bundle in dist/
 
 Forty thousand years ago nine hundred inhabited worlds inside an eighty
 light-year volume fell silent in four days. No debris, no radiation signature,
-no sign of violence. The Choir left their cities lit, their orbits tidy, their
+no sign of violence. The Hush left their cities lit, their orbits tidy, their
 archives open — and seven instruments standing in seven systems.
 
-You fly the survey vessel *Pale Seeker*, and you have to pay for the fuel.
+You fly the survey vessel *Long Margin*, and you have to pay for the fuel.
 
 **Trade.** Every station produces two commodities cheap and wants two dearly,
 dealt around a shuffled deck so that what one station makes its neighbour
@@ -46,7 +46,7 @@ A dock's board quotes other stations at the price as of *when a freighter last
 left there*, and the report says how old the news is. Outrun it and the margin
 is yours.
 
-**Four cultures, four postures.** The Institute holds the home cluster; the
+**Four cultures, four postures.** The Registry holds the home cluster; the
 Vess Combine, Korrim Lodges and Szethi Drift hold the deep. Hail one and the
 first thing you send is a stance — friendly, businesslike, obsequious or
 hostile — and it prices the whole conversation. Flatter a Vess trader and you

@@ -1,5 +1,6 @@
 import { mulberry32 } from '../world/generate.js';
 import { commodity, COMMODITIES } from '../econ/Economy.js';
+import { goodName } from '../ui/i18n.js';
 
 /* ============================================================================
    Contracts.
@@ -114,7 +115,7 @@ export class Contracts {
   }
 
   label(c) {
-    return `${c.qty} ${commodity(c.goodId).name} → ${c.toName}`;
+    return `${c.qty} ${goodName(c.goodId, commodity(c.goodId).name)} → ${c.toName}`;
   }
 
   save() {

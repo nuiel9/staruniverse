@@ -1,5 +1,5 @@
 /* ============================================================
-   THE LONG SILENCE — screen-space layer
+   STAR UNIVERSE — screen-space layer
 
    The dashboard carries the instruments. This file styles only what a
    person carries in their head: what they are looking at, what they
@@ -18,7 +18,13 @@
      colour at 8-9px with heavy tracking; at .48 on a near-black panel the
      whole UI read as placeholder text. */
   --dim:rgba(168,204,222,.66);
-  --mono:ui-monospace,"SF Mono",SFMono-Regular,"JetBrains Mono","Roboto Mono",Menlo,Consolas,monospace;
+  /* Thai faces appended to every stack: the project ships no downloaded
+     assets, so this is whatever the platform already has — Thonburi on macOS,
+     Leelawadee UI on Windows, Noto Sans Thai most other places. Without them
+     a Thai string falls back to a face with no Thai coverage and renders as
+     boxes. */
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,"JetBrains Mono","Roboto Mono",Menlo,Consolas,
+    "Noto Sans Thai","Leelawadee UI",Thonburi,"Sarabun",monospace;
   --safe-t:env(safe-area-inset-top,0px);
   --safe-b:env(safe-area-inset-bottom,0px);
   --safe-l:env(safe-area-inset-left,0px);
@@ -571,3 +577,74 @@ th.dk-num{text-align:right}
   letter-spacing: .06em;
   color: #9fb2bf;
 }
+
+
+/* ======================= LANGUAGE ======================= */
+.lang{display:flex;gap:1px;justify-content:center;margin-top:22px}
+.lang button{font-size:9.5px;letter-spacing:.22em;padding:5px 12px;
+  border:1px solid var(--line-s);color:rgba(168,204,222,.62);transition:.15s}
+.lang button:hover{color:var(--cy)}
+.lang button.on{color:#04121a;background:var(--cy);border-color:var(--cy)}
+.hud-lang{position:absolute;top:calc(18px + var(--safe-t));left:calc(26px + var(--safe-l));
+  margin:0;pointer-events:auto;opacity:.55;transition:opacity .2s}
+.hud-lang:hover{opacity:1}
+
+/* Thai typography.
+
+   Everything above is tuned for a Latin monospace in capitals with a quarter
+   of an em of tracking. Applied to Thai that styling is not a look, it is
+   damage: Thai has no capitals, it stacks vowels and tone marks above and
+   below the line, and — the real problem — it is written without spaces
+   between words, so the reader finds word boundaries by glyph shape. Tracking
+   the glyphs apart removes the only cue there is.
+
+   So under `lang=th`: no tracking, no forced capitals, and enough line-height
+   that the marks above and below have somewhere to sit. */
+html[lang="th"]{
+  --thai-lh:1.75;
+}
+html[lang="th"] body,
+html[lang="th"] .lg,
+html[lang="th"] .mk-lbl,
+html[lang="th"] .boot-sub,
+html[lang="th"] .boot-status,
+html[lang="th"] .boot-legal,
+html[lang="th"] .boot-start,
+html[lang="th"] #hints span,
+html[lang="th"] .dk-tag,
+html[lang="th"] .dk-hold,
+html[lang="th"] .dk-note,
+html[lang="th"] .dk-h3,
+html[lang="th"] .dk-act button,
+html[lang="th"] .dk-charts span,
+html[lang="th"] .dk-charts button,
+html[lang="th"] .dk-table th,
+html[lang="th"] .dk-name em,
+html[lang="th"] .dk-max,
+html[lang="th"] .dk-rep,
+html[lang="th"] .cm-line,
+html[lang="th"] .comms-acts button,
+html[lang="th"] .cx-grp,
+html[lang="th"] .cx-item,
+html[lang="th"] .cx-sub,
+html[lang="th"] .cx-h3,
+html[lang="th"] .cx-note,
+html[lang="th"] .cx-rmeta,
+html[lang="th"] .nv-head,
+html[lang="th"] .nv-rows b,
+html[lang="th"] .nv-rows span,
+html[lang="th"] .nv-banner,
+html[lang="th"] .nv-sub,
+html[lang="th"] .dk-sub{
+  letter-spacing:0;
+  text-transform:none;
+  line-height:var(--thai-lh);
+}
+/* Headings keep a little air, but nothing like the Latin tracking. */
+html[lang="th"] .boot-title{letter-spacing:.10em;text-indent:.10em}
+html[lang="th"] .cx-title,
+html[lang="th"] #navinfo h2,
+html[lang="th"] .p-head h2{letter-spacing:.04em}
+/* The rows are set in tabular numerals for alignment; Thai labels are not. */
+html[lang="th"] .nv-rows b{font-size:12px}
+html[lang="th"] .dk-table th{font-size:10px}

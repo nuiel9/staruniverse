@@ -4,7 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { makeInteriorMaterials, dressedVariant, withKitAo, emissive, emissiveWeld, bindGlass, INTERIOR_LAYER } from './interiorMaterials.js';
 
 /* ============================================================================
-   The habitable module of the Pale Seeker, built in metres.
+   The habitable module of the Long Margin, built in metres.
 
         -Z nose                                              +Z tail
    ┌──────────────┬──────────────┬──────────────────────────┐

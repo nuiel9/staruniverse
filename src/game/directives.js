@@ -4,7 +4,7 @@
    The complaint that a sandbox is "boring" is almost always a complaint that
    nothing tells you what the next interesting thing is. So there is always
    exactly one active directive; it names a concrete next action, it is visible
-   on the dashboard, and completing it pays out something you can see: a Canto,
+   on the dashboard, and completing it pays out something you can see: a Tone,
    a recovered log, or a measurable upgrade to the ship.
 
    The chain also doubles as the tutorial — the first four steps happen to teach
@@ -31,8 +31,8 @@ export const CHAIN = [
     hint: 'The pilot seat is forward, through the corridor.',
     check: (g) => g.mode === 'pilot',
     onDone: (g) => {
-      g.hud.narrate('Drive is warm. Scanner is yours. Find me something, Seeker.',
-        'INSTITUTE RELAY');
+      g.hud.narrate('Drive is warm. Scanner is yours. Find me something, captain.',
+        'REGISTRY RELAY');
     },
   },
   {
@@ -42,8 +42,8 @@ export const CHAIN = [
     hint: 'Put a body in the reticle and hold F.',
     check: (g) => bodiesScannedHere(g) >= 1,
     onDone: (g) => {
-      g.hud.narrate('Logged. Every body you catalogue narrows where the Choir went.',
-        'INSTITUTE RELAY');
+      g.hud.narrate('Logged. Every body you catalogue narrows where the Hush went.',
+        'REGISTRY RELAY');
       g.grantUpgrade('scanner');
     },
   },
@@ -56,15 +56,15 @@ export const CHAIN = [
     progress: (g) => bodiesScannedHere(g),
     check: (g) => bodiesScannedHere(g) >= 3,
     onDone: (g) => {
-      g.revealResonator();
-      g.hud.narrate('Triangulation holds. There is a Resonator in this system — bearing marked.',
-        'INSTITUTE RELAY');
+      g.revealTine();
+      g.hud.narrate('Triangulation holds. There is a Tine in this system — bearing marked.',
+        'REGISTRY RELAY');
       g.grantUpgrade('range');
     },
   },
   {
     id: 'resonator',
-    short: 'Reach the Resonator',
+    short: 'Reach the Tine',
     full: 'INVESTIGATE THE RESONANCE',
     hint: 'It is marked on the tactical plate. Scan it.',
     check: (g) => g.cantos.length >= 1,
@@ -72,13 +72,13 @@ export const CHAIN = [
   },
   {
     id: 'chamber',
-    short: 'Seat the Canto in the resonance chamber',
+    short: 'Seat the Tone in the resonance chamber',
     full: 'RETURN TO THE CHAMBER',
     hint: 'Leave the helm and walk aft.',
     check: (g) => g.chamberVisits >= 1,
     onDone: (g) => {
       g.hud.narrate('One of seven. The chamber remembers the rest of the shape.',
-        'PALE SEEKER');
+        'LONG MARGIN');
       g.grantUpgrade('thrust');
     },
   },
@@ -89,8 +89,8 @@ export const CHAIN = [
     hint: 'Use the navigation table in the habitat.',
     check: (g) => g.galaxy.filter((s) => s.visited).length >= 2,
     onDone: (g) => {
-      g.hud.narrate('Every system in the Silence holds part of the record. Keep going.',
-        'INSTITUTE RELAY');
+      g.hud.narrate('Every system in the Stillness holds part of the record. Keep going.',
+        'REGISTRY RELAY');
     },
   },
 ];
@@ -99,7 +99,7 @@ export const CHAIN = [
 function proceduralDirective(g) {
   const res = g.anomalies.find((a) => a.anomalyType === 'resonator' && !a.scanned);
   if (res && g.resonatorRevealed) {
-    return { id: 'res:' + res.id, short: `Attune ${res.name}`, full: 'ATTUNE THE RESONATOR', hint: 'Scan it.' };
+    return { id: 'res:' + res.id, short: `Attune ${res.name}`, full: 'ATTUNE THE TINE', hint: 'Scan it.' };
   }
   const unscanned = g.bodies.filter((b) => !b.scanned && b.kind !== 'anomaly').length;
   if (unscanned > 0 && bodiesScannedHere(g) < 3) {
@@ -107,7 +107,7 @@ function proceduralDirective(g) {
       id: 'survey:' + g.currentSystemId,
       short: `Survey this system`,
       full: 'CONTINUE THE SURVEY',
-      hint: 'Three bodies reveals any Resonator here.',
+      hint: 'Three bodies reveals any Tine here.',
       total: 3, done: bodiesScannedHere(g),
     };
   }
@@ -124,7 +124,7 @@ function proceduralDirective(g) {
       hint: 'Use the navigation table.',
     };
   }
-  return { id: 'done', short: 'Attune all seven Resonators', full: 'THE APERTURE', hint: '' };
+  return { id: 'done', short: 'Attune all seven Tines', full: 'THE APERTURE', hint: '' };
 }
 
 export class Directives {

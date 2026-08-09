@@ -13,7 +13,7 @@ import { AsteroidField } from '../world/Asteroids.js';
 import { Fleet } from '../world/Fleet.js';
 import { buildStation } from '../world/Station.js';
 import { Surface } from '../world/Surface.js';
-import { buildResonator, buildDerelict, buildWreck, buildBeacon } from '../world/Structures.js';
+import { buildTine, buildDerelict, buildWreck, buildBeacon } from '../world/Structures.js';
 import { Ship } from '../ship/Ship.js';
 import { HULL_LIGHT } from '../gfx/greeble.js';
 import { buildInterior, INTERIOR_LAYER } from '../ship/Interior.js';
@@ -43,7 +43,7 @@ import { Director, SEQUENCES } from './Director.js';
 import { Encounters } from './encounters.js';
 
 const ORBIT_TIME = 1;            // orbit rates are already tuned in generate.js
-const RESONATOR_COUNT = 7;
+const TINE_COUNT = 7;
 
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -240,11 +240,11 @@ export class Game {
     // And who owns which patch of it.
     this.territory = assignTerritories(this.galaxy, this.galaxySeed);
 
-    // seven systems hold Resonators; the first is always reachable early
+    // seven systems hold Tines; the first is always reachable early
     const rr = mulberry32(this.galaxySeed ^ 0x9e37);
     const ids = this.galaxy.map((s) => s.id);
     for (let i = ids.length - 1; i > 0; i--) { const j = Math.floor(rr() * (i + 1)); [ids[i], ids[j]] = [ids[j], ids[i]]; }
-    this.resonatorSystems = new Set([0, ...ids.filter((i) => i !== 0).slice(0, RESONATOR_COUNT - 1)]);
+    this.resonatorSystems = new Set([0, ...ids.filter((i) => i !== 0).slice(0, TINE_COUNT - 1)]);
 
     await frame();
     P(0.18, 'painting the deep field');
@@ -267,7 +267,7 @@ export class Game {
     this.scene.add(this.starField);
 
     await frame();
-    P(0.58, 'assembling PALE SEEKER');
+    P(0.58, 'assembling LONG MARGIN');
     this.ship = new Ship();
     this.scene.add(this.ship.object);
 
@@ -378,7 +378,7 @@ export class Game {
 
     /* The roaming practical.
        Emissive geometry in this renderer emits nothing — a station's floods and
-       a Resonator's vanes were bright rectangles that left the hull parked
+       a Tine's vanes were bright rectangles that left the hull parked
        beside them completely unlit, which reads as a decal rather than a light.
        A forward renderer charges for every light on every material, so there is
        exactly one of these and it snaps to whichever emissive set-piece is
@@ -664,9 +664,9 @@ export class Game {
 
       let obj, scale, name, kind = a.type;
       if (a.type === 'resonator') {
-        obj = buildResonator(stub.seed + idx, this.nebula.texture);
+        obj = buildTine(stub.seed + idx, this.nebula.texture);
         scale = 1.0;
-        name = `RESONATOR ${romanize(this.resonatorIndexFor(stub.id))}`;
+        name = `TINE ${romanize(this.resonatorIndexFor(stub.id))}`;
       } else if (a.type === 'derelict') {
         obj = buildDerelict(stub.seed + idx * 31, this.nebula.texture);
         scale = 2.6;
@@ -1053,7 +1053,7 @@ export class Game {
 
   /* ------------------------------------------------------------ hailing */
 
-  /** The nearest crewed, unspent contact close enough to talk to. The Choir
+  /** The nearest crewed, unspent contact close enough to talk to. The Hush
    *  do not answer and drones have nothing to say. */
   canHail() {
     if (this.landed || this.transition || this.comms.open || this.dock.open) return null;
@@ -2121,14 +2121,14 @@ export class Game {
     this.audio.ping('objective');
   }
 
-  /** Surveying enough of a system exposes the Resonator hiding in it. */
-  revealResonator() {
+  /** Surveying enough of a system exposes the Tine hiding in it. */
+  revealTine() {
     this.resonatorRevealed = true;
     const r = this.anomalies.find((a) => a.anomalyType === 'resonator');
     if (r) { this.target = r; this.hud.log(`RESONANCE BEARING · ${r.name}`, 'hi'); }
   }
 
-  /** Light one socket in the chamber per Canto held. */
+  /** Light one socket in the chamber per Tone held. */
   updateChamber(dt) {
     const n = this.cantos.length;
     const t = this.time;
@@ -2504,7 +2504,7 @@ export class Game {
     if (ud.kind === 'beacon' && ud.lamp) {
       /* Scale the builder's colour, do not invent one. This hard-coded a
          saturated green every frame — brushing the rule that pale gold-green
-         is reserved for Choir artefacts, on a piece of human navigation kit —
+         is reserved for Hush artefacts, on a piece of human navigation kit —
          and it silently overwrote the builder's own choice, so fixing the hue
          where the beacon is made had no effect at all. */
       const p = 0.5 + 0.5 * Math.sin(this.time * 3.1);
@@ -2837,7 +2837,7 @@ export class Game {
       case 'resonance':
         this.chamberVisits++;
         if (this.cantos.length) { this.codex.show('canto:' + this.cantos[this.cantos.length - 1]); }
-        else this.hud.narrate('Seven sockets. All of them empty, all of them warm.', 'PALE SEEKER');
+        else this.hud.narrate('Seven sockets. All of them empty, all of them warm.', 'LONG MARGIN');
         break;
       case 'port': this.hud.narrate(this.portLine(), 'OBSERVATION'); break;
       default: break;
@@ -3051,7 +3051,7 @@ export class Game {
         this.state.resonance = this.cantos.length;
         const seq = SEQUENCES.attune(this, b);
         this.director.play('attune:' + b.id, seq.shots, { title: seq.title, sub: seq.sub });
-        this.hud.narrate(CANTOS[idx].q, 'RESONATOR');
+        this.hud.narrate(CANTOS[idx].q, 'TINE');
         this.hud.log(`ATTUNED · ${CANTOS[idx].title}`, 'hi');
         this.audio.ping('resonate');
         this.ship.maxSpeed *= 1.09;
@@ -3075,8 +3075,8 @@ export class Game {
        because the fuel was real, the mining was work, and nobody ever said
        what lucent was. */
     this.hud.narrate('You are inside the instrument. You have been burning them to move.',
-      'THE SEVENTH CANTO');
-    this.hud.log('APERTURE RESOLVED · THE CHOIR ARE STILL LISTENING', 'hi');
+      'THE SEVENTH TONE');
+    this.hud.log('APERTURE RESOLVED · THE HUSH ARE STILL LISTENING', 'hi');
     this.codex?.show('question');
   }
 
@@ -3333,7 +3333,7 @@ export class Game {
       el: THREE.MathUtils.degToRad(o.el ?? 16),
       fov: o.fov ?? 42,
     };
-    return this.inspectMode.ref ? this.inspectMode.ref.name : 'PALE SEEKER';
+    return this.inspectMode.ref ? this.inspectMode.ref.name : 'LONG MARGIN';
   }
 
   /** Verification aid: toggle individual render layers on/off. */
@@ -3631,7 +3631,7 @@ export class Game {
      from its kind, so a station without the field is still not a box of bright
      rectangles that lights nothing.
 
-     Not `userData.glow`: the Resonator has used that name for a THREE.Color
+     Not `userData.glow`: the Tine has used that name for a THREE.Color
      since long before this existed.
 
      `intensity` in the contract is irradiance at `radius`; three's point light
@@ -3667,7 +3667,7 @@ export class Game {
     for (const b of this.anomalies) {
       if (b.glowSpec === undefined) {
         b.glowSpec = readPractical(b.obj)
-          // Resonators are the one anomaly bright enough to matter if the
+          // Tines are the one anomaly bright enough to matter if the
           // builder has not published a spec. The rest are dead and dark.
           || (b.anomalyType === 'resonator'
             // Lerped well toward white. A saturated hue at practical strength

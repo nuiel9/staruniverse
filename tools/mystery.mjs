@@ -66,7 +66,7 @@ const claims = await page.evaluate(() => {
   const g = window.__game;
   const said = [];
   for (const sp of ['institute', 'vess', 'korrim', 'szethi']) {
-    // Ask each culture until it volunteers its account of the Silence.
+    // Ask each culture until it volunteers its account of the Stillness.
     for (let i = 0; i < 60; i++) {
       const r = g.rumors.generate(sp, 900 + i * 37);
       if (r && r.kind === 'origin') { g.rumors.hear(r); said.push({ sp, claim: r.claim, truth: r.truth }); break; }
@@ -97,7 +97,7 @@ const gates = await page.evaluate(() => {
   M.update();
   out.afterClaims = [...M.found];
 
-  // Resonators.
+  // Tines.
   g.cantos = ['canto1'];
   M.update();
   out.oneCanto = M.found.has('instrument');
@@ -141,7 +141,7 @@ const gates = await page.evaluate(() => {
 });
 check('contradiction alone unlocks the second reading',
   gates.afterClaims.includes('notdead'), gates.afterClaims.join(', ') || 'none');
-check('one Resonator is not two', gates.oneCanto === false && gates.twoCantos === true);
+check('one Tine is not two', gates.oneCanto === false && gates.twoCantos === true);
 check('eleven tonnes of lucent is not twelve',
   gates.elevenBurned === false && gates.twelveBurned === true);
 check('the seventh Canto ends it', gates.ending && !!gates.narrated,

@@ -8,7 +8,7 @@ import { CLAIMS } from './Mystery.js';
 
    A rumor is *structured data wearing prose*: every one is generated against
    the real world state — a station that genuinely pays a premium, a lane that
-   genuinely runs clear, a system that genuinely holds a Resonator — and then
+   genuinely runs clear, a system that genuinely holds a Tine — and then
    a truthfulness roll decides whether the teller repeats it straight or bends
    it. A bent rumor still names real places; it just lies about them. That is
    what makes cross-referencing worth doing.
@@ -96,7 +96,7 @@ export class Rumors {
     };
   }
 
-  /* What this culture believes happened to the Choir. Every species has an
+  /* What this culture believes happened to the Hush. Every species has an
      answer and every answer is delivered with total confidence; only one is
      right, and the rumor carries no flag saying which. Corroboration in the
      ledger is the player's only instrument, and it measures *agreement*, not

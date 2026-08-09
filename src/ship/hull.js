@@ -7,7 +7,7 @@ import {
 import { LOGD_V_PARS, LOGD_V, LOGD_F_PARS, LOGD_F } from '../gfx/glsl/noise.js';
 
 /* ============================================================================
-   PALE SEEKER — the hull.
+   LONG MARGIN — the hull.
 
    A long-duration survey vessel, modelled in metres and scaled to world units
    (1 unit = 1 km) at the very end. Read the silhouette front to back:

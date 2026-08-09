@@ -1,6 +1,7 @@
 import { mulberry32 } from '../world/generate.js';
 import { commodity } from '../econ/Economy.js';
 import { SPECIES, VOICE, POSTURES, postureFit } from './Species.js';
+import { t, goodName } from '../ui/i18n.js';
 
 /* ============================================================================
    Comms: hailing a ship and talking to whoever answers.
@@ -50,7 +51,7 @@ export class Comms {
     });
   }
 
-  /** Species of a contact: patrols and Institute hulls answer to the
+  /** Species of a contact: patrols and Registry hulls answer to the
    *  registry wherever they fly; everyone else answers to whoever owns the
    *  system's sky. */
   speciesOf(contact) {
@@ -74,10 +75,10 @@ export class Comms {
     this.open = true;
     this.root.classList.remove('hidden', 'closing');
     this.head.textContent = contact.name;
-    this.sub.textContent = `${sp.name} · CHANNEL OPEN`;
+    this.sub.textContent = `${sp.name} · ${t('comms.open')}`;
     this.feed.innerHTML = '';
-    this._line(`Hailing ${contact.name}. They are listening. Choose how you open.`, 'sys');
-    this._buttons(POSTURES.map((p) => ({ do: 'posture', arg: p, label: p.toUpperCase() })));
+    this._line(t('comms.hailing', { '%N': contact.name }), 'sys');
+    this._buttons(POSTURES.map((p) => ({ do: 'posture', arg: p, label: t(`comms.${p}`) })));
     g.audio.ping('ui');
   }
 
@@ -85,7 +86,7 @@ export class Comms {
   _makeOffer(sp, seed) {
     const rnd = mulberry32((seed ^ 0x0ffe12) >>> 0);
     const ids = Object.keys(sp.bias);
-    if (!ids.length) return null;                    // the Institute doesn't deal
+    if (!ids.length) return null;                    // the Registry doesn't deal
     const id = ids[Math.floor(rnd() * ids.length)];
     const bias = sp.bias[id];
     const mode = bias > 1 ? 'buy' : 'sell';          // they buy what they overvalue
@@ -110,15 +111,15 @@ export class Comms {
   _menu() {
     const s = this.state;
     const list = [];
-    if (!s.rumorGiven) list.push({ do: 'ask', label: 'ASK FOR NEWS' });
+    if (!s.rumorGiven) list.push({ do: 'ask', label: t('comms.ask') });
     if (s.offer && s.fit > CUT) {
-      const noun = commodity(s.offer.id).name.toUpperCase();
+      const noun = goodName(s.offer.id, commodity(s.offer.id).name).toUpperCase();
       list.push({
         do: 'trade',
-        label: s.offer.mode === 'sell' ? `THEY SELL ${s.offer.qty} ${noun}` : `THEY BUY ${s.offer.qty} ${noun}`,
+        label: `${s.offer.mode === 'sell' ? t('comms.theySell') : t('comms.theyBuy')} ${s.offer.qty} ${noun}`,
       });
     }
-    list.push({ do: 'end', label: 'BREAK CONTACT' });
+    list.push({ do: 'end', label: t('comms.end') });
     this._buttons(list);
   }
 
@@ -154,12 +155,12 @@ export class Comms {
         } else if (s.fit >= WARM) {
           g.rumors.hear(rumor);
           this._line(fmt(v.rumorGive, rumor.text), 'them');
-          this._line('Filed to the rumor ledger.', 'sys');
+          this._line(t('comms.filed'), 'sys');
         } else {
           const fee = 20 + Math.floor(s.rnd() * 40);
           if (g.economy.credits < fee) {
             this._line(fmt(v.rumorPaid, fee), 'them');
-            this._line('You cannot cover the fee.', 'sys');
+            this._line(t('comms.cannotPay'), 'sys');
           } else {
             g.economy.credits -= fee;
             g.economy.save();
@@ -175,7 +176,7 @@ export class Comms {
     if (what === 'trade') {
       if (!s.offer) { this._line(v.tradeOpen, 'them'); return this._menu(); }
       const o = s.offer;
-      const noun = commodity(o.id).name.toLowerCase();
+      const noun = goodName(o.id, commodity(o.id).name).toLowerCase();
       // Their walk starts padded away from a reservation you never see.
       const res = o.fair * o.bias * (o.mode === 'sell' ? 0.95 - 0.03 * s.fit : 1.05 + 0.03 * s.fit);
       const pad = 0.30 + 0.25 * s.sp.stubborn - 0.05 * s.fit;
@@ -184,9 +185,9 @@ export class Comms {
       s.rounds = 0;
       this._line(fmt(o.mode === 'sell' ? v.tradeSell : v.tradeBuy, o.qty, noun, s.price), 'them');
       return this._buttons([
-        { do: 'accept', label: `ACCEPT · ${s.price}/u` },
-        { do: 'counter', label: 'COUNTER' },
-        { do: 'walk', label: 'WALK AWAY' },
+        { do: 'accept', label: `${t('comms.accept')} · ${s.price}/u` },
+        { do: 'counter', label: t('comms.counter') },
+        { do: 'walk', label: t('comms.walk') },
       ]);
     }
 
@@ -205,29 +206,29 @@ export class Comms {
       if (s.rounds >= patience || !moved) {
         this._line(fmt(VOICE[s.sp.id].counterBad, s.price), 'them');
         return this._buttons([
-          { do: 'accept', label: `ACCEPT · ${s.price}/u` },
-          { do: 'walk', label: 'WALK AWAY' },
+          { do: 'accept', label: `${t('comms.accept')} · ${s.price}/u` },
+          { do: 'walk', label: t('comms.walk') },
         ]);
       }
       this._line(fmt(VOICE[s.sp.id].counterGood, s.price), 'them');
       return this._buttons([
-        { do: 'accept', label: `ACCEPT · ${s.price}/u` },
-        { do: 'counter', label: 'COUNTER' },
-        { do: 'walk', label: 'WALK AWAY' },
+        { do: 'accept', label: `${t('comms.accept')} · ${s.price}/u` },
+        { do: 'counter', label: t('comms.counter') },
+        { do: 'walk', label: t('comms.walk') },
       ]);
     }
 
     if (what === 'accept') {
       const o = s.offer;
       const eco = g.economy;
-      const noun = commodity(o.id).name;
+      const noun = goodName(o.id, commodity(o.id).name);
       if (o.mode === 'sell') {
         const room = eco.cargoCap - eco.cargoUsed();
         const afford = Math.floor(eco.credits / s.price);
         const n = Math.min(o.qty, room, afford);
         if (n <= 0) {
           this._line(`You cannot take the lot — ${room <= 0 ? 'hold is full' : 'ledger is short'}.`, 'sys');
-          return this._buttons([{ do: 'walk', label: 'WALK AWAY' }]);
+          return this._buttons([{ do: 'walk', label: t('comms.walk') }]);
         }
         eco.credits -= n * s.price;
         eco.cargo[o.id] = (eco.cargo[o.id] || 0) + n;
@@ -238,7 +239,7 @@ export class Comms {
         const n = Math.min(o.qty, held);
         if (n <= 0) {
           this._line(`You hold no ${noun.toLowerCase()} to sell.`, 'sys');
-          return this._buttons([{ do: 'walk', label: 'WALK AWAY' }]);
+          return this._buttons([{ do: 'walk', label: t('comms.walk') }]);
         }
         eco.cargo[o.id] = held - n;
         if (!eco.cargo[o.id]) delete eco.cargo[o.id];
@@ -267,7 +268,7 @@ export class Comms {
     if (s.contact.craft) s.contact.craft.talked = true;    // channel spent
     s.done = true;
     this._line(VOICE[s.sp.id].farewell, 'them');
-    this._buttons([{ do: 'close', label: 'CLOSE CHANNEL' }]);
+    this._buttons([{ do: 'close', label: t('comms.close') }]);
     g.audio.ping('ui');
   }
 

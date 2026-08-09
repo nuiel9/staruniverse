@@ -8,25 +8,25 @@
    Starflight did: nobody hands you the story. Four cultures each hold a piece
    and each one is *certain*, and three of the four are wrong in a way that is
    still useful. What you get is evidence — corroborated hearsay, attuned
-   Resonators, worlds you scanned, lucent you burned — and the Archive does the
+   Tines, worlds you scanned, lucent you burned — and the Archive does the
    clerking. The believing is yours.
 
    The shape of it, which the player assembles rather than reads:
 
-     The Choir did not die and were not killed. They were *listening* for
-     something, and the seven Resonators are one instrument in seven pieces,
+     The Hush did not die and were not killed. They were *listening* for
+     something, and the seven Tines are one instrument in seven pieces,
      tuned across eighty light-years because that is the aperture a wave that
      long requires. When the thing they were listening for finally arrived,
      they did the only thing that would let them hear it properly: they stopped
      being matter that scatters it.
 
      Nine hundred worlds of civilisation, converted, is the nebula. You have
-     been flying through them. The dust that chokes your drive is the Choir.
+     been flying through them. The dust that chokes your drive is the Hush.
 
      And lucent — the fuel, the thing you mine out of dead worlds and burn to
      cross the dark, the reason anyone comes out this far — is what they leave
      where they were densest. Every jump you have made has been powered by
-     somebody. The Institute prices it at fourteen credits the tonne.
+     somebody. The Registry prices it at fourteen credits the tonne.
 
    That last turn is why the fuel had to be a real resource in M4 before this
    milestone could land. The twist only works on a player who has spent hours
@@ -44,16 +44,16 @@ export const CLAIMS = {
   institute: {
     species: 'institute',
     claim: 'weapon',
-    text: 'Institute position: the Silence was an event, not an act. Something '
-      + 'passed through and the Choir were in its way. Nine hundred worlds is '
+    text: 'Registry position: the Stillness was an event, not an act. Something '
+      + 'passed through and the Hush were in its way. Nine hundred worlds is '
       + 'what a weapon looks like when nobody survives to name it.',
     truth: false,
   },
   vess: {
     species: 'vess',
     claim: 'exodus',
-    text: 'The Combine holds that the Choir simply left — packed nine hundred '
-      + 'worlds into whatever they built the Resonators to open, and went. The '
+    text: 'The Combine holds that the Hush simply left — packed nine hundred '
+      + 'worlds into whatever they built the Tines to open, and went. The '
       + 'dust is what they did not take. There is no mystery, only freight.',
     truth: false,
   },
@@ -68,7 +68,7 @@ export const CLAIMS = {
   szethi: {
     species: 'szethi',
     claim: 'listening',
-    text: 'The Drift says the Choir are not gone and were never buried. They '
+    text: 'The Drift says the Hush are not gone and were never buried. They '
       + 'went thin on purpose, to hear something that only arrives once, and '
       + 'the nebula is the shape they took to hear it. The Drift does not '
       + 'expect to be believed.',
@@ -86,18 +86,18 @@ export const REVELATIONS = [
   {
     id: 'instrument',
     title: 'One instrument, in seven pieces',
-    need: 'Attune two Resonators',
+    need: 'Attune two Tines',
     test: (g) => g.cantos.length >= 2,
-    text: 'The Resonators are not seven devices. Their harmonics are the same '
+    text: 'The Tines are not seven devices. Their harmonics are the same '
       + 'harmonics, phase-shifted by exactly the light-time between them: they '
       + 'are one instrument, strung across eighty light-years, because that is '
-      + 'the aperture a wave that long needs. Whatever the Choir built this to '
+      + 'the aperture a wave that long needs. Whatever the Hush built this to '
       + 'hear, it was not local and it was not quick.',
   },
   {
     id: 'notdead',
     title: 'Nobody died here',
-    need: 'Hear two different accounts of the Silence',
+    need: 'Hear two different accounts of the Stillness',
     test: (g) => g.mystery.distinctClaims().length >= 2,
     text: 'Every account contradicts every other, but they all share a hole: '
       + 'no remains. Not a body, not a grave, not a ship left in a parking '
@@ -110,7 +110,7 @@ export const REVELATIONS = [
     title: 'The dust is not dust',
     need: 'Chart six lanes and scan four worlds',
     test: (g) => g.lanes.charted.size >= 6 && g.discoveries.size >= 4,
-    text: 'Run the density field against the Choir census and the correlation '
+    text: 'Run the density field against the Hush census and the correlation '
       + 'is not subtle: the nebula is thickest exactly where the population '
       + 'was. Not near it. Not around it. *At* it, world for world, to the '
       + 'decimal. You have been flying through them for hours.',
@@ -124,17 +124,17 @@ export const REVELATIONS = [
       + 'cities were. It is not a mineral and it does not form. It is residue, '
       + 'and its lattice carries structure that is periodic in a way nothing '
       + 'geological is. Every fold you have made was powered by somebody. The '
-      + 'Institute prices it at fourteen credits the tonne, and the yards will '
+      + 'Registry prices it at fourteen credits the tonne, and the yards will '
       + 'sell you a bigger tank.',
   },
   {
     id: 'aperture',
     title: 'The Aperture was never a door',
-    need: 'Attune all seven Resonators',
+    need: 'Attune all seven Tines',
     test: (g) => g.cantos.length >= 7,
-    text: 'The seventh Canto completes the phase and the instrument finally '
+    text: 'The seventh Tone completes the phase and the instrument finally '
       + 'resolves what it was built to hear — and it is not a signal. It is '
-      + 'the sound of the Choir, still listening, spread thin across eighty '
+      + 'the sound of the Hush, still listening, spread thin across eighty '
       + 'light-years, waiting for a thing that has not arrived yet. The '
       + 'Aperture does not open. It is the ear. You are standing inside it, '
       + 'and it has been open the whole time.',

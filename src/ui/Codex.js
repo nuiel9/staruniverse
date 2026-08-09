@@ -1,7 +1,8 @@
 import { CANTOS, LOGS, TYPE_INFO, STAR_INFO, ANOMALY_INFO } from '../game/lore.js';
 import { fmtDist } from './HUD.js';
+import { t, onLangChange } from './i18n.js';
 
-/* The archive: everything you have scanned, plus everything the Choir left. */
+/* The archive: everything you have scanned, plus everything the Hush left. */
 
 export class Codex {
   constructor(game) {
@@ -12,6 +13,7 @@ export class Codex {
     this.open = false;
     this.sel = 'overview';
     this.dirty = true;
+    onLangChange(() => this.markDirty());
   }
 
   markDirty() { this.dirty = true; if (this.open) this.render(); }
@@ -53,30 +55,30 @@ export class Codex {
 
     const groups = [
       {
-        title: 'SURVEY', items: [
+        title: t('cx.survey'), items: [
           { id: 'overview', label: 'Expedition' },
           ...scanned.map((b) => ({ id: 'body:' + b.id, label: b.name })),
         ],
       },
       {
-        title: 'THE CANTOS', items: CANTOS.map((c, i) => ({
+        title: t('cx.cantos'), items: CANTOS.map((c, i) => ({
           id: 'canto:' + c.id, label: c.title,
           locked: !g.cantos.includes(c.id),
         })),
       },
       {
-        title: 'RECORDS', items: LOGS.map((l) => ({
+        title: t('cx.records'), items: LOGS.map((l) => ({
           id: 'log:' + l.id, label: l.title, locked: !g.logsFound.has(l.id),
         })),
       },
       ...(g.mystery ? [{
-        title: 'THE QUESTION', items: [{
+        title: t('cx.question'), items: [{
           id: 'question',
-          label: `Why is there a nebula here? (${g.mystery.found.size}/5)`,
+          label: `${t('cx.questionLabel')} (${g.mystery.found.size}/5)`,
         }],
       }] : []),
       ...(g.rumors && g.rumors.heard.length ? [{
-        title: 'RUMOR LEDGER', items: [{ id: 'rumors', label: `What the nebula says (${g.rumors.heard.length})` }],
+        title: t('cx.rumors'), items: [{ id: 'rumors', label: `${t('cx.rumorsLabel')} (${g.rumors.heard.length})` }],
       }] : []),
     ];
 
@@ -105,8 +107,8 @@ export class Codex {
       const total = g.galaxy.length;
       const visited = g.galaxy.filter((s) => s.visited).length;
       return `
-        <h1 class="cx-title">THE LONG SILENCE</h1>
-        <div class="cx-sub">DEEP SURVEY VESSEL PALE SEEKER · COMMISSION 1101</div>
+        <h1 class="cx-title">STAR UNIVERSE</h1>
+        <div class="cx-sub">DEEP SURVEY VESSEL LONG MARGIN · COMMISSION 1101</div>
         <div class="cx-stats">
           ${stat('SYSTEMS CHARTED', `${visited} / ${total}`)}
           ${stat('LANES SURVEYED', `${g.lanes.charted.size} / ${g.lanes.edges.size}`)}
@@ -121,8 +123,8 @@ export class Codex {
           <p>Forty thousand years ago, nine hundred inhabited worlds fell silent inside a
           volume of space eighty light-years across. No debris. No radiation signature.
           No sign of violence at any scale we can measure.</p>
-          <p>The Choir left their cities lit and their orbits tidy, and they left seven
-          instruments — the Resonators — standing in seven systems.</p>
+          <p>The Hush left their cities lit and their orbits tidy, and they left seven
+          instruments — the Tines — standing in seven systems.</p>
           <p class="q">Chart what you can. Scan what you find. Attune what will let you.</p>
         </div>`;
     }
@@ -150,14 +152,14 @@ export class Codex {
             <div class="cx-rmeta">${c.sources.join(' · ').toUpperCase()}
               ${said.length > 1 ? ' · <b class="cx-contest">CONTESTED</b>' : ' · unchallenged so far'}</div>
           </div>`).join('')
-        : '<div class="cx-note">Nobody has told you anything about the Silence yet. '
+        : '<div class="cx-note">Nobody has told you anything about the Hush yet. '
           + 'Hail somebody and ask for news.</div>';
 
       return `<h1 class="cx-title">THE QUESTION</h1>
         <div class="cx-sub">WHY IS THERE A NEBULA HERE?</div>
         <div class="cx-stats">
           ${stat('UNDERSTOOD', `${M.found.size} / 5`)}
-          ${stat('RESONATORS', `${g.cantos.length} / 7`)}
+          ${stat('TINES', `${g.cantos.length} / 7`)}
           ${stat('LUCENT BURNED', `${Math.round(M.lucentBurned)} t`)}
           ${stat('ACCOUNTS HEARD', said.length)}
         </div>
@@ -233,16 +235,16 @@ export class Codex {
       /* What the scan found underneath. This is the whole return on the
          scanner: before it, a world is a colour; after it, a manifest. */
       const deps = g.prospect ? g.prospect.deposits(b) : [];
-      const depBlock = deps.length ? `<h3 class="cx-h3">SUBSURFACE SURVEY</h3>
+      const depBlock = deps.length ? `<h3 class="cx-h3">${t('cx.deposits')}</h3>
         <div class="cx-deps">${deps.map((dep) => {
     const left = g.prospect.remaining(b, dep);
     return `<div class="cx-dep${left ? '' : ' spent'}">
             <b>${dep.id.toUpperCase()}</b>
-            <span>${left ? `${left} t ${dep.grade}` : 'worked out'}</span>
-            <em>bearing ${dep.bearing}°</em></div>`;
+            <span>${left ? `${left} t ${dep.grade}` : t('cx.workedOut')}</span>
+            <em>${t('cx.bearing')} ${dep.bearing}°</em></div>`;
   }).join('')}</div>
         <div class="cx-note">Set down and hold <kbd>F</kbd> to work a seam.</div>`
-        : '<h3 class="cx-h3">SUBSURFACE SURVEY</h3><div class="cx-note">Nothing worth the fuel.</div>';
+        : `<h3 class="cx-h3">${t('cx.deposits')}</h3><div class="cx-note">${t('cx.nothingWorth')}</div>`;
       return `<h1 class="cx-title">${b.name.toUpperCase()}</h1>
         <div class="cx-sub">${info.label.toUpperCase()}${b.kind === 'moon' ? ' · SATELLITE' : ''}</div>
         <div class="cx-stats">

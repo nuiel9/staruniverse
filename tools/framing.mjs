@@ -60,7 +60,7 @@ fs.mkdirSync(OUT, { recursive: true });
 
    So: paint the whole world a saturated green and hide everything in it. Green
    appears nowhere in the cabin (the one reserved hue in this game is a pale
-   gold-green used only on Choir artefacts, and none are aboard). Anything that
+   gold-green used only on Hush artefacts, and none are aboard). Anything that
    comes back green-dominant is a pixel the canopy let through. Hue survives any
    exposure the tonemap picks, which is the entire point. */
 await page.evaluate(() => {

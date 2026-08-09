@@ -572,7 +572,7 @@ export function generateSystem(stub) {
   }
 
   // The origin system always gets a living world — first impressions matter,
-  // and the whole premise needs somewhere the Choir could actually have lived.
+  // and the whole premise needs somewhere the Hush could actually have lived.
   if (stub.forceHabitable && !planets.some((p) => p.type === 'terran')) {
     let bi = 0, bd = Infinity;
     planets.forEach((p, i) => {

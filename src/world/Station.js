@@ -1294,7 +1294,7 @@ export function buildStation(seed, o = {}) {
        ship whose own hull bounces light back into everything it occludes. A
        five hundred metre structure occludes far more of the sky than it
        returns, so the *measured* fill was a third of what the same paint gets
-       on the Seeker. This is the number that decides whether the dark half of
+       on the Long Margin. This is the number that decides whether the dark half of
        the wheel is a shadow or a hole. */
     if (dead) continue;      // the corpse's whole read is that it is darker
     for (const k of ['paint', 'structure', 'metal', 'panel', 'accent']) {

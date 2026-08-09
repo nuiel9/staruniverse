@@ -3,6 +3,7 @@ import { holoMat } from './Cockpit.js';
 import { INTERIOR_LAYER } from './interiorMaterials.js';
 import { LOGD_V_PARS, LOGD_V } from '../gfx/glsl/noise.js';
 import { kelvinColor } from '../world/generate.js';
+import { t, onLangChange } from '../ui/i18n.js';
 
 /* ============================================================================
    Stellar cartography, as an object in the room.
@@ -249,7 +250,17 @@ export class HoloMap {
       sub: document.getElementById('nvSub'),
       rows: document.getElementById('nvRows'),
       banner: document.getElementById('nvBanner'),
+      head: document.querySelector('#navinfo .nv-head'),
     };
+    /* The readout is memoised on a selection signature, so a language switch
+       has to drop it or the panel keeps the old strings until you pick a
+       different star. */
+    onLangChange(() => {
+      this._sig = null;
+      if (this.dom.head) this.dom.head.textContent = t('map.title');
+      if (this.open) this._drawInfo();
+    });
+    if (this.dom.head) this.dom.head.textContent = t('map.title');
 
     g.traverse((o) => o.layers.set(INTERIOR_LAYER));
     this._v = new THREE.Vector3();
@@ -731,30 +742,30 @@ export class HoloMap {
     if (sig === this._sig) return;
     this._sig = sig;
 
-    this.dom.name.textContent = s.visited ? s.name.toUpperCase() : 'UNCHARTED';
-    this.dom.sub.textContent = `${s.designation}  ·  ${s.starClass.cls}-CLASS`;
+    this.dom.name.textContent = s.visited ? s.name.toUpperCase() : t('map.uncharted');
+    this.dom.sub.textContent = `${s.designation}  ·  ${s.starClass.cls}-${t('map.class')}`;
 
     const rows = [
-      ['TERRITORY', g.speciesName(this.sel).toUpperCase(), 'am'],
-      ['DISTANCE', `${dist.toFixed(1)} ly`, ''],
-      ['LANE', jc.lane ? (jc.charted ? 'CHARTED' : 'UNSURVEYED') : 'NONE',
+      [t('map.territory'), g.speciesName(this.sel).toUpperCase(), 'am'],
+      [t('map.distance'), `${dist.toFixed(1)} ly`, ''],
+      [t('map.lane'), jc.lane ? (jc.charted ? t('map.charted') : t('map.unsurveyed')) : t('map.none'),
         jc.lane ? (jc.charted ? 'cy' : 'am') : 'dim'],
-      ['NEBULA', `${Math.round(jc.density * 100)}%`, jc.density > 0.55 ? 'rd' : ''],
-      ['FOLD COST', cost > 1 ? 'BEYOND DRIVE' : `${Math.round(cost * 100)}%`,
+      [t('map.nebula'), `${Math.round(jc.density * 100)}%`, jc.density > 0.55 ? 'rd' : ''],
+      [t('map.foldCost'), cost > 1 ? t('map.beyondDrive') : `${Math.round(cost * 100)}%`,
         cost > 1 ? 'rd' : cost > g.ship.foldCharge ? 'am' : ''],
-      ['CHARGE', `${charge}%`, ''],
-      ['LUCENT', `${fuel} of ${Math.floor(g.ship.fuel)}`, dry ? 'rd' : ''],
+      [t('map.charge'), `${charge}%`, ''],
+      [t('map.lucent'), `${fuel} / ${Math.floor(g.ship.fuel)}`, dry ? 'rd' : ''],
     ];
-    if (g.resonatorSystems.has(this.sel) && s.visited) rows.push(['SIGNAL', 'RESONATOR', 'am']);
+    if (g.resonatorSystems.has(this.sel) && s.visited) rows.push([t('map.signal'), t('map.resonator'), 'am']);
 
     this.dom.rows.innerHTML = rows.map(([k, v, cls]) =>
       `<b>${k}</b><span class="${cls}">${v}</span>`).join('');
 
-    this.dom.banner.textContent = isCur ? 'CURRENT SYSTEM'
-      : canJump ? 'PRESS  J  TO FOLD'
-        : cost > 1 ? 'NEBULA TOO DENSE · CHART A NEARER LANE'
-          : dry ? 'NOT ENOUGH LUCENT · REFUEL OR MINE FOR IT'
-            : 'INSUFFICIENT CHARGE';
+    this.dom.banner.textContent = isCur ? t('map.current')
+      : canJump ? t('map.pressJ')
+        : cost > 1 ? t('map.tooDense')
+          : dry ? t('map.noFuel')
+            : t('map.noCharge');
     this.dom.banner.classList.toggle('go', canJump);
   }
 

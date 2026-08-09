@@ -122,7 +122,7 @@ const SHOTS = [
     // inspect()'s az/el are in world axes, so the direction is worked out here
     // and converted — az is measured from +Z, el from the equator, matching
     // inspect's own basis. Posing the player's ship instead does not work: the
-    // floating origin follows it, so the chase camera just frames the Seeker.
+    // floating origin follows it, so the chase camera just frames the Long Margin.
     name: 'w-traffic', settle: 2600, js: `
       /* An orbital craft, not a freighter. Freighters run the lanes *between*
          worlds, so they are millions of kilometres from anything that could

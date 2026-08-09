@@ -37,7 +37,7 @@ export const OUTFITS = {
     name: 'Survey Scanner',
     blurb: 'Faster scans, and the sensitivity to see what a world is holding.',
     tiers: [
-      { label: 'Institute array', scanRate: 1, cost: 0 },
+      { label: 'Registry array', scanRate: 1, cost: 0 },
       { label: 'Phased array', scanRate: 1.6, cost: 900 },
       { label: 'Deep array', scanRate: 2.4, cost: 3600 },
     ],
@@ -48,7 +48,7 @@ export const OUTFITS = {
     tiers: [
       { label: 'Standard coil', foldRegen: 1, cost: 0 },
       { label: 'Tuned coil', foldRegen: 1.5, cost: 1600 },
-      { label: 'Choir-pattern coil', foldRegen: 2.2, cost: 6000 },
+      { label: 'Hush-pattern coil', foldRegen: 2.2, cost: 6000 },
     ],
   },
   engine: {

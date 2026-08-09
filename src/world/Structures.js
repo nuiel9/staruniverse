@@ -5,9 +5,9 @@ import { CHOIR_HUE, place, slab, weld, palette, dress } from '../gfx/greeble.js'
 import { buildStation } from './Station.js';
 
 /* ============================================================================
-   Things the Choir left behind.
+   Things the Hush left behind.
 
-   Resonators  — monoliths. The only objects in the game that are *not* natural,
+   Tines  — monoliths. The only objects in the game that are *not* natural,
                  and the only ones with a material language of their own.
    Derelicts   — a station that came apart, forty thousand years ago, and has
                  been spreading along its own orbit ever since.
@@ -204,7 +204,7 @@ void main(){
   vec3 base = vec3(0.0035, 0.0045, 0.0062)*cav;
   vec3 env = textureCube(uEnv, reflect(-V, N)).rgb;
 
-  /* Thin-film interference. The Choir did not paint this and they did not
+  /* Thin-film interference. The Hush did not paint this and they did not
      weld it, so it cannot carry a single plate seam or a single flake of
      oxide — the only vocabulary left for "manufactured" is a surface that
      does something no rock does. The order runs with the grazing angle and
@@ -328,7 +328,7 @@ void main(){
   col += uGlow*(emitA*104.0*draw*(0.76 + 0.24*rf.z) + node*205.0)*feed*trav*lit;
 
   /* Rim. A cold one off the void so the silhouette survives against a black
-     sky whatever the emissive happens to be doing, and a Choir one that exists
+     sky whatever the emissive happens to be doing, and a Hush one that exists
      only where there is light to leak: the tip of a dead blade is not allowed
      to glow green just because it turned edge-on. */
   col += vec3(0.030, 0.044, 0.062)*pow(fresG, 3.0)*(0.55 + 0.45*silt);
@@ -529,7 +529,7 @@ function mergeParts(parts) {
 }
 
 /* ---------------------------------------------------------------- sweeping
-   Everything the Choir built is a cross-section carried along a spine, and the
+   Everything the Hush built is a cross-section carried along a spine, and the
    only thing separating that from a box is what happens at the corners. A
    chamfer is two more points in the section and one more band of quads, and it
    is the entire difference between an edge that dissolves into the void and an
@@ -756,12 +756,12 @@ function shardGeo(len, w, d) {
   ], true, true);
 }
 
-export function buildResonator(seed, env) {
+export function buildTine(seed, env) {
   const rnd = mulberry32(seed);
   const g = new THREE.Group();
 
   // Pale gold-green, and only ever this. It is the one saturated emissive in
-  // the game, so it has to mean "Choir" everywhere it appears — a cyan
+  // the game, so it has to mean "Hush" everywhere it appears — a cyan
   // monolith reads as the same technology as the ship's own instrument panels.
   const glow = new THREE.Color(CHOIR_HUE).offsetHSL((rnd() - 0.5) * 0.035, 0.05, 0.04);
 
@@ -779,7 +779,7 @@ export function buildResonator(seed, env) {
     },
   });
 
-  /* A Resonator is architecture, not a prop. What reads is a *colonnade*:
+  /* A Tine is architecture, not a prop. What reads is a *colonnade*:
      blades standing in a ring five kilometres across around a suspended core.
      That silhouette is legible from a hundred kilometres, it has an inside and
      an outside so you can fly through it, and the repetition is what makes it
@@ -1018,7 +1018,7 @@ export function buildResonator(seed, env) {
        color      lerped well toward white: at practical strength a saturated
                   hue stops reading as light and starts reading as a filter
                   over the frame, and the shading underneath it disappears.
-                  What survives the lerp is still unmistakably Choir.
+                  What survives the lerp is still unmistakably Hush.
        intensity  irradiance at `radius`, not candela — the loop converts.
                   Calibrated against the key rather than picked: the star runs
                   between three and seven or so, a hull parks about nine units
@@ -1151,7 +1151,7 @@ export function buildResonator(seed, env) {
   }
 
   g.traverse((o) => { o.frustumCulled = false; });
-  /* `userData.glow` has been the Choir colour on this object since long before
+  /* `userData.glow` has been the Hush colour on this object since long before
      the practical existed and Game.js reads the spec from `userData.practical`,
      so the spec is also hung off the returned group as `.glow` — one object,
      two handles, no second source of truth and no name collision. */
@@ -1777,8 +1777,8 @@ export function buildBeacon(seed) {
   /* The lamp.
 
      It used to be 0x60ffc0 — a saturated green that is *not* CHOIR_HUE, on the
-     one object in the game most likely to be seen next to a Resonator. That
-     brushes the only colour rule the palette has: pale gold-green means Choir
+     one object in the game most likely to be seen next to a Tine. That
+     brushes the only colour rule the palette has: pale gold-green means Hush
      and nothing else, so a second saturated green a few degrees off it does not
      read as "a different thing", it reads as the same thing rendered wrong. A
      beacon is human-made, and human-made light here is cold white-blue.
@@ -1804,8 +1804,8 @@ export function buildBeacon(seed) {
   g.add(lamp);
   g.traverse((o) => { o.frustumCulled = false; });
   /* No `userData.practical`. The frame loop snaps its single roaming light to
-     the *nearest* published source, and a beacon parked in front of a Resonator
-     would take it off the Resonator — which is the one object in the game that
+     the *nearest* published source, and a beacon parked in front of a Tine
+     would take it off the Tine — which is the one object in the game that
      has to be lighting its own surroundings. */
   g.userData = { kind: 'beacon', lamp, spin: new THREE.Vector3(0, 0.35, 0) };
   return g;

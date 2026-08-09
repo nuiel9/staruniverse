@@ -115,7 +115,7 @@ export class LaneGraph {
     }
 
     /* ---- what the player knows. Lanes out of the home system come
-       pre-surveyed: the Institute did not launch its ship into a wall. */
+       pre-surveyed: the Registry did not launch its ship into a wall. */
     this.charted = new Set();
     this.sold = {};                   // stationKey -> [edgeKey, ...]
     this.load();

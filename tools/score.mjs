@@ -16,7 +16,7 @@
 //                   progression, the delay bus and the room, and gives them a
 //                   shape: hits on the cuts, a pulse only where the picture is
 //                   moving, the whole thing out of the way on the ground, and
-//                   the one timbre reserved for the Choir.
+//                   the one timbre reserved for the Hush.
 //
 //   node tools/score.mjs [--arr trailer] [--secs 26.4] [--out shots/score.wav]
 import { chromium } from 'playwright';
@@ -221,7 +221,7 @@ const b64 = await page.evaluate(async ({ secs, arr, C }) => {
       o.start(at); o.stop(at + 0.4);
     };
 
-    /* The one timbre reserved for the Choir. Pale gold-green is the only
+    /* The one timbre reserved for the Hush. Pale gold-green is the only
        saturated colour in the game and is never spent on anything else; this is
        the audio of that rule. Pure partials, no attack transient, slightly
        inharmonic at the top so it shimmers rather than sits. */

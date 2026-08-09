@@ -560,7 +560,7 @@ const CLASSES = {
       /* Bone, not tan. `hue: 1` is the palette's warm brown, and on the two
          largest flat masses in the fleet — the forecastle and the engine room
          — it came out the colour and grain of marine ply: the most saturated
-         thing in a frame whose brief reserves saturation for the Choir. The
+         thing in a frame whose brief reserves saturation for the Hush. The
          cargo now carries all the colour this ship needs, and a chalked bone
          hull is both what the brief asks for and what makes a stack of oxide
          and slate containers read at all. */
@@ -806,7 +806,7 @@ const CLASSES = {
   },
 
   /* ---------------------------------------------------------------- patrol
-     Institute cutter. Clean, cold, and the only civilian thing out here with
+     Registry cutter. Clean, cold, and the only civilian thing out here with
      hardpoints on it: a long slender fuselage, an offset sensor blister and
      wings that rake back hard. Everything about it is thinner than everything
      else in the fleet, which is how you know it is not carrying anything. */
@@ -969,7 +969,7 @@ const CLASSES = {
 
 /* ================================================================ the mote
 
-   Choir motes are not built from the kit. Nothing the Choir left behind has a
+   Hush motes are not built from the kit. Nothing the Hush left behind has a
    panel line, a weld bead or a running light on it, and holding that line is
    what makes them read as *other* rather than as another faction's hardware.
 
@@ -1083,7 +1083,7 @@ function buildMote(rnd) {
 
   root.scale.setScalar(M);
   root.traverse((o) => { o.frustumCulled = false; });
-  // no plumes and no running lights: the Choir left nothing that signals
+  // no plumes and no running lights: the Hush left nothing that signals
   return { root, spin, shellMat, length: 14 * M, beacons: [], plumeMat: null };
 }
 
@@ -1442,7 +1442,7 @@ const CRAFT_NAMES = {
   freighter: (r) => `${pick(r, HULL_NAMES)} · bulk`,
   courier: (r) => `${pick(r, HULL_NAMES)} · courier`,
   tug: (r) => `Yard tender ${1 + Math.floor(r() * 40)}`,
-  patrol: (r) => `INSTITUTE ${['ARGUS', 'VIGIL', 'KEEPER', 'WARDEN'][Math.floor(r() * 4)]}-${1 + Math.floor(r() * 9)}`,
+  patrol: (r) => `REGISTRY ${['ARGUS', 'VIGIL', 'KEEPER', 'WARDEN'][Math.floor(r() * 4)]}-${1 + Math.floor(r() * 9)}`,
   drone: (r) => `Survey drone ${String.fromCharCode(65 + Math.floor(r() * 26))}${1 + Math.floor(r() * 9)}`,
   mote: () => 'UNRESOLVED CONTACT',
 };

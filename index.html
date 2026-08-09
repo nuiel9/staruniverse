@@ -7,7 +7,7 @@
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <title>STAR UNIVERSE</title>
-<meta name="description" content="Trade, chart and explore a procedurally generated nebula from the cockpit of the survey vessel PALE SEEKER. Based on The Long Silence by Anshu Chimala." />
+<meta name="description" content="Trade, chart and explore a procedurally generated nebula from the cockpit of the survey vessel LONG MARGIN. Based on The Long Silence by Anshu Chimala." />
 <meta name="author" content="Star Universe (based on The Long Silence by Anshu Chimala)" />
 
 <!-- icons -->
@@ -22,7 +22,7 @@
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="STAR UNIVERSE" />
 <meta property="og:title" content="STAR UNIVERSE" />
-<meta property="og:description" content="Trade, chart and explore a procedurally generated nebula from the cockpit of the survey vessel PALE SEEKER." />
+<meta property="og:description" content="Trade, chart and explore a procedurally generated nebula from the cockpit of the survey vessel LONG MARGIN." />
 <meta property="og:image" content="/og.jpg" />
 <meta property="og:image:type" content="image/jpeg" />
 <meta property="og:image:width" content="1200" />
@@ -31,7 +31,7 @@
 
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="STAR UNIVERSE" />
-<meta name="twitter:description" content="Trade, chart and explore a procedurally generated nebula from the cockpit of the survey vessel PALE SEEKER." />
+<meta name="twitter:description" content="Trade, chart and explore a procedurally generated nebula from the cockpit of the survey vessel LONG MARGIN." />
 <meta name="twitter:image" content="/og.jpg" />
 <meta name="twitter:image:alt" content="The cockpit of a survey ship, instruments lit, looking out through the canopy at a blue world with its terminator in view." />
 </head>
@@ -50,11 +50,12 @@
         </svg>
       </div>
       <h1 class="boot-title">STAR UNIVERSE</h1>
-      <div class="boot-sub">DEEP SURVEY VESSEL &middot; <span class="accent">PALE SEEKER</span></div>
+      <div class="boot-sub"><span id="bootSub">DEEP SURVEY VESSEL</span> &middot; <span class="accent">LONG MARGIN</span></div>
       <div class="boot-bar"><i id="bootFill"></i></div>
       <div class="boot-status" id="bootStatus">initialising</div>
       <button id="bootStart" class="boot-start" hidden>WAKE</button>
-      <div class="boot-legal">requires WebGL2 &middot; headphones recommended</div>
+      <div class="lang" id="bootLang"></div>
+      <div class="boot-legal" id="bootLegal">requires WebGL2 &middot; headphones recommended</div>
     </div>
   </div>
 
@@ -63,6 +64,9 @@
        exist in the crew member's head: what they are looking at, what they
        were just told, and what they can reach. -->
   <div id="hud" class="hidden">
+
+    <!-- language, reachable mid-flight -->
+    <div class="lang hud-lang" id="hudLang"></div>
 
     <!-- aiming reticle, pilot only -->
     <div id="reticle" class="hidden">
@@ -111,7 +115,7 @@
 
   <!-- ====================== ARCHIVE ====================== -->
   <div id="codex" class="panel hidden">
-    <div class="p-head"><h2>ARCHIVE</h2><button class="p-close" data-close="codex">✕</button></div>
+    <div class="p-head"><h2 id="codexTitle">ARCHIVE</h2><button class="p-close" data-close="codex">✕</button></div>
     <div class="p-body codex-body">
       <div class="codex-nav" id="codexNav"></div>
       <div class="codex-main" id="codexMain"></div>
@@ -155,7 +159,7 @@
   </div>
 
   <div id="starmap" class="panel hidden">
-    <div class="p-head"><h2>STELLAR CARTOGRAPHY</h2><button class="p-close" data-close="starmap">✕</button></div>
+    <div class="p-head"><h2 id="mapTitle">STELLAR CARTOGRAPHY</h2><button class="p-close" data-close="starmap">✕</button></div>
     <div class="p-body map-body">
       <canvas id="mapCanvas"></canvas>
       <div class="map-side" id="mapSide"></div>

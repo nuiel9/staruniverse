@@ -1,4 +1,5 @@
 import './ui/style.css';
+import { initLang, mountToggle, t, onLangChange } from './ui/i18n.js';
 import { Game } from './game/Game.js';
 import { INTRO_LINES } from './game/lore.js';
 
@@ -37,8 +38,8 @@ function isHandset() {
 function desktopOnly() {
   bootEl.innerHTML = `
     <div class="boot-inner">
-      <h1 class="boot-title">THE LONG SILENCE</h1>
-      <div class="boot-sub">DEEP SURVEY VESSEL &middot; <span class="accent">PALE SEEKER</span></div>
+      <h1 class="boot-title">STAR UNIVERSE</h1>
+      <div class="boot-sub">DEEP SURVEY VESSEL &middot; <span class="accent">LONG MARGIN</span></div>
       <p class="boot-gate">
         This one wants a real screen and a real GPU.<br>
         Open it on a desktop or laptop.
@@ -49,6 +50,27 @@ function desktopOnly() {
 }
 
 (async () => {
+  /* Language first: the boot overlay is the first thing a player reads, and
+     switching after the fact would leave the title card in the wrong one. */
+  initLang();
+  mountToggle(document.getElementById('bootLang'));
+  const paintBoot = () => {
+    const sub = document.getElementById('bootSub');
+    const legal = document.getElementById('bootLegal');
+    const start = document.getElementById('bootStart');
+    if (sub) sub.textContent = t('boot.sub');
+    if (legal) legal.textContent = t('boot.legal');
+    if (start) start.textContent = t('boot.wake');
+    /* The two panel headings that live in the markup rather than in a
+       render(): the archive and the star map both paint their own bodies but
+       inherit their title bar from index.html. */
+    const cxT = document.getElementById('codexTitle');
+    const mpT = document.getElementById('mapTitle');
+    if (cxT) cxT.textContent = t('cx.archive');
+    if (mpT) mpT.textContent = t('map.title');
+  };
+  onLangChange(paintBoot);
+  paintBoot();
   const canvas = document.getElementById('scene');
 
   if (isHandset()) { desktopOnly(); return; }
