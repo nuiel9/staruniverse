@@ -39,7 +39,7 @@ export const SPECIES = {
     bias: {},
     stubborn: 0.5,
     truth: 0.95,
-    rumorKinds: ['demand', 'lane'],
+    rumorKinds: ['demand', 'lane', 'origin'],
   },
   vess: {
     id: 'vess',
@@ -50,7 +50,7 @@ export const SPECIES = {
     bias: { luxuries: 1.3, medicine: 1.25, ore: 0.72, volatiles: 0.75 },
     stubborn: 0.35,
     truth: 0.85,
-    rumorKinds: ['demand', 'demand', 'lane'],
+    rumorKinds: ['demand', 'demand', 'lane', 'origin'],
   },
   korrim: {
     id: 'korrim',
@@ -61,7 +61,7 @@ export const SPECIES = {
     bias: { machinery: 1.3, alloys: 1.2, fuel: 1.15, luxuries: 0.7 },
     stubborn: 0.6,
     truth: 0.9,
-    rumorKinds: ['lane', 'demand', 'resonator'],
+    rumorKinds: ['lane', 'demand', 'resonator', 'origin'],
   },
   szethi: {
     id: 'szethi',
@@ -72,7 +72,7 @@ export const SPECIES = {
     bias: { volatiles: 1.25, food: 1.2, machinery: 0.75 },
     stubborn: 0.2,
     truth: 0.6,
-    rumorKinds: ['resonator', 'lane', 'demand'],
+    rumorKinds: ['resonator', 'lane', 'demand', 'origin', 'origin'],
   },
 };
 

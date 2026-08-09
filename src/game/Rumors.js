@@ -1,6 +1,7 @@
 import { mulberry32 } from '../world/generate.js';
 import { buildMarket, commodity } from '../econ/Economy.js';
 import { SPECIES } from './Species.js';
+import { CLAIMS } from './Mystery.js';
 
 /* ============================================================================
    Rumors.
@@ -48,6 +49,7 @@ export class Rumors {
     if (kind === 'demand') r = this._demandRumor(rnd, honest);
     if (!r && kind === 'lane') r = this._laneRumor(rnd, honest);
     if (!r && kind === 'resonator') r = this._resonatorRumor(rnd);
+    if (!r && kind === 'origin') r = this._originRumor(speciesId);
     if (!r) r = this._demandRumor(rnd, true) || this._laneRumor(rnd, true);
     if (!r) return null;
 
@@ -91,6 +93,23 @@ export class Rumors {
       truth: honest,
       edgeKey: e.key,
       text: `The ${g.galaxy[e.a].name}–${g.galaxy[e.b].name} passage runs clearer than the old charts claim.`,
+    };
+  }
+
+  /* What this culture believes happened to the Choir. Every species has an
+     answer and every answer is delivered with total confidence; only one is
+     right, and the rumor carries no flag saying which. Corroboration in the
+     ledger is the player's only instrument, and it measures *agreement*, not
+     truth — two cultures can be wrong together. */
+  _originRumor(speciesId) {
+    const c = CLAIMS[speciesId];
+    if (!c) return null;
+    return {
+      kind: 'origin',
+      subjectKey: `origin:${c.claim}`,
+      claim: c.claim,
+      truth: c.truth,
+      text: c.text,
     };
   }
 

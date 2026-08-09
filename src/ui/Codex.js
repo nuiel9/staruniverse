@@ -69,6 +69,12 @@ export class Codex {
           id: 'log:' + l.id, label: l.title, locked: !g.logsFound.has(l.id),
         })),
       },
+      ...(g.mystery ? [{
+        title: 'THE QUESTION', items: [{
+          id: 'question',
+          label: `Why is there a nebula here? (${g.mystery.found.size}/5)`,
+        }],
+      }] : []),
       ...(g.rumors && g.rumors.heard.length ? [{
         title: 'RUMOR LEDGER', items: [{ id: 'rumors', label: `What the nebula says (${g.rumors.heard.length})` }],
       }] : []),
@@ -128,6 +134,41 @@ export class Codex {
         <div class="cx-sub">${c.sub}</div>
         <div class="cx-text">${c.body.map((p) => `<p>${p}</p>`).join('')}
         <p class="q">${c.q}</p></div>`;
+    }
+
+    if (id === 'question') {
+      const M = g.mystery;
+      const rev = M.ledger().map((r) => (r.known
+        ? `<div class="cx-rev"><h3>${r.title}</h3><p>${r.text}</p></div>`
+        : `<div class="cx-rev locked"><h3>— not yet understood —</h3>
+             <p>${r.need}.</p></div>`)).join('');
+
+      const said = M.testimony();
+      const claims = said.length
+        ? said.map((c) => `<div class="cx-rumor">
+            <p>${c.text}</p>
+            <div class="cx-rmeta">${c.sources.join(' · ').toUpperCase()}
+              ${said.length > 1 ? ' · <b class="cx-contest">CONTESTED</b>' : ' · unchallenged so far'}</div>
+          </div>`).join('')
+        : '<div class="cx-note">Nobody has told you anything about the Silence yet. '
+          + 'Hail somebody and ask for news.</div>';
+
+      return `<h1 class="cx-title">THE QUESTION</h1>
+        <div class="cx-sub">WHY IS THERE A NEBULA HERE?</div>
+        <div class="cx-stats">
+          ${stat('UNDERSTOOD', `${M.found.size} / 5`)}
+          ${stat('RESONATORS', `${g.cantos.length} / 7`)}
+          ${stat('LUCENT BURNED', `${Math.round(M.lucentBurned)} t`)}
+          ${stat('ACCOUNTS HEARD', said.length)}
+        </div>
+        <h3 class="cx-h3">WHAT THEY SAY HAPPENED</h3>
+        <div class="cx-text"><p>Four cultures, four answers, every one delivered
+        with complete confidence and no two alike. Nobody here corroborates
+        anybody: the disagreement <em>is</em> the evidence. What they cannot
+        explain between them is what the ship's own instruments keep finding.</p></div>
+        ${claims}
+        <h3 class="cx-h3">WHAT YOU HAVE WORKED OUT</h3>
+        ${rev}`;
     }
 
     if (id === 'rumors') {

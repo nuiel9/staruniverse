@@ -52,6 +52,7 @@ const SUITES = [
   ['aliens', 'territories, postures and barter'],
   ['ground', 'deposits, the drone, fuel and outfitting'],
   ['living', 'events, contracts and crew'],
+  ['mystery', 'the question, and what the answer costs'],
 ];
 
 const failed = [];

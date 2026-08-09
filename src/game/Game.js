@@ -35,6 +35,7 @@ import { Outfitting } from '../ship/Outfitting.js';
 import { Events } from '../econ/Events.js';
 import { Contracts } from './Contracts.js';
 import { Crew } from './Crew.js';
+import { Mystery } from './Mystery.js';
 import { Audio } from '../audio/Audio.js';
 import { CANTOS, LOGS, INTRO_LINES } from './lore.js';
 import { Directives, UPGRADES } from './directives.js';
@@ -410,6 +411,7 @@ export class Game {
     this.contracts = new Contracts(this);
     this.crew = new Crew(this);
     this.crew.apply();
+    this.mystery = new Mystery(this);
     // Cartography is an object in the room now, not a window over it. The
     // name is kept because the rest of the game asks `starmap.open` to decide
     // whether a UI is swallowing input.
@@ -3040,6 +3042,7 @@ export class Game {
     b.scanned = true;
     this.discoveries.add(b.id);
     this.audio.ping('scan');
+    this.mystery?.update();
 
     if (b.kind === 'anomaly' && b.anomalyType === 'resonator') {
       const idx = this.cantos.length;
@@ -3066,8 +3069,15 @@ export class Game {
   }
 
   onAperture() {
-    this.hud.narrate('The Aperture is open. It has always been open.', 'THE CHOIR');
-    this.hud.log('APERTURE RESONANCE ACHIEVED', 'hi');
+    /* The Long Silence ended here with a door opening. It ends here with the
+       player understanding what they have been doing for the last several
+       hours, which is a different and better ending — and it only lands
+       because the fuel was real, the mining was work, and nobody ever said
+       what lucent was. */
+    this.hud.narrate('You are inside the instrument. You have been burning them to move.',
+      'THE SEVENTH CANTO');
+    this.hud.log('APERTURE RESOLVED · THE CHOIR ARE STILL LISTENING', 'hi');
+    this.codex?.show('question');
   }
 
   /* ------------------------------------------------------------ fold drive */
@@ -3136,6 +3146,7 @@ export class Game {
     // Flying an unsurveyed lane *is* surveying it. The chart is the prize:
     // the lane is cheap for you now, and every dock will pay for the data.
     this.contracts.expire(this.time);
+    this.mystery.update();
     const ev = this.events.at(id, this.time);
     if (ev) this.hud.log(`${ev.label.toUpperCase()} · ${this.galaxy[id].name.toUpperCase()}`, 'hi');
     const surveyed = this.lanes.chart(from, id);

@@ -770,6 +770,7 @@ export class HoloMap {
     }
     g.ship.foldCharge = Math.max(0, g.ship.foldCharge - cost);
     g.ship.fuel = Math.max(0, g.ship.fuel - fuel);
+    g.mystery?.burn(fuel);
     this.close();
     g.hyperjump(this.sel);
     return true;
