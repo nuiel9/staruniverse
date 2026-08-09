@@ -6,9 +6,13 @@ assets — every star, world, ring system, nebula and derelict is generated from
 a seed and shaded by hand-written GLSL.
 
 Built on the engine of [**The Long Silence**](https://github.com/achimala/TheLongSilence)
-by Anshu Chimala (MIT). The rendering, flight, planet and interior systems
-below are his work; the trading, economy, diplomacy and nebula-charting layers
-are what this fork adds. See [BRAINSTORM.md](BRAINSTORM.md) for the design.
+by Anshu Chimala (MIT). The rendering, flight, planet, interior and cutscene
+systems described under *How it renders* are his work, and they were built
+against Starfield as an explicit visual benchmark. Everything under *The game*
+— the economy, the nebula as navigable geography, the alien cultures,
+prospecting, contracts, crew, and the mystery — is what this fork adds. See
+[BRAINSTORM.md](BRAINSTORM.md) for the design and [TODO.md](TODO.md) for what
+is still open.
 
 ```
 npm install
@@ -25,9 +29,45 @@ light-year volume fell silent in four days. No debris, no radiation signature,
 no sign of violence. The Choir left their cities lit, their orbits tidy, their
 archives open — and seven instruments standing in seven systems.
 
-You fly the survey vessel *Pale Seeker*. Chart systems, scan what you find,
-and attune to the Resonators; each one yields a Canto and pushes the drive a
-little further. All seven opens the Aperture.
+You fly the survey vessel *Pale Seeker*, and you have to pay for the fuel.
+
+**Trade.** Every station produces two commodities cheap and wants two dearly,
+dealt around a shuffled deck so that what one station makes its neighbour
+needs — there is a profitable run in every inhabited system, by construction.
+Prices drift on seeded curves, so a price is a function of *when you ask*.
+
+**Charts are cargo.** The nebula is not scenery: a density field thickens
+between the stars, and fold cost scales with the dust on the path. Lanes thread
+the banks. Flying an unsurveyed lane charts it, which makes it cheap for you
+and sellable at every dock — exploration and the economy are one loop, not two.
+
+**Information travels at ship speed.** Nothing here moves faster than a hull.
+A dock's board quotes other stations at the price as of *when a freighter last
+left there*, and the report says how old the news is. Outrun it and the margin
+is yours.
+
+**Four cultures, four postures.** The Institute holds the home cluster; the
+Vess Combine, Korrim Lodges and Szethi Drift hold the deep. Hail one and the
+first thing you send is a stance — friendly, businesslike, obsequious or
+hostile — and it prices the whole conversation. Flatter a Vess trader and you
+lose standing; grovel at a Korrim lodge and they cut the channel. Barter is a
+walk toward a reservation price you never see.
+
+**The ground pays.** Scan a world from orbit and its Archive entry becomes a
+manifest with tonnages on it. Land, hold `F`, and the drone works a seam a
+tonne at a time until it is spent — seams do not refill. Lucent goes to the
+tank rather than the hold, because it is not cargo, it is range.
+
+**The galaxy carries on without you.** Gluts, shortages, festivals, strikes
+and blockades fire on their own schedule and move prices where they land.
+Station boards offer hauls with deadlines, priced by distance and by whatever
+danger is in the way. Bars have people in them who will change what your ship
+can do.
+
+**And there is a question.** Why is there a nebula here? Every culture has an
+answer, no two agree, and exactly one is right. Nobody hands you the story: the
+Archive collects what you are told and what your instruments find, and the
+reading assembles itself. The ending is not a door opening.
 
 ### Controls
 
@@ -38,7 +78,9 @@ little further. All seven opens the Aperture.
 | Throttle | `W` / `S`, or scroll | right stick vertical, or `+` / `−` |
 | Boost | `Shift` | `BST` |
 | Scan | hold `F` | hold `SCAN` |
-| Land / lift off | `L` | — |
+| Land / dock / lift off | `L` | — |
+| Hail a contact | `C` | — |
+| Work a seam (landed) | hold `F` | — |
 | Fold drive | `J` | `FOLD` |
 | Star map | `M` | `MAP` |
 | Archive | `Tab` | `ARC` |
@@ -48,7 +90,9 @@ little further. All seven opens the Aperture.
 
 Fold speed scales with distance from the nearest mass, so an approach
 decelerates itself and drops you out just clear of the surface. Interstellar
-transit is initiated from the star map and costs drive charge by distance.
+transit is initiated from the star map — hover a system to select it — and
+costs both drive charge and lucent, scaled by distance and by the dust in the
+way. A dry tank strands you, so mine or buy before you go deep.
 
 ---
 
@@ -97,13 +141,25 @@ src/
               greeble (the shared construction + surfacing kit), GLSL
   world/      generate (seeded universe), Planet, Star, Surface (the ground),
               Fleet (traffic), Station, Structures, Asteroids, Dust, shaders
+              Prospecting — what a world holds, and what the drone can take
+  econ/       Economy (commodities, markets, drifting prices, dated news),
+              LaneGraph (nebula density, lanes, charts), Events (the shocks)
   ship/       Ship — procedural hull with injected panel-line PBR, flight model
+              Outfitting — five systems, three tiers, visible on the hull
   game/       Game (world state, scanning, fold, floating origin), Director
-              (cutscenes), encounters, lore
-  ui/         HUD, Codex, StarMap, stylesheet
+              (cutscenes), Species, Comms (postures and barter), Rumors,
+              Contracts, Crew, Mystery (the question), encounters, lore
+  ui/         HUD, Codex, DockScreen, chart readout, stylesheet
   audio/      procedural WebAudio drone and engine
-tools/        browser verification: survey.mjs, play.mjs, probe.mjs, sheet.mjs
+tools/        acceptance suites and capture tooling — see Verification
 ```
+
+**Everything is a function of a seed, and most things of a seed and a time.**
+Worlds, markets, lane density, deposits, station boards, who is drinking in a
+bar, and which shock is running where all fall out of `mulberry32` rather than
+out of stored state. That is not a style preference: the traffic reports quote
+remote stations at *(now − travel time)*, so the past has to stay computable
+forever or every dated quote in the game silently becomes a lie.
 
 **One kit builds everything.** `gfx/greeble.js` owns the plate-seam law, the
 weathering, the sun-bleaching, the grazing rim term and the five base materials,
@@ -145,7 +201,17 @@ npm run smoke       # boots, takes the helm, gets the ship under way
 npm run trade       # docks, buys, crosses, sells, checks the ledger arithmetic
 npm run nebula      # lane graph, charting, chart sales, price drift, dated news
 npm run aliens      # territories, postures, barter convergence, rumor truth
+npm run ground      # deposits, the drone, fuel burn, outfitting
+npm run living      # events, contracts, crew
+npm run mystery     # the question: gates, contradictions, the ending
 ```
+
+They are written to be strict about the things that are easy to get quietly
+wrong — that a seam depletes by exactly what was taken, that eleven tonnes of
+lucent is not twelve, that a past price is still the same price when asked
+again — and they have earned their keep: one caught an upgrade that charged the
+player and fitted nothing, because an optional call swallowed a method that had
+never been added.
 
 ### The judge gate
 
