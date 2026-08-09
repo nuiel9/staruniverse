@@ -292,31 +292,97 @@ executes game code. There is no database, no session store and no API — every
 save lives in the player's own `localStorage` — so the server's whole job is to
 hand over files with the right cache headers.
 
-### Cloud Run
+### Cloud Run, step by step
 
 `Dockerfile` builds the bundle with the Node toolchain and then throws the
 toolchain away, shipping `dist/` on `nginx:alpine`. The runtime image carries
 no Node, no `node_modules` and no source.
 
-One-time, per project:
+**1. Point gcloud at a project and turn on what it needs.** Once, ever:
+
+```
+gcloud config set project YOUR_PROJECT_ID
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com
+```
+
+**2. Make somewhere for the image to live.** Once, per project. The repository
+name is `staruniverse` and `cloudbuild.yaml` expects exactly that:
 
 ```
 gcloud artifacts repositories create staruniverse \
   --repository-format=docker --location=asia-southeast1
 ```
 
-Then, to build and deploy:
+**3. Let Cloud Build deploy to Cloud Run.** This is the step that bites people:
+building and pushing work out of the box, and then the deploy fails with a
+permission error, because the Cloud Build service account is not a Cloud Run
+admin by default and cannot act as the runtime service account.
+
+```
+PROJECT=$(gcloud config get-value project)
+NUM=$(gcloud projects describe $PROJECT --format='value(projectNumber)')
+
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member="serviceAccount:$NUM-compute@developer.gserviceaccount.com" \
+  --role="roles/run.admin"
+
+gcloud iam service-accounts add-iam-policy-binding \
+  $NUM-compute@developer.gserviceaccount.com \
+  --member="serviceAccount:$NUM-compute@developer.gserviceaccount.com" \
+  --role="roles/iam.serviceAccountUser"
+```
+
+**4. Build and deploy.** Every time:
 
 ```
 gcloud builds submit --config cloudbuild.yaml \
-  --substitutions=_REGION=asia-southeast1
+  --substitutions=_REGION=asia-southeast1,_TAG=$(git rev-parse --short HEAD)
 ```
 
-`cloudbuild.yaml` builds, pushes to Artifact Registry and deploys to Cloud Run,
-tagging each image with `$SHORT_SHA` and deploying *that* tag rather than
-`:latest` — so rolling back is redeploying a named revision instead of hoping a
-moving tag still points where you think it does. Point a Cloud Build trigger at
-the branch to make it automatic on push.
+Roughly four minutes cold, under two with the layer cache warm. The last lines
+of the log carry the service URL; `gcloud run services describe staruniverse
+--region asia-southeast1 --format='value(status.url)'` will print it again.
+Open it and the title card should come up.
+
+**5. Automatic on push**, optionally. Point a Cloud Build trigger at the branch,
+set the config file to `cloudbuild.yaml`, and add one substitution:
+`_TAG` = `$SHORT_SHA`. Do not skip that — see below.
+
+#### Why `_TAG` and not `$SHORT_SHA`
+
+`$SHORT_SHA` is only populated for builds a *trigger* starts, because only
+those have a commit behind them. A manual `gcloud builds submit` uploads a
+directory, leaves the variable empty, and the tag silently becomes `image:` —
+which is not a valid reference, so the build dies at the docker step with an
+error that never mentions substitutions. `_TAG` is an ordinary substitution
+with a default, so both paths work and the trigger passes the sha in.
+
+#### Testing the image locally
+
+If you have Docker, the whole thing runs without touching GCP:
+
+```
+docker build -t staruniverse .
+docker run --rm -p 8080:8080 staruniverse
+```
+
+`PORT` defaults to 8080 and Cloud Run overrides it at runtime — the nginx
+server block ships as a template and is rendered at container start, which is
+why the port is not baked in.
+
+#### Cost, and turning it off
+
+It scales to zero, so an idle service is free; you pay for the Artifact
+Registry storage (cents) and for requests. `--min-instances 1` removes the
+cold-start pause before the title card and costs about a dollar a day. To stop
+paying entirely:
+
+```
+gcloud run services delete staruniverse --region asia-southeast1
+```
 
 512 MiB and one CPU is generous for nginx serving static files. The bundle is
 heavy for the *client*, not the server. It scales to zero by default; set

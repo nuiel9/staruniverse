@@ -16,11 +16,18 @@
 #
 # Manual run:
 #   gcloud builds submit --config cloudbuild.yaml \
-#     --substitutions=_REGION=asia-southeast1
+#     --substitutions=_REGION=asia-southeast1,_TAG=$(git rev-parse --short HEAD)
 
 substitutions:
   _REGION: asia-southeast1
   _SERVICE: staruniverse
+  # The image tag. NOT $SHORT_SHA directly: that is only populated for builds
+  # started by a *trigger* with a commit behind them. A manual
+  # `gcloud builds submit` leaves it empty, and the tag becomes `image:` —
+  # which is not a valid reference, so the build dies at the docker step with
+  # a message that does not mention substitutions at all. Triggers should set
+  # _TAG to $SHORT_SHA; manual runs pass their own or take the default.
+  _TAG: manual
 
 steps:
   # ── Build ─────────────────────────────────────────────────────
@@ -39,7 +46,7 @@ steps:
     args:
       - 'build'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:${SHORT_SHA}'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:${_TAG}'
       - '-t'
       - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:latest'
       - '--cache-from'
@@ -57,9 +64,9 @@ steps:
     waitFor: ['build']
 
   # ── Deploy ────────────────────────────────────────────────────
-  # Deployed by immutable digest-equivalent tag (${SHORT_SHA}) rather than
-  # :latest, so a rollback is redeploying an older revision rather than hoping
-  # a moving tag still points where you think it does.
+  # Deployed by the immutable ${_TAG} rather than :latest, so a rollback is
+  # redeploying an older revision rather than hoping a moving tag still points
+  # where you think it does.
   #
   # 512Mi and 1 CPU: nginx serving static files needs almost nothing. The
   # bundle is heavy for the *client*, not the server. Concurrency is high for
@@ -75,7 +82,7 @@ steps:
       - 'deploy'
       - '${_SERVICE}'
       - '--image'
-      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:${SHORT_SHA}'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:${_TAG}'
       - '--region'
       - '${_REGION}'
       - '--platform'
@@ -96,7 +103,7 @@ steps:
     waitFor: ['push']
 
 images:
-  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:${_TAG}'
   - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/staruniverse/${_SERVICE}:latest'
 
 options:
