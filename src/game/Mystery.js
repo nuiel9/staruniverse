@@ -128,6 +128,22 @@ export const REVELATIONS = [
       + 'sell you a bigger tank.',
   },
   {
+    id: 'marker',
+    title: 'The instrument is not only in orbit',
+    need: 'Survey two Hush markers on the surface',
+    /* The one reading that cannot be reached from the cockpit. Everything
+       else in this list is charted, scanned, burned or heard — all of it
+       available to a player who never sets down. This one requires landing,
+       finding the marker, and driving to it, which is the whole reason the
+       ground exists. */
+    test: (g) => (g.sites ? g.sites.markersSurveyed() : 0) >= 2,
+    text: 'The markers are not monuments. They are tuned, they are buried at '
+      + 'a depth that is the same fraction of each world\'s crust, and the '
+      + 'phase they are cut to is the phase the Tines are cut to. The '
+      + 'instrument does not hang between the stars. It goes all the way '
+      + 'down, through the worlds, and you have been walking on it.',
+  },
+  {
     id: 'aperture',
     title: 'The Aperture was never a door',
     need: 'Attune all seven Tines',
@@ -140,6 +156,11 @@ export const REVELATIONS = [
       + 'and it has been open the whole time.',
   },
 ];
+
+/** How many readings there are. Exported because the Archive printed a
+ *  hardcoded "/ 5" in two places and silently went stale the moment a sixth
+ *  was added. */
+export const REVELATION_COUNT = REVELATIONS.length;
 
 export class Mystery {
   constructor(game) {

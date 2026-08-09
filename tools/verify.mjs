@@ -53,6 +53,7 @@ const SUITES = [
   ['ground', 'deposits, the drone, fuel and outfitting'],
   ['living', 'events, contracts and crew'],
   ['mystery', 'the question, and what the answer costs'],
+  ['expedition', 'sites, the rover, and what the ground is worth'],
 ];
 
 const failed = [];

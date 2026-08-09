@@ -53,10 +53,24 @@ hostile — and it prices the whole conversation. Flatter a Vess trader and you
 lose standing; grovel at a Korrim lodge and they cut the channel. Barter is a
 walk toward a reservation price you never see.
 
-**The ground pays.** Scan a world from orbit and its Archive entry becomes a
-manifest with tonnages on it. Land, hold `F`, and the drone works a seam a
-tonne at a time until it is spent — seams do not refill. Lucent goes to the
-tank rather than the hold, because it is not cargo, it is range.
+**The ground pays, and it is a place.** Scan a world from orbit and its Archive
+entry becomes a manifest — but every line on it has a bearing *and a range*.
+The seams are kilometres out, so the drone reaches nothing from where you
+parked. Take the rover out with `R` and drive.
+
+The rover follows the real height field: the wheels sample full detail, so a
+boulder under one corner tilts it, while the drive reads the landform, so a
+hill slows it and a mountain is something you go around. The pack is measured
+in metres rather than minutes — idling is free, climbing costs extra, and half
+a charge is the point of no return. Its bin holds six tonnes, which is a
+reason to come back rather than a number.
+
+**What is out there.** Seams, to mine. Wrecks of the ninety-four — the
+expedition ships that went into the Stillness and did not come out — each
+carrying a log for the archive and a little salvage nobody returned for. Hush
+markers, buried, which are evidence and the only evidence in the game you
+cannot get from the cockpit. And once, in a whole galaxy, somebody still alive
+down there who has been listening for nineteen years.
 
 **The galaxy carries on without you.** Gluts, shortages, festivals, strikes
 and blockades fire on their own schedule and move prices where they land.
@@ -183,12 +197,12 @@ atmosphere shell above it.
 
 ## Verification
 
-Seven acceptance suites, one per system, each written against the built bundle
+Eight acceptance suites, one per system, each written against the built bundle
 and waiting on *game state* rather than on wall-clock time, so they pass on a
 GPU in seconds and on a software renderer in minutes:
 
 ```
-npm run verify      # builds, serves, runs all seven, tears the server down
+npm run verify      # builds, serves, runs all eight, tears the server down
 ```
 
 They test the *built* bundle, not the dev server — minification and asset-path
@@ -204,6 +218,7 @@ npm run aliens      # territories, postures, barter convergence, rumor truth
 npm run ground      # deposits, the drone, fuel burn, outfitting
 npm run living      # events, contracts, crew
 npm run mystery     # the question: gates, contradictions, the ending
+npm run expedition  # surface sites, the rover, salvage, the ground reading
 ```
 
 They are written to be strict about the things that are easy to get quietly

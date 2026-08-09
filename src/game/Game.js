@@ -31,13 +31,15 @@ import { assignTerritories, SPECIES } from './Species.js';
 import { Rumors } from './Rumors.js';
 import { Comms } from './Comms.js';
 import { Prospecting } from '../world/Prospecting.js';
+import { Sites } from '../world/Sites.js';
+import { Rover } from '../ship/Rover.js';
 import { Outfitting } from '../ship/Outfitting.js';
 import { Events } from '../econ/Events.js';
 import { Contracts } from './Contracts.js';
 import { Crew } from './Crew.js';
 import { Mystery } from './Mystery.js';
 import { Audio } from '../audio/Audio.js';
-import { CANTOS, LOGS, INTRO_LINES } from './lore.js';
+import { CANTOS, LOGS, INTRO_LINES, OWN_LOG } from './lore.js';
 import { Directives, UPGRADES } from './directives.js';
 import { Director, SEQUENCES } from './Director.js';
 import { Encounters } from './encounters.js';
@@ -50,6 +52,7 @@ const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _m4 = new THREE.Matrix4();
+const _q1 = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
 const FOLD_RIM = new THREE.Color(0.62, 0.80, 1.0);
 const WHITE = new THREE.Color(1, 1, 1);
@@ -191,7 +194,7 @@ export class Game {
 
     this.discoveries = new Set();
     this.cantos = [];
-    this.logsFound = new Set(['log_seeker']);
+    this.logsFound = new Set([OWN_LOG]);
     this.state = { resonance: 0 };
     this.chamberVisits = 0;
     this.resonatorRevealed = false;
@@ -404,6 +407,8 @@ export class Game {
     this.rumors = new Rumors(this);
     this.comms = new Comms(this);
     this.prospect = new Prospecting(this);
+    this.sites = new Sites(this);
+    this.rover = new Rover(this);
     this.outfit = new Outfitting(this);
     this.outfit.apply();
     // The galaxy carrying on without you: shocks, hauls, and people to hire.
@@ -843,12 +848,22 @@ export class Game {
          was leave it. */
       if (!uiOpen && !this.transition
           && (input.tappedCode('KeyE') || input.tapped('use'))) {
-        if (this.landed.onFoot) this.board(); else this.disembark();
+        if (this.landed.driving) this.workSite();
+        else if (this.landed.onFoot) this.board();
+        else this.disembark();
       }
-      if (input.tappedCode('KeyL') && !this.transition) this.liftOff();
+      if (input.tappedCode('KeyL') && !this.transition && !this.landed.driving) this.liftOff();
+      /* R takes the rover out and puts it away. It is the only verb on the
+         ground that changes how far you can go, so it gets its own key rather
+         than another meaning for E. */
+      if (!uiOpen && input.tappedCode('KeyR') && !this.transition) this.toggleRover();
       /* The drone. Held, not tapped: extraction is work you stand there for,
          and a seam that emptied on a single keypress would be a loot box. */
       this.updateDrone(dt, input.held('scan'));
+      if (this.landed.driving) {
+        this.rover.update(dt, input, uiOpen);
+        this._roverArrival();
+      }
       // The crew controller runs on the ground too — the main update returns
       // before reaching it, so it has to be driven from here.
       if (this.landed && this.landed.onFoot) this.player.update(dt, input, uiOpen);
@@ -1040,6 +1055,103 @@ export class Game {
     }
   }
 
+  /* ------------------------------------------------------------ the rover
+
+     The ground is in metres and the ship sits at its origin, so "where you
+     are" is one of three things depending on what you are riding. Everything
+     that cares about position on a planet — the drone, the site prompts, the
+     survey distances — goes through here rather than reaching for whichever
+     controller it assumes is active. */
+
+  groundPos() {
+    if (!this.landed) return { x: 0, z: 0 };
+    if (this.landed.driving) return { x: this.rover.pos.x, z: this.rover.pos.z };
+    if (this.landed.onFoot) return { x: this.player.pos.x, z: this.player.pos.z };
+    return { x: 0, z: 0 };
+  }
+
+  /** Out of the bay, or back into it. Only from the ship: a rover you could
+   *  summon to wherever you had stranded it would make the charge meaningless. */
+  toggleRover() {
+    const L = this.landed;
+    if (!L || L.onFoot || this.transition) return;
+    if (L.driving) {
+      const home = Math.hypot(this.rover.pos.x, this.rover.pos.z);
+      const R = this.ship.length * 1000;
+      if (home > R * 1.6) {
+        this.hud.log('TOO FAR FROM THE SHIP TO STOW', 'hi');
+        this.audio.ping('deny');
+        return;
+      }
+      const r = this.rover.stow();
+      L.driving = false;
+      this.ship.model.visible = true;
+      if (r && r.moved) this.hud.log(`${r.moved} t TRANSFERRED TO THE HOLD`, 'ok');
+      if (r && r.spilled) this.hud.log(`${r.spilled} t LEFT BEHIND · HOLD FULL`, 'hi');
+      this.hud.log('ROVER STOWED · PACK RECHARGED', 'ok');
+      this.audio.ping('ui');
+      return;
+    }
+    const R = this.ship.length * 1000;
+    this.rover.deploy(this.surfaceScene, R * 0.55, R * 0.30);
+    L.driving = true;
+    this.hud.log('ROVER DEPLOYED · WASD TO DRIVE · R TO STOW', 'ok');
+    this.audio.ping('ui');
+  }
+
+  /** Arriving somewhere is worth saying once, and only once. */
+  _roverArrival() {
+    const L = this.landed;
+    const here = this.groundPos();
+    const s = this.sites.nearest(L.body, here.x, here.z);
+    const id = s ? `${L.body.id}:${s.id}` : null;
+    if (id === this._atSite) return;
+    this._atSite = id;
+    if (!s) return;
+    const done = this.sites.isDone(L.body, s);
+    if (s.kind === 'seam') {
+      const left = this.prospect.remaining(L.body, s.dep);
+      this.hud.log(left ? `${s.name} SEAM · ${left} t · HOLD F` : `${s.name} SEAM · WORKED OUT`, left ? 'ok' : 'hi');
+    } else if (done) {
+      this.hud.log(`${s.name} · ALREADY WORKED`, 'hi');
+    } else {
+      this.hud.log(`${s.name} · E TO ${s.kind === 'wreck' ? 'BOARD' : s.kind === 'survivor' ? 'ANSWER' : 'SURVEY'}`, 'ok');
+    }
+    this.audio.ping('ui');
+  }
+
+  /** E, standing in a site that is not a seam. */
+  workSite() {
+    const L = this.landed;
+    if (!L) return;
+    const here = this.groundPos();
+    const s = this.sites.nearest(L.body, here.x, here.z);
+    if (!s) { this.hud.log('NOTHING HERE', 'hi'); this.audio.ping('deny'); return; }
+    if (s.kind === 'seam') { this.hud.log('HOLD F TO WORK THE SEAM', 'hi'); return; }
+    const r = this.sites.visit(L.body, s);
+    if (!r) return;
+    if (r.already) { this.hud.log('ALREADY WORKED', 'hi'); this.audio.ping('deny'); return; }
+
+    if (r.kind === 'wreck') {
+      this.hud.narrate(`The ${s.name} came out here a century before you did and never left. `
+        + 'The log is still readable.', 'SALVAGE');
+      if (r.newLog) this.hud.log('LOG RECOVERED · FILED TO THE ARCHIVE', 'hi');
+      if (r.salvaged) this.hud.log(`${r.salvageId.toUpperCase()} +${r.salvaged} t`, 'ok');
+      this.audio.ping('objective');
+    } else if (r.kind === 'marker') {
+      this.hud.narrate('It is not a monument and it is not a grave. It is tuned — and it is '
+        + 'tuned to the same phase the Tines are.', 'HUSH MARKER');
+      this.hud.log(`MARKER SURVEYED · ${r.surveyed} ON RECORD`, 'hi');
+      this.audio.ping('resonate');
+    } else if (r.kind === 'survivor') {
+      this.hud.narrate(`${s.name} has been down here nineteen years and is in no hurry. `
+        + '"They are not dead," they say. "I have been listening to them the whole time."', 'SURVIVOR');
+      this.hud.log('ACCOUNT FILED · A SECOND SOURCE', 'hi');
+      this.audio.ping('objective');
+    }
+    this.codex.markDirty();
+  }
+
   /* ----------------------------------------------------------- the drone
 
      Prospecting is deliberately the slowest verb in the game: a tonne every
@@ -1055,12 +1167,22 @@ export class Game {
       if (this.droneT) { this.droneT = 0; this.hud.setDrone?.(0); }
       return;
     }
-    const dep = this.prospect.workable(L.body);
-    if (!dep) {
+    /* The seam you are *in*, not the richest one on the planet. This used to
+       take whichever deposit still held the most, wherever it was, which is
+       why every deposit carried a bearing that meant nothing. Now the bearing
+       is a place and the drone only reaches what is under it. */
+    const here = this.groundPos();
+    const site = this.sites.nearest(L.body, here.x, here.z);
+    const dep = site && site.kind === 'seam' ? site.dep : null;
+    if (!dep || this.prospect.remaining(L.body, dep) <= 0) {
       if (!this._droneDry) {
         this._droneDry = true;
-        this.hud.log(this.prospect.deposits(L.body).length
-          ? 'SEAMS EXHAUSTED HERE' : 'NOTHING WORTH DRILLING HERE', 'hi');
+        const any = this.sites.at(L.body).some((x) => x.kind === 'seam'
+          && this.prospect.remaining(L.body, x.dep) > 0);
+        this.hud.log(dep ? 'SEAM SPENT'
+          : any ? 'NO SEAM HERE · DRIVE TO ONE'
+            : this.prospect.deposits(L.body).length
+              ? 'SEAMS EXHAUSTED HERE' : 'NOTHING WORTH DRILLING HERE', 'hi');
       }
       return;
     }
@@ -1069,10 +1191,16 @@ export class Game {
     const PER_TONNE = 1.4 / (this.crew ? this.crew.mul('droneMul') : 1);
     while (this.droneT >= PER_TONNE) {
       this.droneT -= PER_TONNE;
-      const got = this.prospect.extract(L.body, dep);
+      /* Driving, the tonne goes in the rover's own bin: six tonnes and you
+         have to come back, which is what stops a rover being a hold with
+         wheels. Parked, it goes straight into the ship as it always did. */
+      const sink = L.driving ? (id) => this.rover.stash(id) : null;
+      const got = this.prospect.extract(L.body, dep, sink);
       if (!got) {
-        this.hud.log(this.economy.cargoUsed() >= this.economy.cargoCap
-          ? 'HOLD FULL' : 'SEAM SPENT', 'hi');
+        this.hud.log(L.driving && this.rover.holdUsed() >= this.rover.holdCap
+          ? 'ROVER BIN FULL · RETURN TO THE SHIP'
+          : this.economy.cargoUsed() >= this.economy.cargoCap
+            ? 'HOLD FULL' : 'SEAM SPENT', 'hi');
         this.droneT = 0;
         break;
       }
@@ -1744,6 +1872,13 @@ export class Game {
     this.origin.copy(this.ship.absPos);
     this.camRig.copy(this.ship.quat);
 
+    /* The rover cannot come with you as a loose object in a scene that is
+       about to be thrown away, and leaving `driving` set would put the next
+       landing straight into a chase camera pointed at nothing. */
+    if (this.rover && this.rover.deployed) this.rover.stow();
+    if (this.rover && this.rover.object.parent) {
+      this.rover.object.parent.remove(this.rover.object);
+    }
     this.landed = null;
     /* Back at the helm, not hanging behind the ship. This was the other half
        of "stuck in third person after taking off": liftOff left `mode` on
@@ -2598,6 +2733,27 @@ export class Game {
     if (this.landed) {
       const L = this.landed;
       const R = this.ship.length * 1000;          // metres
+
+      if (L.driving) {
+        /* Behind and above the rover, and the rig leans with it — the whole
+           reason to drive rather than teleport is that the ground has shape,
+           and a camera pinned level would throw that away. */
+        this.rover.cameraPose(_v, _v3);
+        this.camera.position.lerp(_v, Math.min(1, dt * 6));
+        _m4.lookAt(this.camera.position, _v3, this.rover.object.up);
+        this.camera.quaternion.slerp(
+          _q1.setFromRotationMatrix(_m4), Math.min(1, dt * 7));
+        this._setNear(GROUND_NEAR, GROUND_FAR);
+        this.fov += (72 - this.fov) * Math.min(1, dt * 3);
+        this.camera.fov = this.fov;
+        this.camera.updateProjectionMatrix();
+        this.camera.updateMatrixWorld();
+        this.camAim = this.camera.quaternion.clone();
+        this.camQuat.copy(this.camera.quaternion);
+        this.ship.model.visible = true;
+        this.interiorRig.visible = false;
+        return;
+      }
 
       if (L.onFoot) {
         // Standing on the planet. The eye is the player's, not a rig's.

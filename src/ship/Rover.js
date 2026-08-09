@@ -1,0 +1,352 @@
+import * as THREE from 'three';
+
+/* ============================================================================
+   The rover.
+
+   Starflight had a terrain vehicle and it was the whole reason the ground
+   existed. This one is here for the same reason: `Sites` puts things a
+   kilometre or six from where you park, and a player who walks at 1.75 m/s
+   cannot reach any of them. Six kilometres on foot is fifty-seven minutes.
+   By rover it is four, and the four minutes are the interesting part.
+
+   It is built in metres, because the ground scene is: one unit is one metre
+   there, unlike everywhere else in the game where one unit is a kilometre.
+   The ship gets around this with a rig scaled by a thousand; the rover does
+   not need to, since it was never authored at hull scale.
+
+   Three things make it a vehicle rather than a fast walk:
+
+   **It follows the ground.** Four contact points sample the same height field
+   the shader draws — `Surface.heightAt` is CPU-side and always was — and the
+   chassis takes its pitch and roll from the differences between them. Driving
+   across a ridge line pitches the nose properly, because the nose is actually
+   measuring the ridge.
+
+   **Slope beats throttle.** Past about thirty degrees uphill the drive gives
+   up, gradually rather than with a wall, which turns a mountain into
+   something you go *around*. The route is the gameplay; a vehicle that
+   ignores terrain would make the terrain scenery again, which is the thing
+   this whole milestone exists to fix.
+
+   **Charge is finite and symmetric.** The pack is metres, not minutes, so
+   idling costs nothing and the only question is distance. Half the pack is
+   the point of no return, and the readout says so — because the interesting
+   version of "how far dare I go" is one where the answer is knowable and you
+   can still get it wrong.
+   ========================================================================== */
+
+/** Metres of driving in a full pack. The farthest site sits at 6.2 km, so a
+ *  full charge is one round trip to the edge of the map with a little spare —
+ *  tight enough to be a decision, loose enough not to be a punishment. */
+export const PACK_RANGE = 14000;
+
+const MAX_FWD = 22;            // m/s, about 80 km/h
+const MAX_REV = 7;
+const ACCEL = 11;
+const BRAKE = 18;
+const DRAG = 0.7;
+const YAW_RATE = 1.5;          // rad/s at speed, scaled down when crawling
+
+/* Grades. Below GRADE_FREE the drive does not care; by GRADE_STALL it has
+   nothing left. Measured as rise over run along the direction of travel. */
+const GRADE_FREE = 0.18;       // ~10°
+const GRADE_STALL = 0.62;      // ~32°
+/* Coarse enough to skip the fine detail band. See the note in `update`. */
+const GRADE_LOD = 14;
+
+const WHEELBASE = 2.9;
+const TRACK = 2.0;
+
+export class Rover {
+  constructor(game) {
+    this.game = game;
+    this.object = buildRover();
+    this.object.visible = false;
+
+    this.pos = new THREE.Vector3();
+    this.yaw = 0;
+    this.speed = 0;
+    this.charge = 1;             // 0..1 of PACK_RANGE
+    this.deployed = false;
+    this.hold = {};              // what the drone dug, until you get back
+    this.holdCap = 6;
+
+    this._q = new THREE.Quaternion();
+    this._up = new THREE.Vector3(0, 1, 0);
+    this._grade = 0;
+  }
+
+  holdUsed() { return Object.values(this.hold).reduce((a, b) => a + b, 0); }
+
+  /** Metres of driving left in the pack. */
+  metresLeft() { return this.charge * PACK_RANGE; }
+
+  /** True while there is still enough charge to get home from here. The
+   *  margin is deliberate: arriving on empty is a story, arriving on empty
+   *  because the readout lied is a bug report. */
+  canReturn() {
+    const home = Math.hypot(this.pos.x, this.pos.z);
+    return this.metresLeft() >= home * 1.06;
+  }
+
+  /* --------------------------------------------------------------- deploy */
+
+  /** Off the ramp, beside the ship, pointing away from it. */
+  deploy(scene, startX, startZ) {
+    if (this.deployed) return;
+    this.deployed = true;
+    this.pos.set(startX, 0, startZ);
+    // Nose away from the hull, so the first thing you see is where you can go.
+    this.yaw = Math.atan2(-startX, -startZ);
+    this.speed = 0;
+    this.object.visible = true;
+    if (scene && this.object.parent !== scene) scene.add(this.object);
+    this._settle();
+  }
+
+  /** Back on the ship. Whatever the drone dug goes into the hold, and the
+   *  pack comes back full — the ship is the only place either happens. */
+  stow() {
+    if (!this.deployed) return null;
+    this.deployed = false;
+    this.object.visible = false;
+    this.speed = 0;
+    const eco = this.game.economy;
+    let moved = 0, spilled = 0;
+    for (const id in this.hold) {
+      const room = eco.cargoCap - eco.cargoUsed();
+      const n = Math.min(this.hold[id], Math.max(0, room));
+      if (n > 0) { eco.cargo[id] = (eco.cargo[id] || 0) + n; moved += n; }
+      spilled += this.hold[id] - n;
+    }
+    if (moved) eco.save();
+    this.hold = {};
+    this.charge = 1;
+    this.pos.set(0, 0, 0);
+    return { moved, spilled };
+  }
+
+  /** One tonne into the rover's own bin. Returns false when it will not fit,
+   *  which is what makes the bin a reason to drive back rather than a number. */
+  stash(id) {
+    if (this.holdUsed() >= this.holdCap) return false;
+    this.hold[id] = (this.hold[id] || 0) + 1;
+    return true;
+  }
+
+  /* --------------------------------------------------------------- drive */
+
+  update(dt, input, uiOpen) {
+    if (!this.deployed) return;
+    const gh = this._height.bind(this);
+
+    /* The same actions the walk controller reads, so nothing new has to be
+       bound and the touch stick works unchanged: W/S are thrUp/thrDn and A/D
+       are yawL/yawR everywhere else on the ground. */
+    let throttle = 0, steer = 0;
+    if (!uiOpen && input) {
+      throttle = (input.held('thrUp') ? 1 : 0) - (input.held('thrDn') ? 1 : 0)
+        + (input.touch ? -input.touchL.y : 0);
+      steer = (input.held('yawL') ? 1 : 0) - (input.held('yawR') ? 1 : 0)
+        - (input.touch ? input.touchL.x : 0);
+      throttle = THREE.MathUtils.clamp(throttle, -1, 1);
+      steer = THREE.MathUtils.clamp(steer, -1, 1);
+    }
+
+    /* Grade, read as *landform* rather than as grit.
+
+       This first sampled four metres ahead at full detail, and the rover
+       promptly crawled: `heightAt` carries a fine band on top of the terrain —
+       rubble, scree, metre-scale roughness — and over a four-metre baseline
+       that noise routinely exceeds a thirty-degree slope on ground that looks
+       flat and is flat. The acceptance suite caught it as 261 m of a 3.5 km
+       run in 133 seconds, which is walking pace in a vehicle.
+
+       So the grade is measured over a chassis-and-then-some baseline at a
+       coarse LOD, which is the band the *hill* lives in. The wheels still
+       sample full detail in `_settle`, because a boulder under one corner
+       should absolutely tilt the vehicle — it just should not stop it. */
+    const ahead = 26;
+    const [fx, fz] = this.forward();
+    const hHere = gh(this.pos.x, this.pos.z, GRADE_LOD);
+    const hAhead = gh(this.pos.x + fx * ahead, this.pos.z + fz * ahead, GRADE_LOD);
+    this._grade = (hAhead - hHere) / ahead;
+
+    /* Only *climbing* costs you. A descent is free, which is both true and
+       the thing that makes reading the landscape worth doing. */
+    const climb = Math.max(0, this._grade * Math.sign(throttle || 1));
+    const bite = 1 - THREE.MathUtils.smoothstep(climb, GRADE_FREE, GRADE_STALL);
+
+    const wantAccel = throttle > 0 ? ACCEL * bite : throttle < 0 ? -ACCEL * 0.6 * bite : 0;
+    if (wantAccel === 0) {
+      // coast down, and stop cleanly rather than creeping forever
+      const d = Math.sign(this.speed) * DRAG * dt * 6;
+      this.speed = Math.abs(this.speed) <= Math.abs(d) ? 0 : this.speed - d;
+    } else {
+      this.speed += wantAccel * dt;
+    }
+    // Braking rather than reversing, when the stick opposes the roll.
+    if (throttle < 0 && this.speed > 0) this.speed -= BRAKE * dt;
+    if (throttle > 0 && this.speed < 0) this.speed += BRAKE * dt;
+
+    const capF = MAX_FWD * Math.max(0.12, bite);
+    this.speed = THREE.MathUtils.clamp(this.speed, -MAX_REV, capF);
+
+    // ---- steering. A stationary rover does not pivot on the spot, and
+    // reversing steers the way a reversing vehicle does.
+    const grip = THREE.MathUtils.clamp(Math.abs(this.speed) / 6, 0, 1);
+    this.yaw += steer * YAW_RATE * grip * dt * Math.sign(this.speed || 1);
+
+    // ---- travel, and the pack
+    const step = this.speed * dt;
+    if (step) {
+      this.pos.x += fx * step;
+      this.pos.z += fz * step;
+      /* Metres, not seconds: sitting still is free. Climbing costs more,
+         because it does — and it gives the route-finding a second reason to
+         exist beyond not stalling. */
+      const cost = Math.abs(step) * (1 + Math.max(0, this._grade) * 1.6);
+      this.charge = Math.max(0, this.charge - cost / PACK_RANGE);
+      if (this.charge <= 0) this.speed = 0;
+    }
+
+    this._settle();
+  }
+
+  /** The heading, in the sense the rest of the game uses: forward at yaw 0
+   *  is -Z, and yaw increases to the left. Matching `Player` matters, because
+   *  A and D have to turn the same way whether you are walking or driving. */
+  forward() { return [-Math.sin(this.yaw), -Math.cos(this.yaw)]; }
+
+  /** Compass bearing of travel, for a readout that agrees with the survey. */
+  heading() {
+    const [fx, fz] = this.forward();
+    return (Math.atan2(fx, fz) * 180 / Math.PI + 360) % 360;
+  }
+
+  /** Sit the chassis on the ground, pitched and rolled to match it. */
+  _settle() {
+    const gh = this._height.bind(this);
+    const [fx, fz] = this.forward();
+    const rx = -fz, rz = fx;                    // right-hand side of travel
+    const hb = WHEELBASE * 0.5, ht = TRACK * 0.5;
+
+    const p = (a, b) => gh(this.pos.x + fx * a + rx * b, this.pos.z + fz * a + rz * b);
+    const fl = p(hb, -ht), fr = p(hb, ht), bl = p(-hb, -ht), br = p(-hb, ht);
+
+    this.pos.y = (fl + fr + bl + br) * 0.25;
+
+    /* The normal from the four contact points, rather than from the height
+       field's own gradient: the wheels are what touches the ground, and a
+       boulder under one corner should tilt the vehicle even though the
+       analytic normal at the centre knows nothing about it. */
+    const pitch = ((bl + br) - (fl + fr)) / (2 * WHEELBASE);
+    const roll = ((fl + bl) - (fr + br)) / (2 * TRACK);
+
+    this.object.position.copy(this.pos);
+    this.object.rotation.set(0, 0, 0);
+    // The model is authored nose-toward +Z; the world's forward at yaw 0 is
+    // -Z, so the mesh carries a half turn the controller does not.
+    this.object.rotateY(this.yaw + Math.PI);
+    this.object.rotateX(Math.atan(pitch));
+    this.object.rotateZ(Math.atan(roll));
+
+    // wheels spin at road speed
+    const wr = 0.55;
+    this._spin = (this._spin || 0) + this.speed / wr * 0.016;
+    for (const w of this.object.userData.wheels) w.rotation.x = this._spin;
+  }
+
+  _height(x, z, lod = 1.0) {
+    const s = this.game.surface;
+    return s && s.heightAt ? s.heightAt(x, z, lod) : 0;
+  }
+
+  /** Where the chase camera wants to be, in ground metres. */
+  cameraPose(out, aim) {
+    const back = 9.5, up = 4.2;
+    const [fx, fz] = this.forward();
+    out.set(this.pos.x - fx * back, this.pos.y + up, this.pos.z - fz * back);
+    const gy = this._height(out.x, out.z);
+    if (out.y < gy + 2.0) out.y = gy + 2.0;      // never inside the hill
+    aim.set(this.pos.x, this.pos.y + 1.4, this.pos.z);
+  }
+}
+
+/* ------------------------------------------------------------------ model */
+
+/* Built in metres and deliberately plain. It is a working vehicle carried in
+   a survey ship's bay: a flat deck, a rocker beam a side, six wheels, a mast
+   for the scanner and a bin at the back for whatever the drone brings up. */
+function buildRover() {
+  const root = new THREE.Group();
+  const wheels = [];
+
+  const paint = new THREE.MeshStandardMaterial({
+    color: 0x9aa3a8, roughness: 0.62, metalness: 0.35,
+  });
+  const dark = new THREE.MeshStandardMaterial({
+    color: 0x2b3238, roughness: 0.78, metalness: 0.45,
+  });
+  const rubber = new THREE.MeshStandardMaterial({
+    color: 0x15181b, roughness: 0.95, metalness: 0.0,
+  });
+  const glow = new THREE.MeshStandardMaterial({
+    color: 0x0a1a20, roughness: 0.3, metalness: 0.1,
+    emissive: new THREE.Color(0x3fd8e8), emissiveIntensity: 1.6,
+  });
+
+  const box = (w, h, d, mat, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    m.castShadow = true; m.receiveShadow = true;
+    root.add(m);
+    return m;
+  };
+
+  // deck and belly
+  box(TRACK * 0.92, 0.26, WHEELBASE * 1.18, paint, 0, 1.02, 0);
+  box(TRACK * 0.70, 0.30, WHEELBASE * 0.95, dark, 0, 0.78, 0);
+
+  // rocker beams, one a side
+  box(0.16, 0.20, WHEELBASE * 1.22, dark, -TRACK * 0.50, 0.80, 0);
+  box(0.16, 0.20, WHEELBASE * 1.22, dark, TRACK * 0.50, 0.80, 0);
+
+  // six wheels
+  const wheelGeo = new THREE.CylinderGeometry(0.55, 0.55, 0.38, 18);
+  wheelGeo.rotateZ(Math.PI / 2);
+  for (const zz of [WHEELBASE * 0.5, 0, -WHEELBASE * 0.5]) {
+    for (const s of [-1, 1]) {
+      const w = new THREE.Mesh(wheelGeo, rubber);
+      w.position.set(s * TRACK * 0.56, 0.55, zz);
+      w.castShadow = true;
+      // Spin is about the vehicle's X. The geometry is already turned to lie
+      // across the hull, so the mesh's own X is the axle.
+      const pivot = new THREE.Group();
+      pivot.position.copy(w.position);
+      w.position.set(0, 0, 0);
+      pivot.add(w);
+      root.add(pivot);
+      wheels.push(w);
+    }
+  }
+
+  // cargo bin at the back, open-topped
+  box(TRACK * 0.66, 0.44, 0.9, dark, 0, 1.37, -WHEELBASE * 0.42);
+
+  // scanner mast and head
+  box(0.10, 1.15, 0.10, dark, TRACK * 0.28, 1.72, -WHEELBASE * 0.20);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), paint);
+  head.position.set(TRACK * 0.28, 2.34, -WHEELBASE * 0.20);
+  root.add(head);
+
+  // forward drone arm, folded
+  box(0.12, 0.12, 1.25, paint, -TRACK * 0.22, 1.24, WHEELBASE * 0.52);
+
+  // running lights, so it reads at range in a dark landscape
+  box(0.34, 0.07, 0.05, glow, -TRACK * 0.24, 1.20, WHEELBASE * 0.60);
+  box(0.34, 0.07, 0.05, glow, TRACK * 0.24, 1.20, WHEELBASE * 0.60);
+
+  root.userData.wheels = wheels;
+  return root;
+}

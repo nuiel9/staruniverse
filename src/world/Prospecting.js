@@ -115,20 +115,28 @@ export class Prospecting {
 
   /**
    * Take one tonne. Returns the commodity id on success, null if the seam is
-   * spent, the hold is full, or there is nothing under the ship.
+   * spent, whatever is receiving it is full, or there is nothing here.
+   *
+   * `sink` is where the tonne lands. Working a seam from the rover fills the
+   * rover's own bin — six tonnes, and then you drive back — while working one
+   * with the ship parked on top of it fills the hold as it always did. Lucent
+   * ignores both and goes to the tank, because it is not cargo, it is range,
+   * and a rover carrying fuel it cannot burn would be a strange kind of prize.
    */
-  extract(body, dep) {
+  extract(body, dep, sink) {
     const d = dep || this.workable(body);
     if (!d) return null;
     const eco = this.game.economy;
-    if (eco.cargoUsed() >= eco.cargoCap) return null;
     if (this.remaining(body, d) <= 0) return null;
+    if (d.id !== 'lucent') {
+      if (sink) { if (!sink(d.id)) return null; }
+      else if (eco.cargoUsed() >= eco.cargoCap) return null;
+    }
     const k = this.key(body, d);
     this.worked[k] = (this.worked[k] || 0) + 1;
     if (d.id === 'lucent') {
-      // Lucent goes to the tank, not the hold: it is not cargo, it is range.
       this.game.ship.fuel = Math.min(this.game.ship.fuelCap, this.game.ship.fuel + 1);
-    } else {
+    } else if (!sink) {
       eco.cargo[d.id] = (eco.cargo[d.id] || 0) + 1;
       eco.save();
     }

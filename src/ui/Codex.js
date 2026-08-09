@@ -1,6 +1,7 @@
 import { CANTOS, LOGS, TYPE_INFO, STAR_INFO, ANOMALY_INFO } from '../game/lore.js';
 import { fmtDist } from './HUD.js';
 import { t, tx, onLangChange } from './i18n.js';
+import { REVELATION_COUNT } from '../game/Mystery.js';
 
 /* The archive: everything you have scanned, plus everything the Hush left. */
 
@@ -74,7 +75,7 @@ export class Codex {
       ...(g.mystery ? [{
         title: t('cx.question'), items: [{
           id: 'question',
-          label: `${t('cx.questionLabel')} (${g.mystery.found.size}/5)`,
+          label: `${t('cx.questionLabel')} (${g.mystery.found.size}/${REVELATION_COUNT})`,
         }],
       }] : []),
       ...(g.rumors && g.rumors.heard.length ? [{
@@ -158,7 +159,7 @@ export class Codex {
       return `<h1 class="cx-title">${t('cx.q.title')}</h1>
         <div class="cx-sub">${t('cx.q.sub')}</div>
         <div class="cx-stats">
-          ${stat(t('cx.s.understood'), `${M.found.size} / 5`)}
+          ${stat(t('cx.s.understood'), `${M.found.size} / ${REVELATION_COUNT}`)}
           ${stat(t('cx.s.tines'), `${g.cantos.length} / 7`)}
           ${stat(t('cx.s.burned'), `${Math.round(M.lucentBurned)} t`)}
           ${stat(t('cx.s.accounts'), said.length)}
@@ -228,17 +229,29 @@ export class Codex {
       const g0 = (s.radius / 6371) * 1.0;
       /* What the scan found underneath. This is the whole return on the
          scanner: before it, a world is a colour; after it, a manifest. */
+      /* The surface manifest. It used to list deposits with a bearing that
+         went nowhere — the drone worked whatever was under the ship, so the
+         degrees were decoration. Now every row is a place with a range on it,
+         and the range is why the rover is in the bay. */
       const deps = g.prospect ? g.prospect.deposits(b) : [];
-      const depBlock = deps.length ? `<h3 class="cx-h3">${t('cx.deposits')}</h3>
-        <div class="cx-deps">${deps.map((dep) => {
-    const left = g.prospect.remaining(b, dep);
-    return `<div class="cx-dep${left ? '' : ' spent'}">
-            <b>${dep.id.toUpperCase()}</b>
-            <span>${left ? `${left} t ${dep.grade}` : t('cx.workedOut')}</span>
-            <em>${t('cx.bearing')} ${dep.bearing}°</em></div>`;
-  }).join('')}</div>
-        <div class="cx-note">${t('cx.mineHintFull')}</div>`
-        : `<h3 class="cx-h3">${t('cx.deposits')}</h3><div class="cx-note">${t('cx.nothingWorth')}</div>`;
+      const sites = g.sites ? g.sites.manifest(b) : [];
+      const km = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
+      const rows = sites.map((s) => {
+        const left = s.kind === 'seam' ? g.prospect.remaining(b, s.dep) : 0;
+        const spent = s.kind === 'seam' ? left <= 0 : s.done;
+        const what = s.kind === 'seam'
+          ? (left ? `${left} t ${s.dep.grade}` : t('cx.workedOut'))
+          : s.done ? t('cx.site.done') : t(`cx.site.${s.kind}`);
+        return `<div class="cx-dep${spent ? ' spent' : ''}">
+            <b>${s.kind === 'seam' ? s.name : t(`cx.site.${s.kind}`)}</b>
+            <span>${what}</span>
+            <em>${t('cx.bearing')} ${s.bearing}° · ${km(s.range)}</em></div>`;
+      }).join('');
+      const depBlock = sites.length ? `<h3 class="cx-h3">${t('cx.sites')}</h3>
+        <div class="cx-deps">${rows}</div>
+        <div class="cx-note">${t('cx.sitesNote')}</div>`
+        : `<h3 class="cx-h3">${t('cx.sites')}</h3><div class="cx-note">${
+          deps.length ? t('cx.nothingWorth') : t('cx.nothingWorth')}</div>`;
       return `<h1 class="cx-title">${b.name.toUpperCase()}</h1>
         <div class="cx-sub">${info.label.toUpperCase()}${b.kind === 'moon' ? ` · ${t('cx.satellite')}` : ''}</div>
         <div class="cx-stats">

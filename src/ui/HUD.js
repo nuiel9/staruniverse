@@ -156,13 +156,15 @@ export class HUD {
        radii, so a player pressing every key in turn from the wrong place would
        conclude it is not possible. It shows up when it is actually available,
        and says which of land or lift off it will do. */
+    const driving = !!(g.landed && g.landed.driving);
     const canLand = !!(!g.landed && g.canLand && g.canLand());
     const canDock = !!(g.canDock && g.canDock());
     const canHail = !!(g.canHail && g.canHail());
     const seamNow = g.landed && !g.landed.onFoot && g.prospect
       ? (g.prospect.workable(g.landed.body)?.id || '') : '';
     const hintKey = `${g.mode}|${uiOpen ? 1 : 0}|${g.starmap.open ? 'm' : ''}|${canLand ? 1 : 0}|${canDock ? 1 : 0}`
-      + `|${canHail ? 1 : 0}|${g.landed ? (g.landed.onFoot ? 2 : 1) : 0}|${seamNow}`;
+      + `|${canHail ? 1 : 0}|${g.landed ? (driving ? 3 : g.landed.onFoot ? 2 : 1) : 0}|${seamNow}`
+      + `|${driving ? g.rover.atSiteKind || '' : ''}`;
     if (this._hintKey !== hintKey) {
       const wasLand = this._canLand;
       const wasDock = this._canDock;
@@ -182,10 +184,21 @@ export class HUD {
            which advertised a throttle, a scanner and an autopilot to somebody
            standing on a planet. */
         const seam = g.prospect && g.prospect.workable(g.landed.body);
+        if (driving) {
+          /* Driving is its own control set. Nothing about the parked ship is
+             reachable from out here, and advertising L or E-to-step-out to
+             somebody four kilometres away would be a lie. */
+          keys = [['WASD', t('k.drive')], ['E', t('k.workSite')],
+            ['F', t('k.mine')], ['R', t('k.stow')]];
+          this.el.hints.innerHTML = keys.map(([k, v]) => `<span><kbd>${k}</kbd>${v}</span>`).join('');
+          this._syncTouchLabels();
+          return;
+        }
         keys = g.landed.onFoot
           ? [['WASD', t('k.move')], ['MOUSE', t('k.look')], ['SHIFT', t('k.run')],
             ['E', t('k.board')], ['L', t('k.liftOff')]]
-          : [['E', t('k.stepOut')], ['L', t('k.liftOff')], ['TAB', t('k.archive')]];
+          : [['E', t('k.stepOut')], ['R', t('k.rover')], ['L', t('k.liftOff')],
+            ['TAB', t('k.archive')]];
         if (!g.landed.onFoot && seam) keys.splice(1, 0, ['F', `${t('k.mine')} ${seam.id}`]);
       } else if (g.mode === 'walk') {
         keys = [['WASD', t('k.move')], ['MOUSE', t('k.look')], ['E', t('k.use')], ['SHIFT', t('k.run')],

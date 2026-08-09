@@ -181,3 +181,9 @@ export const INTRO_LINES = [
   { who: 'REGISTRY RELAY', text: 'Forty thousand years ago nine hundred worlds went quiet in four days. Find out why.' },
   { who: 'LONG MARGIN', text: 'Scanner online. Seven Tines are out there. Bring back what they say.' },
 ];
+
+/* The one log the player is holding before the game starts: their own orders.
+   Named here rather than spelled out at each use, because two places already
+   knew the string and a third — the wrecks — would have handed the player
+   their own commission and called it a discovery. */
+export const OWN_LOG = 'log_seeker';
