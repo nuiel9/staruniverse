@@ -1,5 +1,6 @@
 // Ad-hoc probe: boot the game, run JS, optionally screenshot.
 //   node tools/probe.mjs "expr" [--shot path] [--settle ms] [--w 1600] [--h 900]
+import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { bootGame } from './boot.mjs';
 const args = process.argv.slice(2);
@@ -7,10 +8,22 @@ const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i
 const EXPR = args[0] && !args[0].startsWith('--') ? args[0] : '1';
 const SHOT = opt('shot', null);
 const SETTLE = +opt('settle', 1200);
+/* Same browser resolution the acceptance suites use. This used to launch
+   Playwright's own pinned build with metal flags unconditionally, which works
+   on the Mac it was written on and fails outright in a container that has a
+   preinstalled chromium and no downloaded one. CHROMIUM env wins, then the
+   well-known preinstalled path, then Playwright's download. */
+const exe = process.env.CHROMIUM
+  || ['/opt/pw-browsers/chromium'].find((p) => existsSync(p));
+const mac = process.platform === 'darwin';
 const browser = await chromium.launch({
   headless: true,
-  args: ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist',
-    '--autoplay-policy=no-user-gesture-required', '--hide-scrollbars'],
+  executablePath: mac ? undefined : exe,
+  args: mac
+    ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist',
+      '--autoplay-policy=no-user-gesture-required', '--hide-scrollbars']
+    : ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+      '--autoplay-policy=no-user-gesture-required', '--hide-scrollbars'],
 });
 /* deviceScaleFactor matters more than the viewport. A capture at 1 is about a
    megapixel; the laptop this is judged on is a 2x Retina panel at nearly six.

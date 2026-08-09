@@ -20,11 +20,18 @@
    most other places — because this project ships no downloaded assets and is
    not about to start with a webfont.
 
-   Scope, stated honestly: the *interface* is translated — every label, verb,
-   column head, banner and control hint a player reads on repeat. The long-form
-   fiction (the Tones, station logs, alien dialogue, the revelations) is still
-   English. Translating prose that carries the story is a different job from
-   translating a button, and doing it badly would be worse than not doing it.
+   Scope, stated honestly. Translated: the *interface* — every label, verb,
+   column head, banner and control hint a player reads on repeat — and the
+   catalogue copy sitting beside it, meaning the commodity shelf-notes, the
+   five outfits with their fifteen tiers, and the crew roles with what each
+   one actually does to the ship. Those are not story; they are the text a
+   player compares two purchases with, and a shopping decision made in a
+   second language is a worse decision.
+
+   Not translated: the long-form fiction — the Tones, the station logs, the
+   alien dialogue, the revelations. Translating prose that carries the story
+   is a different job from translating a button, and doing it badly would be
+   worse than not doing it at all.
    ========================================================================== */
 
 const KEY = 'star-universe.lang';
@@ -177,6 +184,80 @@ const STRINGS = {
   'k.chase': ['chase cam', 'กล้องตามยาน'],
   'k.cockpit': ['cockpit', 'ห้องนักบิน'],
 
+
+  /* ---------------------------------------------------------- the outfits */
+  'o.hold.name': ['Cargo Hold', 'ระวางสินค้า'],
+  'o.hold.blurb': ['Pods clamped along the spine. Every tonne is a tonne you can sell.',
+    'ฝักบรรทุกยึดตามแนวสันยาน ทุกตันคือของที่ขายได้'],
+  'o.hold.0': ['Standard bay', 'ระวางมาตรฐาน'],
+  'o.hold.1': ['Extended pods', 'ฝักบรรทุกเสริม'],
+  'o.hold.2': ['Freighter frame', 'โครงยานขนส่ง'],
+  'o.tank.name': ['Lucent Tank', 'ถังลูเซนต์'],
+  'o.tank.blurb': ['How far you can go before the nebula decides where you live.',
+    'ไปได้ไกลแค่ไหน ก่อนที่เนบิวลาจะเป็นคนเลือกที่อยู่ให้คุณ'],
+  'o.tank.0': ['Survey tank', 'ถังสำรวจ'],
+  'o.tank.1': ['Long-range tank', 'ถังพิสัยไกล'],
+  'o.tank.2': ['Deep-field tank', 'ถังห้วงลึก'],
+  'o.scanner.name': ['Survey Scanner', 'เครื่องสแกนสำรวจ'],
+  'o.scanner.blurb': ['Faster scans, and the sensitivity to see what a world is holding.',
+    'สแกนเร็วขึ้น และไวพอจะเห็นว่าดาวดวงนั้นมีอะไรอยู่ใต้พื้นผิว'],
+  'o.scanner.0': ['Registry array', 'ชุดรับสัญญาณมาตรฐาน'],
+  'o.scanner.1': ['Phased array', 'ชุดรับแบบเฟสอาเรย์'],
+  'o.scanner.2': ['Deep array', 'ชุดรับห้วงลึก'],
+  'o.drive.name': ['Fold Drive', 'เครื่องพับอวกาศ'],
+  'o.drive.blurb': ['Recharges faster between jumps, and pushes harder in the dust.',
+    'ชาร์จเร็วขึ้นระหว่างการกระโดด และฝ่าฝุ่นได้แรงขึ้น'],
+  'o.drive.0': ['Standard coil', 'ขดลวดมาตรฐาน'],
+  'o.drive.1': ['Tuned coil', 'ขดลวดปรับจูน'],
+  'o.drive.2': ['Hush-pattern coil', 'ขดลวดแบบฮัช'],
+  'o.engine.name': ['Main Drive', 'เครื่องยนต์หลัก'],
+  'o.engine.blurb': ['Cruise speed in-system. Time is the resource nobody prices.',
+    'ความเร็วเดินทางในระบบดาว เวลาคือทรัพยากรที่ไม่มีใครตีราคา'],
+  'o.engine.0': ['Standard torch', 'เครื่องยนต์มาตรฐาน'],
+  'o.engine.1': ['Uprated torch', 'เครื่องยนต์เสริมกำลัง'],
+  'o.engine.2': ['Racing torch', 'เครื่องยนต์ความเร็วสูง'],
+
+  /* ------------------------------------------------------------ the crew */
+  'r.surveyor.title': ['Surveyor', 'นักสำรวจ'],
+  'r.surveyor.blurb': ['Reads a world faster than the array was built to.',
+    'อ่านค่าดาวได้เร็วกว่าที่ตัวเครื่องถูกออกแบบมา'],
+  'r.surveyor.effect': ['Scans complete 35% sooner', 'สแกนเสร็จเร็วขึ้น 35%'],
+  'r.prospector.title': ['Prospector', 'นักหาแร่'],
+  'r.prospector.blurb': ['Knows where to put the drill without being told.',
+    'รู้ว่าจะลงสว่านตรงไหนโดยไม่ต้องมีใครบอก'],
+  'r.prospector.effect': ['The drone works 40% faster', 'โดรนขุดเร็วขึ้น 40%'],
+  'r.navigator.title': ['Navigator', 'ต้นหน'],
+  'r.navigator.blurb': ['Finds the thin part of a dust bank by instinct.',
+    'หาช่องบางของแนวฝุ่นได้ด้วยสัญชาตญาณ'],
+  'r.navigator.effect': ['Folds burn 25% less lucent', 'การพับอวกาศใช้ลูเซนต์น้อยลง 25%'],
+  'r.quartermaster.title': ['Quartermaster', 'พันจ่าพัสดุ'],
+  'r.quartermaster.blurb': ['Has haggled with worse than the Vess, and won.',
+    'เคยต่อรองกับคนที่ร้ายกว่าเวสส์ และชนะมาแล้ว'],
+  'r.quartermaster.effect': ['Better opening prices in every negotiation',
+    'ได้ราคาเปิดที่ดีกว่าในทุกการเจรจา'],
+  'r.engineer.title': ['Engineer', 'ช่างเครื่อง'],
+  'r.engineer.blurb': ['Keeps the coil inside its tolerances, mostly.',
+    'คุมขดลวดให้อยู่ในพิกัด — ส่วนใหญ่นะ'],
+  'r.engineer.effect': ['Fold charge recovers 40% faster', 'ประจุพับอวกาศฟื้นเร็วขึ้น 40%'],
+
+  /* ------------------------------------------------ commodity shelf-notes */
+  'cd.volatiles': ['Water ice, ammonia and frozen gases, scooped and bagged.',
+    'น้ำแข็ง แอมโมเนีย และแก๊สแช่แข็ง ตักใส่ถุงมาแล้ว'],
+  'cd.ore': ['Unrefined metals straight off the belt crushers.',
+    'โลหะดิบจากเครื่องบดในแถบดาวเคราะห์น้อย'],
+  'cd.alloys': ['Refined structural stock. Every yard is hungry for it.',
+    'โลหะผสมสำหรับงานโครงสร้าง ทุกอู่ต่อยานต้องการ'],
+  'cd.fuel': ['Sealed reaction mass. Stations burn it; so do you.',
+    'มวลปฏิกิริยาบรรจุผนึก สถานีเผามันและคุณก็เผา'],
+  'cd.food': ['Grown under lamps, vacuum-packed, nearly edible.',
+    'ปลูกใต้แสงไฟ อัดสุญญากาศ พอกินได้'],
+  'cd.medicine': ['Cold-chain pharmaceuticals. Light, dear, always wanted.',
+    'เวชภัณฑ์ควบคุมความเย็น เบา แพง และเป็นที่ต้องการเสมอ'],
+  'cd.machinery': ['Pumps, printers, drive parts. Civilisation in crates.',
+    'ปั๊ม เครื่องพิมพ์ ชิ้นส่วนเครื่องยนต์ อารยธรรมบรรจุลัง'],
+  'cd.luxuries': ['Whatever is rare where you are going.',
+    'อะไรก็ตามที่หายากในที่ที่คุณกำลังจะไป'],
+
   /* ------------------------------------------------------- commodities */
   'c.volatiles': ['Volatiles', 'สารระเหย'],
   'c.ore': ['Raw Ore', 'แร่ดิบ'],
@@ -201,13 +282,23 @@ export function t(key, vars) {
   return s;
 }
 
-/** Commodity display name. The economy owns the data — ids, base prices and
- *  descriptions stay in Economy.js — and this only decides what a player sees
- *  on a row, falling back to the English name for anything not in the table. */
-export function goodName(id, fallback) {
-  const row = STRINGS[`c.${id}`];
-  return row ? (row[lang === 'th' ? 1 : 0] ?? row[0]) : (fallback || id);
+/* The content tables — commodities, outfits, crew roles — stay where they
+   are. Economy.js still owns base prices, Outfitting.js still owns tiers and
+   costs, Crew.js still owns the multipliers; those modules know nothing about
+   language. What crosses over is only the handful of fields a player reads,
+   looked up by a key built from the same id the data is stored under, and
+   falling back to the English the table already carries. A missing key is a
+   row that reads in English, never a row that reads `o.hold.name`. */
+export function tx(key, fallback) {
+  const row = STRINGS[key];
+  return row ? (row[lang === 'th' ? 1 : 0] ?? row[0]) : (fallback ?? key);
 }
+
+/** Commodity display name, by id. */
+export const goodName = (id, fallback) => tx(`c.${id}`, fallback || id);
+
+/** The one-line shelf note under a commodity on a market row. */
+export const goodDesc = (id, fallback) => tx(`cd.${id}`, fallback);
 
 export const getLang = () => lang;
 

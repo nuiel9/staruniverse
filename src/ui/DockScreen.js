@@ -1,7 +1,7 @@
 import { COMMODITIES } from '../econ/Economy.js';
 import { OUTFITS } from '../ship/Outfitting.js';
 import { ROLES } from '../game/Crew.js';
-import { t, goodName, onLangChange } from './i18n.js';
+import { t, tx, goodName, goodDesc, onLangChange } from './i18n.js';
 
 /* ============================================================================
    The dock screen: what you see with your ship on a berth.
@@ -58,7 +58,7 @@ export class DockScreen {
         const ok = this.game.outfit.buy(b.dataset.id);
         this.game.audio.ping(ok ? 'objective' : 'deny');
         if (ok) {
-          this.game.hud.log(`${t('dock.logFitted')} · ${OUTFITS[b.dataset.id].name.toUpperCase()}`, 'ok');
+          this.game.hud.log(`${t('dock.logFitted')} · ${tx(`o.${b.dataset.id}.name`, OUTFITS[b.dataset.id].name).toUpperCase()}`, 'ok');
           this.render();
         }
         return;
@@ -171,7 +171,7 @@ export class DockScreen {
       const tag = gd.role === 'produces' ? `<i class="dk-tag prod">${t('dock.produces')}</i>`
         : gd.role === 'demands' ? `<i class="dk-tag want">${t('dock.wanted')}</i>` : '';
       return `<tr class="${gd.role || ''}">
-        <td class="dk-name">${goodName(c.id, c.name)}${tag}<em>${c.desc}</em></td>
+        <td class="dk-name">${goodName(c.id, c.name)}${tag}<em>${goodDesc(c.id, c.desc)}</em></td>
         <td class="dk-num">${price} <i>cr</i></td>
         <td class="dk-num">${gd.stock || '—'}</td>
         <td class="dk-num">${have || '—'}</td>
@@ -202,15 +202,16 @@ export class DockScreen {
       </div>`;
 
     const fitRows = Object.entries(OUTFITS).map(([id, o]) => {
+      const at = g.outfit.tier[id] || 0;
       const cur = g.outfit.spec(id);
       const nx = g.outfit.next(id);
       const afford = nx && eco.credits >= nx.cost;
       return `<tr>
-        <td class="dk-name">${o.name}<em>${o.blurb}</em></td>
-        <td class="dk-num">${cur.label}</td>
+        <td class="dk-name">${tx(`o.${id}.name`, o.name)}<em>${tx(`o.${id}.blurb`, o.blurb)}</em></td>
+        <td class="dk-num">${tx(`o.${id}.${at}`, cur.label)}</td>
         <td class="dk-act">${nx
     ? `<button data-act="fit" data-id="${id}" ${afford ? '' : 'disabled'}>
-             ${nx.label} · ${nx.cost.toLocaleString('en-US')} cr</button>`
+             ${tx(`o.${id}.${at + 1}`, nx.label)} · ${nx.cost.toLocaleString('en-US')} cr</button>`
     : `<span class="dk-max">${t('dock.fullyFitted')}</span>`}</td></tr>`;
     }).join('');
     const fitBlock = `<table class="dk-table"><thead><tr>
@@ -256,8 +257,8 @@ export class DockScreen {
       const have = g.crew.has(h.role);
       const full = g.crew.aboard.length >= 4;
       return `<tr>
-        <td class="dk-name">${h.name}<em>${role.title} — ${role.blurb}</em></td>
-        <td class="dk-num">${role.effect}</td>
+        <td class="dk-name">${h.name}<em>${tx(`r.${h.role}.title`, role.title)} — ${tx(`r.${h.role}.blurb`, role.blurb)}</em></td>
+        <td class="dk-num">${tx(`r.${h.role}.effect`, role.effect)}</td>
         <td class="dk-act">${have ? `<span class="dk-max">${t('dock.berthFilled')}</span>`
     : `<button data-act="hire" data-id="${h.id}" ${full || eco.credits < h.fee ? 'disabled' : ''}>
              ${t('dock.signOn')} · ${h.fee.toLocaleString('en-US')} cr</button>`}</td></tr>`;
