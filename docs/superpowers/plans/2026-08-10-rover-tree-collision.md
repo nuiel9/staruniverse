@@ -166,7 +166,7 @@ await bootGame(page, {
   setup: `(()=>{
     g.mode='exterior';
     const solid = g.bodies.filter((b)=>b.spec && b.planet && !b.planet.isGas
-      && b.spec.kind === '${KIND}' && (b.spec.veg||0) > 0.62);
+      && b.spec.type === '${KIND}' && (b.spec.veg||0) > 0.62);
     const body = solid[0];
     if(!body) return {failed:'no vegetated ${KIND} world in this galaxy'};
     g.pose({bodyRef: body, dist:1.6, phase:70, elev:8});
@@ -282,7 +282,7 @@ const s0 = await page.evaluate(async () => {
   };
 
   return {
-    body: S.spec ? S.spec.kind : '?',
+    body: S.spec ? S.spec.type : '?',
     // three sweeps at deliberately incommensurate steps, so the sample set is
     // not a lattice the hash could be accidentally friendly to
     hashA: run(0, 0, 0.1372, WJ.hash11),
@@ -1349,7 +1349,7 @@ const treesOn = await page.evaluate(async () => {
   /* A vegetated world — the trees band only exists above veg 0.55, and there
      is at least one habitable world per galaxy by construction. */
   const body = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas
-    && b.spec.kind === 'terran' && (b.spec.veg || 0) > 0.62)
+    && b.spec.type === 'terran' && (b.spec.veg || 0) > 0.62)
     .sort((a, b2) => (b2.spec.veg || 0) - (a.spec.veg || 0))[0];
   if (!body) return { skipped: 'no vegetated world in this galaxy' };
   g.pose({ bodyRef: body, dist: 1.6, phase: 70, elev: 8 });
