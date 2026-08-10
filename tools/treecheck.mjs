@@ -664,6 +664,130 @@ check('the memo holds exactly two generations, not three, after a second boundar
   `gen2 cur ${s2b.a2.curSize} → gen3 prev ${s2b.a3.prevSize}`
   + ` (gen1's ${s2b.a1.curSize} is gone)`);
 
+// -------------------------------------- stage 2c: a genuine prev cache hit
+/* Stage 2b proves the eviction *shape* — populate, then drop the oldest
+   generation wholesale — but never proves a prev *hit*, because a
+   whole-period, axis-aligned step shifts every instance's own tile index by
+   exactly one: floor((cx - baseX)/period + 0.5) moves by the same integer
+   for every instance when the shared numerator (cx, which does not depend on
+   baseX) shifts by a whole period. Every key at the new epoch is therefore
+   new, and prev.get(key) is consulted but always misses.
+
+   The first instinct — try something near half the tile period instead of a
+   whole one — turns out to be ruled out on grounds that have nothing to do
+   with the period at all, and are worth writing down because they are not
+   obvious from tileTo alone. For a stay-behind instance (same key, unchanged
+   wrapped position) to be a genuine prev hit, it has to appear in *both* the
+   before and the after query's result — and every result is filtered to
+   within R = 25 m of the query point. By the triangle inequality, a single
+   fixed point can only be within R of two query points that are themselves
+   at most 2R apart. So no step bigger than 50 m can ever produce a hit, on
+   any world, at any period — 210 m and even 105 m were both attempted and
+   both measured to always flip the *entire* local population together,
+   which is just this bound confirming itself from the other side.
+
+   Separately, the memo only ages — `prev` only gets populated — once the
+   camera's own cell index changes, and that requires the step to cross
+   whichever boundary happens to be nearest to wherever the camera currently
+   sits within its cell. That distance is an accident of the pose, not a
+   fraction of the period: measured on this world, POSES[0]'s nearest
+   boundary sits about 76–80 m away — outside the 50 m window a hit needs, so
+   no offset works there at all — while POSES[1]'s sits about 16–18 m away
+   and POSES[2]'s about 23–24 m away, both comfortably inside it. Only where
+   both conditions hold at once — an epoch-changing step that is also under
+   50 m — does a real prev hit exist to find. Measured windows: POSES[1] hits
+   from about 16 to 33 m, POSES[2] from about 24 to 41 m.
+
+   So this tries small offsets, well under the tile period, across every
+   pose. Not fudged to whatever passes: every attempt is graded and reported,
+   and if none of them works — on every pose — the check fails loudly rather
+   than passing on a query that never exercised what it claims to.
+
+   The epoch-change guard below is not just bookkeeping: it is what makes the
+   reference match attributable to `prev` specifically. Once the epoch has
+   changed, `cur` starts the query empty, so a match found by reference could
+   only have come from `prev.get(key)` — a hit against the same, still-warm
+   `cur` (the "stable across calls" case stage 2 already covers) is ruled out
+   by construction, not by inspection.
+
+   Which pose actually produces a hit is an accident of where that pose sits
+   relative to its own nearest cell boundary, not something chosen by
+   construction — the search's job is to find whichever pose that is, and to
+   fail loudly if none of the three happens to sit close enough this time. */
+const s2c = await page.evaluate(async (POSES) => {
+  const g = window.__game;
+  const S = g.surface;
+  const surfMod = await import('/src/world/Surface.js');
+  const WJ = surfMod.__woodyJS;
+  const T = S._trees;
+  const R = 25;
+
+  const query = (fx, fz, cx, cz) => {
+    S._camXZ.set(cx, cz);
+    S._camFwdXZ.set(fx, fz);
+    const rx = cx + fx * 9.5, rz = cz + fz * 9.5;
+    return { near: S.treesNear(rx, rz, R), cx, cz, rx, rz };
+  };
+  const truthAt = (fx, fz, cx, cz, rx, rz) => {
+    const t = [];
+    for (let i = 0; i < T.n; i++) {
+      const a = WJ.accept(S, i, cx, cz, fx, fz);
+      if (a.grow >= WJ.GROW_MIN && Math.hypot(a.x - rx, a.z - rz) <= R) t.push({ ...a, i });
+    }
+    return t;
+  };
+
+  const offsets = [15, 20, 25, 30, 35, 40, 45];
+  const tried = [];
+  for (const pose0 of POSES) {
+    let [fx, fz] = pose0.f;
+    const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
+    const [px0, pz0] = pose0.p;
+
+    for (const off of offsets) {
+      S._treeMemo = null;                       // a clean epoch for this attempt
+      const before = query(fx, fz, px0, pz0);
+      const epoch0 = S._treeMemoAt;
+      const after = query(fx, fz, px0 + fx * off, pz0 + fz * off);
+      const epoch1 = S._treeMemoAt;
+      if (epoch1 === epoch0) {
+        tried.push({ pose: pose0.p, off, reason: 'the camera cell did not change' });
+        continue;
+      }
+
+      const hit = after.near.find((q) => before.near.includes(q));
+      if (!hit) {
+        tried.push({ pose: pose0.p, off, reason: 'no entry came back by reference — nothing hit prev' });
+        continue;
+      }
+
+      const truth = truthAt(fx, fz, after.cx, after.cz, after.rx, after.rz);
+      return {
+        ok: true, pose: pose0.p, offset: off,
+        beforeCount: before.near.length, afterCount: after.near.length, hitIndex: hit.i,
+        complete: truth.every((t) => after.near.some((q) => q.i === t.i)),
+        sound: after.near.every((q) => truth.some((t) => t.i === q.i)),
+      };
+    }
+  }
+  return { ok: false, tried };
+}, POSES);
+
+if (s2c.ok) {
+  check('a partial-population step produces a genuine prev cache hit', true,
+    `pose (${s2c.pose[0]}, ${s2c.pose[1]}) · offset ${s2c.offset.toFixed(0)} m · tree #${s2c.hitIndex}`
+    + ` reused by reference from the previous generation`
+    + ` · ${s2c.beforeCount} before · ${s2c.afterCount} after`);
+  check('the index stays complete and sound after a partial-population epoch flip',
+    s2c.complete && s2c.sound);
+} else {
+  const detail = s2c.tried.map((t) => `(${t.pose[0]},${t.pose[1]})@${t.off.toFixed(0)}m: ${t.reason}`).join(' · ');
+  check('a partial-population step produces a genuine prev cache hit', false,
+    `no pose/offset produced both an epoch change and a reference hit — ${detail}`);
+  check('the index stays complete and sound after a partial-population epoch flip', false,
+    'not reached — no pose/offset produced a hit to verify against');
+}
+
 const bad = checks.filter(([, ok]) => !ok).length;
 console.log(`\n${checks.length - bad}/${checks.length} ok`);
 await browser.close();
