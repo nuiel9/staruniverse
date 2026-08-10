@@ -7,6 +7,8 @@
     "build": "vite build",
     "preview": "vite preview --port 4173",
     "verify": "node tools/verify.mjs",
+    "fieldcheck": "node tools/fieldcheck.mjs",
+    "treecheck": "node tools/treecheck.mjs",
     "smoke": "node tools/smoke.mjs",
     "trade": "node tools/trade.mjs",
     "nebula": "node tools/nebula.mjs",

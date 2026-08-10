@@ -5,7 +5,7 @@
  * against Surface.heightAt for the same landed world.
  */
 import { chromium } from 'playwright';
-import { bootGame } from '/Users/anshu/Code/SpaceGame2/tools/boot.mjs';
+import { bootGame } from './boot.mjs';
 
 const browser = await chromium.launch({
   headless: true,
