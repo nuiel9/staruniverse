@@ -204,8 +204,14 @@ different answers, and only the second one is right. A transliteration that got
 *most* of this story would still be wrong on 612 instances.
 
 **Measured after the fix:** zero accept/reject disagreements at all three
-poses, and a `grow` error of **2 % of the 0.046 margin**. The height-field tail
-this document worried about did not materialise.
+poses, and a `grow` error of **2 % of the 0.046 margin**.
+
+The height-field tail this document worried about did not materialise *in
+`grow`* — which is the thing the margin protects and the reason the worry
+existed. It did show up where the field is measured directly rather than
+through two smoothsteps: the ground-height and stature checks, which is what
+moved those gates to 10 mm. Those are the same field error seen at two removes
+from each other, not two findings.
 
 **And this is one compiler's behaviour, not the language's.** A driver that
 folds differently puts the error straight back at full scale, because the hash
