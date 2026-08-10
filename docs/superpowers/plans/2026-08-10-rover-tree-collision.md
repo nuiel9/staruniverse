@@ -1259,10 +1259,14 @@ In `src/world/Surface.js`, immediately after `normalAt` (which ends at line 6940
          back into its seed. Numeric rather than a composed string so the hot
          path allocates nothing. */
       const key = i * 4096 + ((_Wt[3] & 63) << 6) + (_Wt[4] & 63);
+      /* A miss is `undefined`; a cached rejection is `null`. Keeping the two
+         apart is most of the point — the great majority of candidates are not
+         trees, and re-deriving that twelve samples at a time every frame is
+         the cost this cache exists to avoid. */
       let e = cur.get(key);
       if (e === undefined) {
-        e = prev && prev.get(key);
-        if (e === undefined || e === false) {
+        e = prev ? prev.get(key) : undefined;
+        if (e === undefined) {
           const a = jTreeAccept(this, i, camX, camZ, fwdX, fwdZ);
           e = a.grow >= J_GROW_MIN
             ? { i, x: a.x, z: a.z, r: a.trR, H: a.H, gy: a.gy }
@@ -1283,8 +1287,6 @@ In `src/world/Surface.js`, immediately after `normalAt` (which ends at line 6940
       + (this._treeMemoPrev ? this._treeMemoPrev.size : 0);
   }
 ```
-
-Note the `e === false` guard is unreachable with this code and should be removed if it survives review — `cur.get` returns `undefined` for a miss and `null` for a cached rejection, and both are handled. Keep the `undefined`/`null` distinction: caching a rejection is most of the point.
 
 - [ ] **Step 5: Run and verify**
 
