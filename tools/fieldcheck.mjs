@@ -51,7 +51,7 @@ const res = await page.evaluate(async () => {
   const FS = `#version 300 es
   precision highp float;
   ${mod.NOISE.replace(/^#ifndef LS_NOISE|#define LS_NOISE|#endif$/gm, '')}
-  uniform float uSeed, uRelief, uPlanetR, uSea, uLodK;
+  uniform float uSeed, uRelief, uPlanetR, uSea, uLodK, uSeaDrop;
   uniform int uType;
   uniform vec3 uSunDir;
   ${fieldSrc}
@@ -111,6 +111,7 @@ const res = await page.evaluate(async () => {
   gl.uniform1f(u('uPlanetR'), U.uPlanetR.value);
   gl.uniform1f(u('uSea'), U.uSea.value);
   gl.uniform1f(u('uLodK'), U.uLodK.value);
+  gl.uniform1f(u('uSeaDrop'), U.uSeaDrop.value);
   gl.uniform1i(u('uType'), U.uType.value | 0);
   gl.uniform3f(u('uSunDir'), 0.3, 0.6, 0.4);
   gl.uniform4f(u('uDat'), S._datum[0], S._datum[1], S._site[0], S._site[1]);
