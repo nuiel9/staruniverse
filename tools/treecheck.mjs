@@ -448,6 +448,18 @@ for (const r of s1.results) {
      low lod, so the near ground is where the twin has the most to disagree
      about. Gating at 1 mm was gating below the field's own p90.
 
+     Cite lod 1 and only lod 1, and here is why that is not cherry-picking.
+     fieldcheck prints three sweeps and the other two look alarming next to a
+     10 mm gate — 61.5 mm at lod 6 and 150 mm at lod 40. They are large because
+     of what they cover, not because of lod: those sweeps step 3 m, 72 m and
+     480 m across relief ranges of 24.9 m, 561 m and 687 m respectively, so the
+     high-lod pair are walking over whole mountains and their worst case is a
+     millimetre-scale disagreement on a six-hundred-metre feature. A tree stands
+     in a 420 m tile within a few hundred metres of the site; the 3 m sweep over
+     24.9 m of relief is the one whose scale actually matches that, and it is
+     the one this gate has to live with. The far pose measuring cleanest of the
+     three, at lod ~40, is the same fact from the other end.
+
      Ten millimetres still discriminates, which is the only thing that matters.
      What this check exists to catch is a wrong offset, a swapped sample or a
      missing min() in the three-sample footprint, and every one of those misses
@@ -456,14 +468,29 @@ for (const r of s1.results) {
      headroom over the failures it is for, which is the same trade stage 0's
      meshLod bound already makes.
 
-     `hWorst` moves with it because it is not an independent quantity.
-     H = iB.y*(0.62 + 0.55*q1)*(0.55 + 0.45*grow): iB.y is the same float32 on
-     both sides and q1 is bit-exact (measured zero error on every sample once
-     the hash arguments were folded), so H can differ *only* through grow. With
-     dH/dgrow about 9.5 m per unit at this band's 18 m ceiling and a measured
-     grow worst of 7.2e-4, the stature error is bounded at about 6.8 mm — which
-     contains the 2.98 mm actually observed. It is grow's error wearing metres,
-     and it belongs under the same bound rather than under one of its own. */
+     `hWorst` gets the same ten millimetres, and it is not because stature is
+     grow's error wearing metres — it is, but that argument would justify almost
+     anything, since the grow gate at 0.023 times dH/dgrow would put this bound
+     at 218 mm. Ten is deliberately far tighter than that, and it is set by the
+     one failure this branch nearly shipped.
+
+     H = iB.y*(0.62 + 0.55*q1)*(0.55 + 0.45*grow), and q1 is `hash11(s*1.37)`.
+     The naive transliteration of that argument — the one that reads straight
+     off the GLSL — differs from the folded form the compiler actually computes
+     by up to 2.9e-3 in q1, which through 0.55*iB.y at this band's 18 m ceiling
+     is up to 29 mm of stature. So a 10 mm gate is precisely the instrument that
+     catches a wrong q1 fold, which is a live failure mode rather than a
+     hypothetical one: the first version of this check's twin got that fold
+     wrong, and stature is where it shows. A bound argued from grow alone would
+     have sailed past it.
+
+     It is a tight gate, not a slack one, and the next person should know that
+     before "fixing" it. iB.y is the same float32 on both sides and q1 is now
+     bit-exact, so H can only differ through grow; at the measured grow worst of
+     1.0e-3 and dH/dgrow of about 9.5 m per unit, the implied stature bound is
+     about 9.5 mm — ninety-five per cent of the gate. There is no slack here to
+     spend, and if grow ever gets worse this fails before the grow check does,
+     which is the right order. */
   check(`ground height agrees on accepted trees ${at}`, r.posWorst < 1e-2,
     `${r.accepted} accepted · worst ${r.posWorst.toExponential(2)} m`);
   check(`stature agrees on accepted trees ${at}`, r.hWorst < 1e-2,

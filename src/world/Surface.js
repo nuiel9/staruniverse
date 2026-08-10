@@ -1606,7 +1606,22 @@ function jTerrainRaw(px, pz, lod, U, out) {
  * margin rather than taking it on trust.
  *
  * The same standing instruction applies as to everything above: change the
- * shader at Surface.js:4240-4290 and change this in the same edit. */
+ * shader and change this in the same edit.
+ *
+ * Navigate to that shader by marker, not by line number. This comment cited
+ * Surface.js:4240-4290 until a two-hundred-line insertion above it moved the
+ * target without moving the number, and 4240 then pointed into a different
+ * shader entirely — the second time an absolute cite in this file has rotted,
+ * and the cite is the whole routing mechanism for "the same law, twice", so it
+ * rotting silently is the one failure it cannot afford. The paired GLSL is the
+ * body of `floraVert(tree=true)` — the `TREE_VERT` material — running from
+ * `vec4 dat = uDatum;` to `if(grow <= 0.004)`, with the tileTo and seed
+ * preamble just above it. Both markers need the shader named to be unique:
+ * `vec4 dat = uDatum;` appears five times in this file and the grow test
+ * twice, and only the pair inside floraVert is this function's twin. As of
+ * this writing that is about 4513-4606 — and note that writing this paragraph
+ * moved it twenty lines, which is the argument in one sentence. Believe the
+ * grep and not the number. */
 
 /** Where the CPU collides. The shader draws a tree at grow > 0.004; this is
  *  more than ten times that, so an invisible wall — the failure that makes a
@@ -1757,7 +1772,13 @@ function jFloraMask(gpx, gpz, slope, shelter, flow, above) {
   return jClamp(stand * sl * sh * wet * alt, 0, 1.4);
 }
 
-// Scratch, at module scope: this path allocates nothing per call.
+/* Scratch, at module scope, so the *sampling* path allocates nothing: the
+   tile fold and the terrainAround pair write through these rather than
+   returning a pair each, and jTreeAccept runs over the whole band. What it
+   does allocate is its own return value, one object per candidate — that is
+   deliberate and it is not on a per-frame path, because the near-field index
+   memoises the answer on the tile index and so builds these once per instance
+   per tile rather than once per query. */
 const _Wt = [0, 0, 0, 0, 0];
 const _Wta = [0, 0];
 
