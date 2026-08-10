@@ -673,62 +673,81 @@ check('the memo holds exactly two generations, not three, after a second boundar
    baseX) shifts by a whole period. Every key at the new epoch is therefore
    new, and prev.get(key) is consulted but always misses.
 
-   The first instinct — try something near half the tile period instead of a
-   whole one — turns out to be ruled out on grounds that have nothing to do
-   with the period at all, and are worth writing down because they are not
-   obvious from tileTo alone. For a stay-behind instance (same key, unchanged
-   wrapped position) to be a genuine prev hit, it has to appear in *both* the
-   before and the after query's result — and every result is filtered to
-   within R = 25 m of the query point. By the triangle inequality, a single
-   fixed point can only be within R of two query points that are themselves
-   at most 2R apart. So no step bigger than 50 m can ever produce a hit, on
-   any world, at any period — 210 m and even 105 m were both attempted and
-   both measured to always flip the *entire* local population together,
-   which is just this bound confirming itself from the other side.
+   Half the tile period, the first instinct, is ruled out on grounds that
+   have nothing to do with the period at all. For a stay-behind instance
+   (same key, unchanged wrapped position) to be a genuine prev hit, it has
+   to appear in *both* the before and the after query's result — and every
+   result is filtered to within R = 25 m of the query point. By the
+   triangle inequality, a single fixed point can only be within R of two
+   query points that are themselves at most 2R apart. So no step bigger
+   than 50 m can ever produce a hit, on any world, at any period.
 
-   Separately, the memo only ages — `prev` only gets populated — once the
-   camera's own cell index changes, and that requires the step to cross
-   whichever boundary happens to be nearest to wherever the camera currently
-   sits within its cell. That distance is an accident of the pose, not a
-   fraction of the period: measured on this world, POSES[0]'s nearest
-   boundary sits about 76–80 m away — outside the 50 m window a hit needs, so
-   no offset works there at all — while POSES[1]'s sits about 16–18 m away
-   and POSES[2]'s about 23–24 m away, both comfortably inside it. Only where
-   both conditions hold at once — an epoch-changing step that is also under
-   50 m — does a real prev hit exist to find. Measured windows: POSES[1] hits
-   from about 16 to 33 m, POSES[2] from about 24 to 41 m.
+   Separately, `prev` only gets populated once the camera's own cell index
+   changes, and that requires the step to cross whichever boundary happens
+   to be nearest to wherever the camera currently sits within its cell —
+   which is a property of *where the camera starts*, not of the step size.
+   An earlier version of this check searched a fixed set of hand-picked
+   poses and offsets for a combination where that boundary happened to be
+   close enough; it worked, but its passing depended on one of those poses
+   happening to sit within 50 m of its own boundary, which is exactly the
+   kind of accident that turns into a confusing failure the day someone
+   edits the pose list. This version constructs the boundary distance
+   instead of hoping for it.
 
-   So this tries small offsets, well under the tile period, across every
-   pose. Not fudged to whatever passes: every attempt is graded and reported,
-   and if none of them works — on every pose — the check fails loudly rather
-   than passing on a query that never exercised what it claims to.
+   `tileTo` computes `c = camPos + normalize(fwd) * period * 0.32` and wraps
+   an instance into the copy nearest `c`; the wrap changes when
+   `c / period + 0.5` crosses an integer, i.e. at `c = period * (m - 0.5)`
+   for any integer `m`. So: pick an axis-aligned heading (0, -1), so `c`'s
+   only moving component is along z and the arithmetic has one variable
+   instead of two; pick a boundary `period * (m - 0.5)`; place the camera
+   `d` metres on the near side of it. The only real constraint on `d` is
+   `0 < d < off` — anything in that range crosses the boundary when stepped
+   by `off` — so `d` = 20 is simply a value comfortably clear of float noise
+   at either end, not a bound the geometry demands; `off` = 30 is chosen to
+   be both bigger than `d` (guaranteeing the boundary is crossed) and under
+   the 50 m overlap ceiling from above (guaranteeing a stay-behind instance
+   can still be found on both sides). Both guarantees are now structural,
+   not observed.
 
-   The epoch-change guard below is not just bookkeeping: it is what makes the
-   reference match attributable to `prev` specifically. Once the epoch has
-   changed, `cur` starts the query empty, so a match found by reference could
-   only have come from `prev.get(key)` — a hit against the same, still-warm
-   `cur` (the "stable across calls" case stage 2 already covers) is ruled out
-   by construction, not by inspection.
+   What is *not* guaranteed by this arithmetic is that any tree exists near
+   the derived position at all — that depends on the world's terrain and
+   vegetation, which the boundary formula knows nothing about. So the
+   search still tries several positions: a spread of `m` (nearby boundaries
+   along z) crossed with a spread of x offsets (different slices of
+   terrain), each one individually exact about the boundary distance and
+   the step size. Every attempt is graded and reported; if none of them
+   turns up a tree to reuse, the check fails loudly rather than passing on
+   a query that never exercised what it claims to.
 
-   Which pose actually produces a hit is an accident of where that pose sits
-   relative to its own nearest cell boundary, not something chosen by
-   construction — the search's job is to find whichever pose that is, and to
-   fail loudly if none of the three happens to sit close enough this time. */
-const s2c = await page.evaluate(async (POSES) => {
+   The old hand-picked-pose search is not kept as a fallback. Keeping it
+   would just reintroduce the dependency this rewrite exists to remove —
+   whatever redundancy it offered, the derived search's own spread over
+   m and x already provides in a principled way, and two mechanisms for
+   the same check is one more thing to explain to whoever reads this next.
+
+   The epoch-change guard below is not just bookkeeping: it is what makes
+   the reference match attributable to `prev` specifically. Once the epoch
+   has changed, `cur` starts the query empty, so a match found by reference
+   could only have come from `prev.get(key)` — a hit against the same,
+   still-warm `cur` (the "stable across calls" case stage 2 already covers)
+   is ruled out by construction, not by inspection. */
+const s2c = await page.evaluate(async () => {
   const g = window.__game;
   const S = g.surface;
   const surfMod = await import('/src/world/Surface.js');
   const WJ = surfMod.__woodyJS;
   const T = S._trees;
   const R = 25;
+  const period = T.tile;
+  const fx = 0, fz = -1;                    // axis-aligned: only cz moves
 
-  const query = (fx, fz, cx, cz) => {
+  const query = (cx, cz) => {
     S._camXZ.set(cx, cz);
     S._camFwdXZ.set(fx, fz);
     const rx = cx + fx * 9.5, rz = cz + fz * 9.5;
     return { near: S.treesNear(rx, rz, R), cx, cz, rx, rz };
   };
-  const truthAt = (fx, fz, cx, cz, rx, rz) => {
+  const truthAt = (cx, cz, rx, rz) => {
     const t = [];
     for (let i = 0; i < T.n; i++) {
       const a = WJ.accept(S, i, cx, cz, fx, fz);
@@ -737,33 +756,37 @@ const s2c = await page.evaluate(async (POSES) => {
     return t;
   };
 
-  const offsets = [15, 20, 25, 30, 35, 40, 45];
+  const d = 20;                              // 0 < d < off; comfortably clear of float noise
+  const off = 30;                            // > d (crosses it), < 2R = 50 (stays in overlap)
+  const xs = [0, 300, -1500, 1200, -600];   // a spread of terrain to sample
+  const ms = [-2, -1, 0, 1, 2];             // a spread of nearby boundaries along z
   const tried = [];
-  for (const pose0 of POSES) {
-    let [fx, fz] = pose0.f;
-    const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
-    const [px0, pz0] = pose0.p;
+  for (const x0 of xs) {
+    for (const m of ms) {
+      const boundary = period * (m - 0.5);
+      const czBefore = boundary + d;                  // d metres before the boundary
+      const camZBefore = czBefore + period * 0.32;     // invert cz = camZ + fz*period*0.32 (fz=-1)
+      const camZAfter = camZBefore - off;
 
-    for (const off of offsets) {
-      S._treeMemo = null;                       // a clean epoch for this attempt
-      const before = query(fx, fz, px0, pz0);
+      S._treeMemo = null;                             // a clean epoch for this attempt
+      const before = query(x0, camZBefore);
       const epoch0 = S._treeMemoAt;
-      const after = query(fx, fz, px0 + fx * off, pz0 + fz * off);
+      const after = query(x0, camZAfter);
       const epoch1 = S._treeMemoAt;
       if (epoch1 === epoch0) {
-        tried.push({ pose: pose0.p, off, reason: 'the camera cell did not change' });
+        tried.push({ x0, m, reason: 'the camera cell did not change (arithmetic error, should not happen)' });
         continue;
       }
 
       const hit = after.near.find((q) => before.near.includes(q));
       if (!hit) {
-        tried.push({ pose: pose0.p, off, reason: 'no entry came back by reference — nothing hit prev' });
+        tried.push({ x0, m, reason: `no tree to reuse here — ${before.near.length} before, ${after.near.length} after` });
         continue;
       }
 
-      const truth = truthAt(fx, fz, after.cx, after.cz, after.rx, after.rz);
+      const truth = truthAt(after.cx, after.cz, after.rx, after.rz);
       return {
-        ok: true, pose: pose0.p, offset: off,
+        ok: true, x0, m, d, off,
         beforeCount: before.near.length, afterCount: after.near.length, hitIndex: hit.i,
         complete: truth.every((t) => after.near.some((q) => q.i === t.i)),
         sound: after.near.every((q) => truth.some((t) => t.i === q.i)),
@@ -771,21 +794,21 @@ const s2c = await page.evaluate(async (POSES) => {
     }
   }
   return { ok: false, tried };
-}, POSES);
+});
 
 if (s2c.ok) {
-  check('a partial-population step produces a genuine prev cache hit', true,
-    `pose (${s2c.pose[0]}, ${s2c.pose[1]}) · offset ${s2c.offset.toFixed(0)} m · tree #${s2c.hitIndex}`
+  check('a boundary-derived step produces a genuine prev cache hit', true,
+    `x=${s2c.x0} m=${s2c.m} · ${s2c.d} m before the boundary · stepped ${s2c.off} m · tree #${s2c.hitIndex}`
     + ` reused by reference from the previous generation`
     + ` · ${s2c.beforeCount} before · ${s2c.afterCount} after`);
-  check('the index stays complete and sound after a partial-population epoch flip',
+  check('the index stays complete and sound after a boundary-derived epoch flip',
     s2c.complete && s2c.sound);
 } else {
-  const detail = s2c.tried.map((t) => `(${t.pose[0]},${t.pose[1]})@${t.off.toFixed(0)}m: ${t.reason}`).join(' · ');
-  check('a partial-population step produces a genuine prev cache hit', false,
-    `no pose/offset produced both an epoch change and a reference hit — ${detail}`);
-  check('the index stays complete and sound after a partial-population epoch flip', false,
-    'not reached — no pose/offset produced a hit to verify against');
+  const detail = s2c.tried.map((t) => `x=${t.x0},m=${t.m}: ${t.reason}`).join(' · ');
+  check('a boundary-derived step produces a genuine prev cache hit', false,
+    `no derived position produced a reference hit — ${detail}`);
+  check('the index stays complete and sound after a boundary-derived epoch flip', false,
+    'not reached — no derived position produced a hit to verify against');
 }
 
 const bad = checks.filter(([, ok]) => !ok).length;
