@@ -1651,45 +1651,82 @@ if (treesOn.skipped || !treesOn.hasBand) {
       : `stopped ${hit.clear} m clear of a ${hit.H} m tree`
         + ` (trunk r ${hit.trunkR}) at ${hit.speed} m/s`);
 
-  // and a bearing the index says is clear
+  /* The invisible-wall assertion, and it is NOT "sweep for a clear bearing and
+     drive it". That test would flake, for a reason worth understanding: the
+     tree band is tiled and the cell follows the camera, so `tileTo` lands every
+     instance within half a period of a point 134.4 m down the view axis. Drive
+     a few hundred metres and the cell has moved with you and brought new trees
+     into existence ahead. A corridor sampled once, before the drive, is not the
+     corridor the rover will be in when it gets there — so "clear now" is not a
+     claim about the far end at all.
+
+     What the design actually promises is narrower and stronger, and it can be
+     measured exactly: *the rover is never impeded by something the index does
+     not report*. And there is an exact instrument for "impeded", because the
+     drive step is analytic — `Rover.update` moves the body by precisely
+     `speed * dt` along its heading and nothing else does, so any discrepancy
+     between where the step said the rover would be and where it ended up IS a
+     collision push-out. Steering is left at zero so the heading is constant and
+     the prediction is exact.
+
+     So: drive, and at every step where the body did not land where the drive
+     put it, require a trunk actually overlapping the capsule. Zero unexplained
+     pushes is the assertion. It holds however many trees appear en route. */
   const clear = await page.evaluate(() => {
     const g = window.__game, S = g.surface, R = g.rover;
-    const RUN = 120;
-    /* Sweep bearings for one the corridor is empty along — sampled every 5 m
-       out to the run length, against the capsule's own half-width plus the
-       fattest trunk in range, so "clear" means clear for the vehicle rather
-       than for a point. */
-    let best = null;
-    for (let a = 0; a < 72 && !best; a++) {
-      const yaw = a * Math.PI / 36;
-      const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
-      let ok = true;
-      for (let d = 0; d <= RUN && ok; d += 5) {
-        const px = R.pos.x + fx * d, pz = R.pos.z + fz * d;
-        if (S.treesNear(px, pz, 4.0).length) ok = false;
-      }
-      if (ok) best = yaw;
-    }
-    if (best === null) return { none: true };
-    R.yaw = best; R.speed = 0; R.charge = 1;
+    R.speed = 0; R.charge = 1;
     const x0 = R.pos.x, z0 = R.pos.z;
     const input = { held: (a) => a === 'thrUp', touch: false };
-    for (let i = 0; i < 900; i++) R.update(1 / 30, input, false);
+    const HULL_R = 1.12, HB = 2.9 * 0.5;
+    let steps = 0, pushes = 0, unexplained = 0, worst = 0;
+    for (let i = 0; i < 900; i++) {
+      const [fx, fz] = R.forward();
+      const px = R.pos.x + fx * R.speed * (1 / 30);
+      const pz = R.pos.z + fz * R.speed * (1 / 30);
+      R.update(1 / 30, input, false);
+      steps++;
+      const off = Math.hypot(R.pos.x - px, R.pos.z - pz);
+      if (off <= 1e-6) continue;
+      pushes++;
+      /* A push has to have a trunk behind it. Measure against the capsule the
+         collision itself uses — the segment between the axle midpoints — not
+         against the centre, or a legitimate hit on the nose reads as
+         unexplained. */
+      const near = S.treesNear(R.pos.x, R.pos.z, 25);
+      const [gx, gz] = R.forward();
+      const ax = R.pos.x + gx * HB, az = R.pos.z + gz * HB;
+      const bx = R.pos.x - gx * HB, bz = R.pos.z - gz * HB;
+      let best = Infinity;
+      for (const t of near) {
+        const abx = bx - ax, abz = bz - az;
+        const L2 = abx * abx + abz * abz;
+        let u = L2 > 0 ? ((t.x - ax) * abx + (t.z - az) * abz) / L2 : 0;
+        u = u < 0 ? 0 : (u > 1 ? 1 : u);
+        const dx = ax + abx * u - t.x, dz = az + abz * u - t.z;
+        best = Math.min(best, Math.hypot(dx, dz) - (HULL_R + t.r));
+      }
+      // negative or ~zero means a trunk is touching the capsule, as it should be
+      if (!(best <= 1e-3)) { unexplained++; worst = Math.max(worst, best); }
+    }
     return {
       covered: +Math.hypot(R.pos.x - x0, R.pos.z - z0).toFixed(1),
+      steps, pushes, unexplained, worst: +worst.toFixed(2),
       speed: +R.speed.toFixed(1),
     };
   });
 
-  /* The invisible-wall assertion. Thirty seconds on a bearing with nothing in
-     it has to move the vehicle a long way and leave it still moving; a rover
-     that stops on open ground is the failure this whole design is arranged
-     around avoiding. The floor is generous because the ground may be steep and
-     CRAWL_FLOOR is a tenth of full drive. */
-  check('a bearing the index calls clear is unimpeded', !clear.none
-    && clear.covered > 60 && clear.speed > 0.5,
-    clear.none ? 'no clear bearing found within 120 m'
-      : `${clear.covered} m in 30 s, still making ${clear.speed} m/s`);
+  check('the rover is never stopped by something the index does not report',
+    clear.unexplained === 0,
+    `${clear.pushes} push-outs in ${clear.steps} steps, ${clear.unexplained} unexplained`
+    + (clear.unexplained ? ` · furthest trunk was ${clear.worst} m clear` : '')
+    + ` · covered ${clear.covered} m`);
+
+  /* And it has to actually go somewhere, or the check above is satisfied by a
+     rover that never moved. Deliberately generous: the ground may be steep and
+     CRAWL_FLOOR is a tenth of full drive, so this is a liveness floor rather
+     than a performance claim. */
+  check('and it still covers ground', clear.covered > 60,
+    `${clear.covered} m in 30 s, still making ${clear.speed} m/s`);
 }
 ```
 
