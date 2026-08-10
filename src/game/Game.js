@@ -52,6 +52,7 @@ const TINE_COUNT = 7;
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
+const _camFwd = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _m4 = new THREE.Matrix4();
 const _q1 = new THREE.Quaternion();
@@ -1468,6 +1469,14 @@ export class Game {
          frame for the rest of the landing. See Surface.bake — it is two point
          draws over the grid's own vertex buffer. */
       surface.bake(this.renderer);
+      /* And ask this machine whether it agrees with us about the trees, while
+         there is still a renderer in hand and nothing on screen yet. The CPU
+         copy of the tree acceptance test matches the GPU only because it is
+         written against what one shader compiler does to hash11, which the
+         language does not guarantee — so the comparison runs here, once per
+         landing, and takes tree collision away rather than trusting it if this
+         device answers differently. See Surface.verifyTreeAgreement. */
+      surface.verifyTreeAgreement(this.renderer);
       await this._nextFrame();
       if (this.transition !== T) { surface.dispose(); return; }
       this._buildGround(b, surface);
@@ -1503,6 +1512,8 @@ export class Game {
   _buildGroundNow(b) {
     const surface = new Surface(b.spec, this.quality);
     surface.bake(this.renderer);
+    // The same device check the staged path runs — see the note there.
+    surface.verifyTreeAgreement(this.renderer);
     this._buildGround(b, surface);
     this._stageGround();
     this._finishGround();
@@ -2048,6 +2059,11 @@ export class Game {
     this.surface.update(dt, {
       sunDir: sunLocal, sunColor: _sunCol,
       camPos: this.camera.position, time: this.time,
+      /* The camera's own -Z in world space, which is exactly the
+         vec2(-viewM[0][2], -viewM[2][2]) the tiled scatter's tileTo reads out
+         of the view matrix. The ground CPU needs it because a tiled band's
+         cells are centred down the view axis, not on the camera. */
+      camFwd: _camFwd.set(0, 0, -1).applyQuaternion(this.camera.quaternion),
       shadowNB: this._shadowNB,
       shadowBox: {
         half: 0.11 * 1000 + (this._groundExtra || 0),

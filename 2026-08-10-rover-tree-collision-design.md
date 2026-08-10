@@ -153,29 +153,74 @@ starts upstream of the hash, not inside it**:
   `3.77` is exactly representable at float32; emulate per operation.
 - `s = fround(iA.z + sShift)`. `iA.z` is already exact — the `Float32Array`
   store rounded it.
-- The arguments: `fround(fround(s*9.13) + 0.77)`, `fround(s*1.37)`,
-  `fround(s*4.73)`.
+- The arguments — and **this is not what the GLSL looks like it says.** See
+  below; writing them as they read is wrong by the hash's entire range on a
+  quarter of the band.
 
 The precedent is in the file: `jSnoise`'s gradient constants at
 `Surface.js:1260-1262` and its `Math.fround` chain at `Surface.js:1334-1338`,
 whose comment says exactly this — *"Math.fround reproduces the shader's
 arithmetic exactly."*
 
-**Expected error, stated so the checker can contradict it.** With `s`
-bit-exact and the hash `fround`-emulated, the residual is whatever the GPU's
-rounding does differently — chiefly FMA contraction, where a driver folds
-`a*b + c` into one rounding rather than two. `fieldcheck` measures median-zero
-agreement on `snoise` on this stack, so contraction does not appear to bite
-here, but `hash11` amplifies its input error by roughly three to four orders of
-magnitude. Budget: **~1e-3 in `grow`**, against a margin of `0.046`. That is a
-prediction, not a claim. `treecheck` measures it.
+### 2.2.1 The hash arguments are folded and fused — measured, not predicted
 
-If the driver contracts the `dot(t, vec2(7.31, 3.77))` inside `sShift`, `s`
-loses a ulp at a scale of ~100 — about `1e-5` — and the same amplification puts
-`5e-3` to `1e-2` into `grow`. Still comfortably inside the margin, but a
-measured bound at 10–20 % of it is the expected outcome in that case rather
-than a sign something is wrong. What would be a sign is a bound above `1e-2`,
-or any accept/reject disagreement away from the threshold.
+This section originally predicted a residual of ~1e-3 in `grow` from FMA
+contraction. That prediction was wrong in kind, not in size, and the checker is
+what said so. What follows replaces it, and it is the single most important
+paragraph in this document for anyone maintaining the pair.
+
+Written as the GLSL reads — `fround(fround(s*9.13) + 0.77)` and
+`fround(s*1.37)` — `grow` came out wrong by a **full 1.0** on roughly a quarter
+of the band, while every input to it agreed to `4e-4` or better. Fitted against
+the live compiled material over 2079 samples (693 instances × 3 poses):
+
+| form of `hash11(s*9.13 + 0.77)` | mismatches / 2079 | worst |
+|---|---|---|
+| two roundings then the hash, *as written in the GLSL* | 785 | 0.998 |
+| fused, then the hash | 612 | 0.996 |
+| folded and distributed, separate roundings | 630 | 0.992 |
+| exact, then rounded | 415 | 0.982 |
+| **folded and distributed, then fused** | **0** | **0** |
+
+One rule with three consequences: **`hash11` inlines, the compiler folds its own
+leading `p*0.1031` back into whatever constants the caller built the argument
+from — distributing across an add where there is one — and contracts the
+surviving multiply-and-add into a single rounding.** So the JS must be written
+as the *folded* form:
+
+```
+hash11(s*1.37)        →  fract32(s * fround(1.37*0.1031))
+hash11(s*4.73)        →  fract32(s * fround(4.73*0.1031))
+hash11(s*9.13 + 0.77) →  fract32(fma32(s, fround(9.13*0.1031), fround(0.77*0.1031)))
+```
+
+with the rest of `hash11` unchanged. None of this is visible in the shader
+source, GLSL ES imposes no evaluation order that forbids any of it, and
+`precise` — which would forbid it — is GLSL ES 3.20 while WebGL2 is 3.00, so it
+cannot be legislated from the shader side either.
+
+Note the discrimination the table buys: "fused" and "folded then fused" are
+different answers, and only the second one is right. A transliteration that got
+*most* of this story would still be wrong on 612 instances.
+
+**Measured after the fix:** zero accept/reject disagreements at all three
+poses, and a `grow` error of **2 % of the 0.046 margin**.
+
+The height-field tail this document worried about did not materialise *in
+`grow`* — which is the thing the margin protects and the reason the worry
+existed. It did show up where the field is measured directly rather than
+through two smoothsteps: the ground-height and stature checks, which is what
+moved those gates to 10 mm. Those are the same field error seen at two removes
+from each other, not two findings.
+
+**And this is one compiler's behaviour, not the language's.** A driver that
+folds differently puts the error straight back at full scale, because the hash
+wraps. That is what §6.1 exists for.
+
+`tileTo`'s own `dot(t, vec2(7.31, 3.77))` measured bit-exact as two separate
+roundings over the tile indices these poses exercise, and was left that way —
+but it is the same question, and a pose with larger indices could answer it
+differently.
 
 ### 2.3 The dropped term
 
@@ -379,9 +424,17 @@ Harness mechanics, named here because they are the fiddly part:
   `texelFetch` by instance index derived from `gl_FragCoord`. They are declared
   in the probe as plain `vec4`s filled from those fetches — the slice
   references `iA` and `iB` by name and must not see an `attribute`.
-- Declare `uniform mat4 viewMatrix, projectionMatrix;` in the fragment shader.
-  This is legal — three.js only injects those declarations into the vertex
-  stage — and they are filled from the live camera at each pose.
+- Declare `uniform mat4 viewMatrix, projectionMatrix;` in the fragment shader,
+  and use a **`RawShaderMaterial`** to do it.
+
+  An earlier draft of this line said the declaration was safe because three
+  only injects those uniforms into the vertex stage. That is false, and it was
+  checked against the vendored r185 rather than remembered: three's fragment
+  prefix emits `uniform mat4 viewMatrix;` for every non-raw material. It is
+  true of `projectionMatrix` and not of `viewMatrix`, so a probe built on
+  `ShaderMaterial` fails to compile on a redeclaration — which is the whole
+  reason both the checker and the shipped guard use `RawShaderMaterial`, which
+  gets no prefix at all beyond `#version` and two `#define`s.
 - Output `(accept, grow, gy, H)` per instance.
 - Compare only instances the pose did not `behindCamera`-cull, or use a pose
   that cannot cull them. A culled instance has no `grow` to compare.
@@ -389,8 +442,22 @@ Harness mechanics, named here because they are the fiddly part:
 Run at **three camera poses** (differing in position and heading), diffing
 against `__woodyJS`. It passes when:
 
-1. **Position and `H` agree** on every instance both sides accept — `gp` to
-   well under a millimetre, `H` to under a millimetre.
+1. **Position and `H` agree** on every instance both sides accept — to **10 mm**.
+
+   That gate looks slack and is not. These two checks do not measure anything
+   the tree code computes: `jStandOnY` is `min()` of three `jFlatY` calls and
+   `jFlatY` is `Surface.heightAt` with the horizon bend added back, so this is
+   the height-field twin that `fieldcheck` already owns, sampled at the lods a
+   tree stands at. `fieldcheck` measures worst 3.66 mm at lod 1 on this world
+   and the tree path's worst is 3.73 mm — the same quantity through a second
+   door, and a 1 mm gate sits below the twin's own p90 at low lod. What these
+   checks exist to catch is a wrong offset, a swapped sample or a missing
+   `min`, and every one of those misses by metres, so 10 mm keeps about three
+   orders of magnitude of discrimination.
+
+   `H` is not an independent measurement: `iB.y` is shared and `q1` is
+   bit-exact, so `H` can differ *only* through `grow`, and `dH/dgrow` of about
+   9.5 m per unit against the measured `grow` worst bounds it at ~7 mm.
 2. **Every accept/reject disagreement sits below the margin** — that is, every
    instance where the two sides differ on acceptance has `grow` within `0.046`
    of `0.004` on both sides. A disagreement at `grow = 0.5` is a
@@ -414,6 +481,51 @@ Two assertions, in the suite that already owns the ground:
 
 The second assertion is the one that catches an invisible wall, and it is why
 it is in the suite rather than only in `treecheck`.
+
+### 6.1 The guard that ships
+
+Everything above runs on a developer's machine. §2.2.1 is one shader
+compiler's folding behaviour, and a player's driver that folds differently puts
+the whole error back — not as drift, but at the hash's full range, which is
+precisely the invisible walls the handoff calls worse than no collision at all.
+`treecheck` cannot see that machine.
+
+So the same comparison ships. Once per landing, on the real device:
+
+- Take **the live material's own slice** — the identical slice-and-compile
+  `treecheck` stage 1 uses — and evaluate it over the instance table at the
+  landing pose. It has to be that slice and not a hand-written mini-shader:
+  a cut-down probe gets optimised differently and answers differently, which
+  is a measured fact from Task 4 and not a precaution.
+- Diff `grow` and `accept` against `__woodyJS`.
+- On disagreement, `treesNear` returns empty for that world, and one line goes
+  to the console saying why.
+
+A mismatched driver then degrades to **exactly today's behaviour** — the rover
+drives through trees — which the handoff names as the acceptable failure, and
+never to the unacceptable one.
+
+**What it does not cover, corrected after implementation.** An earlier draft of
+this section claimed the guard also covers the `tileTo` `dot()` contraction
+residual at the end of §2.2.1, "at the pose that actually matters". It does
+not. The guard runs immediately after the surface is built, at which point the
+camera stash is still its constructor default — origin, facing +Z — so the tile
+indices it exercises are near zero, which is the regime §2.2.1 already reports
+as bit-exact.
+
+That costs nothing for the guard's actual job: the hash fold is a property of
+the compiled program, exercised by every instance at every pose, so the
+comparison discriminates wherever it is taken — both halves are evaluated at
+the same pair, whatever that pair is. The `dot()` residual remains what §2.2.1
+says it is: measured bit-exact over the indices three poses reach, and unproven
+beyond them.
+
+The alternative considered and not taken: have the CPU compute the three
+per-instance hashes and upload them as instance attributes on tile change, so
+the shader stops computing them and there is nothing left to fold. That is
+robust by construction rather than by check, but it touches the renderer and
+the custom depth material, and it re-introduces a per-tile upload the tiled
+scatter exists to avoid.
 
 ---
 
@@ -442,6 +554,8 @@ Both are in the file being copied, and both cost the next person time.
 - `npm run fieldcheck` runs on this machine.
 - `npm run treecheck` passes at three poses, and prints a measured `grow` error
   bound that is a small fraction of `0.046`.
+- The shipped guard (§6.1) disables tree collision rather than trusting it when
+  the device disagrees with the CPU.
 - `npm run expedition` passes, including the two new assertions.
 - Driving into a visible tree stops the rover. Driving across open ground the
   chart calls clear is unimpeded.

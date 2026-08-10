@@ -325,6 +325,326 @@ const saved = await page.evaluate(() => {
 });
 check('the ground remembers what you worked', saved.keys > 0, `${saved.keys} sites on record`);
 
+// -------------------------------------------------------- trees are solid
+/* The rover used to drive through trees, which is the first open item in
+   HANDOFF.md. Both directions are asserted here and the second is the one that
+   matters more: an invisible wall is worse than no collision at all, so a
+   bearing the index calls clear has to actually be clear.
+
+   Last in the file, and not — as first written — between the rover checks and
+   the drone's. Trees only exist above veg 0.55 and the seam world the suite
+   has been standing on since `seam` is a desert, so this section has to reach
+   a *different* world; and everything between here and there is written
+   against the seam world's rover, sitting in the seam it drove to. Putting the
+   section in the middle broke the drone checks and asserted nothing, because
+   `land` refuses outright while `landed` is already set and refuses silently,
+   so it simply carried on measuring the desert and reported no band. Running
+   last costs one extra landing and takes nothing else's ground away. */
+const treesOn = await page.evaluate(async () => {
+  const g = window.__game;
+  /* A vegetated world — the trees band only exists above veg 0.55, and there
+     is at least one habitable world per galaxy by construction. */
+  const body = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas
+    && b.spec.type === 'terran' && (b.spec.veg || 0) > 0.62)
+    .sort((a, b2) => (b2.spec.veg || 0) - (a.spec.veg || 0))[0];
+  if (!body) return { skipped: 'no vegetated world in this galaxy' };
+  /* Off the ground before asking for another world. `land` returns a resolved
+     promise and does nothing at all when `landed` is set, so without this the
+     section would quietly go on testing whatever it was already standing on —
+     which is the same silent-refusal trap the `seam` section documents, one
+     level up. `liftOff({now: true})` runs the whole departure synchronously,
+     stows the rover and disposes the surface. */
+  if (g.landed) g.liftOff({ now: true });
+  g.pose({ bodyRef: body, dist: 1.6, phase: 70, elev: 8 });
+  g.land(body, { now: true });
+  g.director.stop();
+  if (!g.landed) return { skipped: 'land refused' };
+  if (!g.landed.driving) g.toggleRover();
+  return { body: body.name, veg: +(g.surface.veg).toFixed(2), hasBand: !!g.surface._trees };
+});
+
+/* Two real animation frames between positioning and driving, because
+   treesNear reads the pair the last *drawn* frame used — and the tight
+   rover.update loop below never runs the frame loop, so without this the
+   index would be answering about wherever the camera was left. */
+const settle = () => page.evaluate(() => new Promise((res) => {
+  requestAnimationFrame(() => requestAnimationFrame(res));
+}));
+
+/* One instrumented driving segment, and the instrument is the whole point.
+ *
+ * `Rover.update` moves the body by precisely `speed * dt` along its heading and
+ * nothing else does — `_settle` writes only pos.y — so with steering held at
+ * zero the heading is constant and the step is exactly predictable. Any
+ * discrepancy between where the drive said the rover would be and where it
+ * ended up therefore IS a collision push-out, and every push-out has to have a
+ * trunk overlapping the capsule. That is the assertion this branch exists to
+ * make: *the rover is never impeded by something the index does not report*.
+ *
+ * The prediction reads `speed` *after* the step rather than before it, which is
+ * the difference between an instrument and a noise source: `update` applies the
+ * acceleration and only then moves the body by the new speed, so a prediction
+ * made on the way in is wrong by ACCEL*dt² — about 1.2 cm a frame, every frame
+ * the rover is not yet at its cap. Measured against a build with no collision
+ * in it at all, reading it beforehand reported 482 push-outs in 900 steps and
+ * every one of them unexplained, which is a broken ruler and not a finding.
+ * Read afterwards, the same build reports zero.
+ *
+ * One function rather than two because both phases below need it. The
+ * drive-at-a-tree phase is where a push-out is *guaranteed*, so it is where the
+ * "a push happened, therefore a trunk must be overlapping" branch actually gets
+ * exercised; the clear-bearing phase is where an invisible wall would show up.
+ * A run that only ever measured the second would be reporting success on a
+ * mechanism it never invoked.
+ */
+const driveSegment = ({ steps }) => {
+  const g = window.__game, S = g.surface, R = g.rover;
+  const input = { held: (a) => a === 'thrUp', touch: false };
+  // The capsule the collision itself uses. R.hullR and R.halfWheelbase are
+  // public on the instance for exactly this — see the comment in the Rover
+  // constructor — so this suite measures the same numbers _collide does
+  // rather than carrying a second copy that could drift out of step with them.
+  const HB = R.halfWheelbase, DT = 1 / 30;
+  let pushes = 0, unexplained = 0, worst = 0, blind = 0;
+  for (let i = 0; i < steps; i++) {
+    const [fx, fz] = R.forward();
+    const sx = R.pos.x, sz = R.pos.z;
+    R.update(DT, input, false);
+    /* The prediction reads `speed` *after* the step, which is right — see the
+       doc comment above — but it has one latent false positive that has
+       nothing to do with trees. When the pack empties mid-step, Rover.update
+       moves the body first, using the speed the frame started with, and only
+       then zeroes `speed` because the charge ran out. That one frame predicts
+       the *start* position (speed now reads 0) against a body that has
+       already moved a full step, and it would read here as a push with
+       nothing behind it. Unreachable in this suite — charge is reset to 1 for
+       every run and a run costs a small fraction of a full pack — but it will
+       eventually fire on a longer run, and whoever sees it should not go
+       looking for a tree bug. */
+    const px = sx + fx * R.speed * DT;
+    const pz = sz + fz * R.speed * DT;
+    if (Math.hypot(R.pos.x - px, R.pos.z - pz) <= 1e-6) continue;
+    pushes++;
+    /* A push has to have a trunk behind it. Measure against the capsule the
+       collision itself uses — the segment between the axle midpoints — not
+       against the centre, or a legitimate hit on the nose reads as
+       unexplained. */
+    const near = S.treesNear(R.pos.x, R.pos.z, 25);
+    const [gx, gz] = R.forward();
+    const ax = R.pos.x + gx * HB, az = R.pos.z + gz * HB;
+    const bx = R.pos.x - gx * HB, bz = R.pos.z - gz * HB;
+    let best = Infinity;
+    for (const t of near) {
+      const abx = bx - ax, abz = bz - az;
+      const L2 = abx * abx + abz * abz;
+      let u = L2 > 0 ? ((t.x - ax) * abx + (t.z - az) * abz) / L2 : 0;
+      u = u < 0 ? 0 : (u > 1 ? 1 : u);
+      const dx = ax + abx * u - t.x, dz = az + abz * u - t.z;
+      best = Math.min(best, Math.hypot(dx, dz) - (R.hullR + t.r));
+    }
+    // negative or ~zero means a trunk is touching the capsule, as it should be
+    if (!(best <= 1e-3)) {
+      unexplained++;
+      /* Worth separating: a push with the index reporting *nothing at all* is
+         the pure invisible wall, while a push with trees around but none of
+         them touching is a geometry disagreement. They would be fixed in
+         different places. (It also keeps `worst` a real distance — `best`
+         stays Infinity when the list is empty, which used to format as
+         "furthest trunk was Infinity m clear".) */
+      if (!near.length) blind++; else worst = Math.max(worst, best);
+    }
+  }
+  return {
+    pushes, unexplained, blind, worst, x: R.pos.x, z: R.pos.z, speed: R.speed,
+  };
+};
+
+if (treesOn.skipped || !treesOn.hasBand) {
+  check('trees are solid', false, treesOn.skipped || 'the landed world has no trees band');
+} else {
+  /* The landing counts as positioning too: the ground scene has only just been
+     staged, so the stashed pair is whatever it was in orbit until a frame is
+     drawn on the surface. Measured on this seed the two answers differ by a
+     third — 286 candidates against 439 — because the camera's *forward* is
+     part of how tileTo chooses a copy, so this is not a formality. */
+  await settle();
+
+  // find a tree the index is confident about, and park short of it
+  await page.evaluate(() => {
+    const g = window.__game, S = g.surface, R = g.rover;
+    const near = S.treesNear(R.pos.x, R.pos.z, 300);
+    if (!near.length) return { none: true };
+    /* The nearest one that is not already under the rover, so there is room to
+       get up to speed before reaching it. */
+    const t = near.map((q) => ({ q, d: Math.hypot(q.x - R.pos.x, q.z - R.pos.z) }))
+      .filter((e) => e.d > 30 && e.d < 220).sort((a, b) => a.d - b.d)[0];
+    if (!t) return { none: true };
+    // 18 m short of the trunk, nose on it
+    const ux = (t.q.x - R.pos.x) / t.d, uz = (t.q.z - R.pos.z) / t.d;
+    R.pos.x = t.q.x - ux * 18; R.pos.z = t.q.z - uz * 18;
+    R.yaw = Math.atan2(-ux, -uz);
+    R.speed = 0;
+    return { tx: t.q.x, tz: t.q.z, tr: t.q.r, H: +t.q.H.toFixed(1) };
+  });
+  await settle();
+
+  /* Re-ask after the frames ran: the camera moved with the rover, so the cell
+     may have shifted and the tree's own position with it. */
+  const mark = await page.evaluate(() => {
+    const g = window.__game, S = g.surface, R = g.rover;
+    const near = S.treesNear(R.pos.x, R.pos.z, 40);
+    const t = near.map((q) => ({ q, d: Math.hypot(q.x - R.pos.x, q.z - R.pos.z) }))
+      .sort((a, b) => a.d - b.d)[0];
+    return t ? { tx: t.q.x, tz: t.q.z, tr: t.q.r, H: t.q.H } : { none: true };
+  });
+
+  const hit = mark.none ? null
+    : await page.evaluate(driveSegment, { steps: 900 });
+
+  /* What "it stopped because of a tree" actually means, asked of the rover at
+     rest rather than of the tree it was aimed at.
+
+     The obvious version — distance to the trunk the parking step picked — is
+     not the claim. `mark` re-queries the index after the settle frames and the
+     nearest tree then is not necessarily the one the nose is on, and the rover
+     may well be stopped by a third one it met on the way; on this seed that
+     reported a perfectly true "2.85 m clear" about a tree it never touched.
+     What matters is that *some* trunk the index returns is in contact with the
+     capsule. That is the real claim, it does not care which tree, and it is
+     the thing an invisible wall would fail. */
+  const rest = mark.none ? null : await page.evaluate(() => {
+    const g = window.__game, S = g.surface, R = g.rover;
+    // R.hullR / R.halfWheelbase, not a local copy — see the comment in the
+    // Rover constructor and the matching note in driveSegment above.
+    const HB = R.halfWheelbase;
+    const near = S.treesNear(R.pos.x, R.pos.z, 25);
+    const [fx, fz] = R.forward();
+    const ax = R.pos.x + fx * HB, az = R.pos.z + fz * HB;
+    const bx = R.pos.x - fx * HB, bz = R.pos.z - fz * HB;
+    let gap = Infinity, gr = 0, gH = 0;
+    for (const t of near) {
+      const abx = bx - ax, abz = bz - az;
+      const L2 = abx * abx + abz * abz;
+      let u = L2 > 0 ? ((t.x - ax) * abx + (t.z - az) * abz) / L2 : 0;
+      u = u < 0 ? 0 : (u > 1 ? 1 : u);
+      const dx = ax + abx * u - t.x, dz = az + abz * u - t.z;
+      const d = Math.hypot(dx, dz) - (R.hullR + t.r);
+      if (d < gap) { gap = d; gr = t.r; gH = t.H; }
+    }
+    return {
+      n: near.length, gap: +gap.toFixed(3),
+      r: +gr.toFixed(2), H: +gH.toFixed(1),
+      speed: +Math.abs(R.speed).toFixed(2),
+    };
+  });
+
+  check('driving into a tree stops the rover',
+    !!rest && rest.speed < 1.0 && rest.gap <= 0.05,
+    !rest ? 'no tree found in range'
+      : !rest.n ? `still making ${rest.speed} m/s, and the index reports no`
+        + ' tree within 25 m of where it ended up'
+        : `at rest at ${rest.speed} m/s, capsule ${rest.gap} m from a ${rest.H} m`
+          + ` tree's bole (trunk r ${rest.r}, ${rest.n} in range)`);
+
+  /* The invisible-wall assertion, and it is NOT "sweep for a clear bearing and
+     drive it". That test would flake, for a reason worth understanding: the
+     tree band is tiled and the cell follows the camera, so `tileTo` lands every
+     instance within half a period of a point 134.4 m down the view axis. Drive
+     a few hundred metres and the cell has moved with you and brought new trees
+     into existence ahead. A corridor sampled once, before the drive, is not the
+     corridor the rover will be in when it gets there — so "clear now" is not a
+     claim about the far end at all.
+
+     So instead: drive, and at every step where the body did not land where the
+     drive put it, require a trunk actually overlapping the capsule. Zero
+     unexplained pushes is the assertion, and it holds however many trees appear
+     en route.
+
+     First, off the trunk the run above is parked against. The liveness check at
+     the end of this block asks that the rover covers ground, and a rover left
+     nose-on against bark covers none of it — it would be measuring the stall
+     the previous check just *demanded* rather than anything about clear ground.
+     Observed rather than guessed: with the collision in and this backing-off
+     absent, the block reported 0 m in 30 s. */
+  await page.evaluate(() => {
+    const R = window.__game.rover;
+    const [fx, fz] = R.forward();
+    R.pos.x -= fx * 20; R.pos.z -= fz * 20;
+    R.yaw += Math.PI * 0.5;
+    R.speed = 0; R.charge = 1;
+  });
+  await settle();
+
+  /* And drive it in segments, with two real animation frames between them.
+   *
+   * This is not a stylistic choice, it is the difference between a test and a
+   * decoration. `treesNear` wraps every tiled instance into the copy nearest
+   * the camera, and the camera pair it reads is the one the last *drawn* frame
+   * stashed — but a tight `rover.update` loop never lets the frame loop run, so
+   * the cell stays frozen where the rover started while the rover drives out of
+   * it. Thirty seconds at 22 m/s is 660 m, and a 420 m cell does not reach that
+   * far: measured as one unbroken loop, this phase covered 637.6 m and recorded
+   * *zero* push-outs, which satisfied "no unexplained pushes" by never pushing
+   * at all. Letting the frames run between segments makes the cell follow the
+   * vehicle the way it does when a person is driving, which is both the honest
+   * simulation and the only way the rover is still among trees at the end.
+   *
+   * The counters accumulate across the segments; the frames in between belong
+   * to the real update loop, which coasts the rover a few centimetres with no
+   * throttle held. That is outside the instrument and does not need to be. */
+  const SEGMENTS = 6, SEG_STEPS = 150;      // 6 × 5 s = the same 30 s as before
+  const start = await page.evaluate(() => {
+    const R = window.__game.rover;
+    return { x: R.pos.x, z: R.pos.z };
+  });
+  const clear = { steps: 0, pushes: 0, unexplained: 0, blind: 0, worst: 0 };
+  let last = null;
+  for (let s = 0; s < SEGMENTS; s++) {
+    const seg = await page.evaluate(driveSegment, { steps: SEG_STEPS });
+    clear.steps += SEG_STEPS;
+    clear.pushes += seg.pushes;
+    clear.unexplained += seg.unexplained;
+    clear.blind += seg.blind;
+    clear.worst = Math.max(clear.worst, seg.worst);
+    last = seg;
+    await settle();
+  }
+  clear.covered = +Math.hypot(last.x - start.x, last.z - start.z).toFixed(1);
+  clear.speed = +last.speed.toFixed(1);
+
+  const pushes = (hit ? hit.pushes : 0) + clear.pushes;
+  const unexplained = (hit ? hit.unexplained : 0) + clear.unexplained;
+  const blind = (hit ? hit.blind : 0) + clear.blind;
+  const worst = Math.max(hit ? hit.worst : 0, clear.worst);
+
+  check('the rover is never stopped by something the index does not report',
+    !!hit && unexplained === 0,
+    !hit ? 'no tree found in range'
+      : `${pushes} push-outs (${hit.pushes} driving at a tree,`
+        + ` ${clear.pushes} across ${clear.steps} steps of open ground),`
+        + ` ${unexplained} unexplained`
+        + (unexplained ? ` · ${blind} with the index reporting nothing,`
+          + ` furthest trunk ${worst.toFixed(2)} m clear` : ''));
+
+  /* And the mechanism has to have been exercised at all.
+   *
+   * A run in which nothing ever pushed the rover satisfies "no unexplained
+   * push-outs" trivially, and proves precisely nothing about invisible walls —
+   * the assertion above would go quietly decorative the moment a seed, a world
+   * or the tiling put the drive somewhere with no trees in it, and nobody would
+   * see it happen. HANDOFF.md has a whole section on the suite measuring the
+   * wrong thing and passing; this is the guard against adding to it. */
+  check('and something actually pushed back, or the check above proves nothing',
+    pushes > 0, `${pushes} push-outs to explain`);
+
+  /* And it has to actually go somewhere, or the check above is satisfied by a
+     rover that never moved. Deliberately generous: the ground may be steep and
+     CRAWL_FLOOR is a tenth of full drive, so this is a liveness floor rather
+     than a performance claim. */
+  check('and it still covers ground', clear.covered > 60,
+    `${clear.covered} m in 30 s, still making ${clear.speed} m/s`);
+}
+
 if (errs.length) console.log('pageerrors:', [...new Set(errs)].slice(0, 4).join(' | '));
 const ok = checks.every((c) => c[1]) && !errs.length;
 console.log(ok ? 'EXPEDITION PASS' : 'EXPEDITION FAIL');

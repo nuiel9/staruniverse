@@ -78,6 +78,18 @@ const CRAWL_FLOOR = 0.10;
 const WHEELBASE = 2.9;
 const TRACK = 2.0;
 
+/* The rover as an obstacle-sized thing: the segment between the axle midpoints,
+   swept by the half-track. 1.12 is TRACK*0.56, the same figure CONTACTS uses
+   for where the wheels touch — the outer edge of the tyres, which is what a
+   trunk actually meets. (`_settle` builds its sampling corners at TRACK*0.5;
+   that is a different measurement and neither is a typo for the other.) */
+const HULL_R = TRACK * 0.56;
+
+/* How far ahead trees are asked for. Well inside the range over which a tiled
+   instance is guaranteed to stay in the same copy — see Surface.treesNear —
+   and comfortably more than a frame of travel at full speed. */
+const TREE_RANGE = 25;
+
 /* Where the four corner wheels touch, in model space. The wheels sit at
    y = 0.55 with a 0.55 radius, so the contact patch is the model's own y = 0
    plane, and the model is authored nose-toward +Z. */
@@ -111,6 +123,16 @@ export class Rover {
     this._q = new THREE.Quaternion();
     this._up = new THREE.Vector3(0, 1, 0);
     this._grade = 0;
+
+    /* Public on purpose. tools/expedition.mjs runs against the built bundle in
+       a real browser, so it cannot import HULL_R and WHEELBASE off this
+       module's scope the way _collide below does — it can only read what an
+       instance exposes. The acceptance suite has to measure the same capsule
+       the collision itself uses, not carry its own copy of these numbers, or
+       changing TRACK or WHEELBASE here would silently stop matching what the
+       suite checks against. */
+    this.hullR = HULL_R;
+    this.halfWheelbase = WHEELBASE * 0.5;
   }
 
   holdUsed() { return Object.values(this.hold).reduce((a, b) => a + b, 0); }
@@ -260,6 +282,11 @@ export class Rover {
       if (this.charge <= 0) this.speed = 0;
     }
 
+    /* Trees, after the step and before the body is seated: a push-out changes
+       where the wheels are, so the attitude has to be worked out from the
+       corrected position rather than from the one the drive asked for. */
+    this._collide();
+
     this._settle();
   }
 
@@ -349,6 +376,67 @@ export class Rover {
     const wr = 0.55;
     this._spin = (this._spin || 0) + this.speed / wr * 0.016;
     for (const w of this.object.userData.wheels) w.rotation.x = this._spin;
+  }
+
+  /** Trunks are solid.
+   *
+   * The rover is a capsule — the segment between the axle midpoints, swept by
+   * the half-track — and each trunk is a circle. Two resolutions rather than
+   * one, because pushing out of one trunk can push into its neighbour and a
+   * stand is exactly where that happens; two is enough for a pair and the
+   * third case is rare enough to leave to the next frame.
+   *
+   * What is removed is only the *inward* part of the motion. `speed` here is a
+   * scalar along the heading, so that is expressed against the contact normal:
+   * a square hit has the heading anti-parallel to the normal and stops the
+   * vehicle, a glancing one keeps nearly all of it and the push-out slides the
+   * rover along the trunk. Zeroing the speed outright would make every brush
+   * past a tree feel like hitting a wall, which is the same complaint in a
+   * different costume.
+   *
+   * Canopies are not obstacles. The tree shader draws a real crown you can
+   * walk under and that stays true — only the bole is here.
+   */
+  _collide() {
+    const S = this.game && this.game.surface;
+    if (!S || typeof S.treesNear !== 'function') return;
+    const near = S.treesNear(this.pos.x, this.pos.z, TREE_RANGE);
+    if (!near.length) return;
+
+    const [fx, fz] = this.forward();
+    const hb = WHEELBASE * 0.5;
+    for (let pass = 0; pass < 2; pass++) {
+      const ax = this.pos.x + fx * hb, az = this.pos.z + fz * hb;
+      const bx = this.pos.x - fx * hb, bz = this.pos.z - fz * hb;
+      const abx = bx - ax, abz = bz - az;
+      const L2 = abx * abx + abz * abz;
+
+      // the deepest overlap first: resolving the worst one is what makes two
+      // passes enough
+      let deepest = 0, hx = 0, hz = 0, hL = 0;
+      for (let i = 0; i < near.length; i++) {
+        const t = near[i];
+        let u = L2 > 0 ? ((t.x - ax) * abx + (t.z - az) * abz) / L2 : 0;
+        u = u < 0 ? 0 : (u > 1 ? 1 : u);
+        const dx = ax + abx * u - t.x, dz = az + abz * u - t.z;
+        const L = Math.hypot(dx, dz);
+        const pen = (HULL_R + t.r) - L;
+        if (pen > deepest) { deepest = pen; hx = dx; hz = dz; hL = L; }
+      }
+      if (deepest <= 0) return;
+
+      /* Dead centre — the axle line straight through the trunk's own centre —
+         has no normal to speak of, so back out the way we came in. */
+      let nx, nz;
+      if (hL > 1e-4) { nx = hx / hL; nz = hz / hL; } else { nx = -fx; nz = -fz; }
+
+      this.pos.x += nx * deepest;
+      this.pos.z += nz * deepest;
+      const along = fx * nx + fz * nz;
+      this.speed *= 1 - along * along;
+      // and stop cleanly rather than creeping into the bark forever
+      if (Math.abs(this.speed) < 0.05) this.speed = 0;
+    }
   }
 
   /**

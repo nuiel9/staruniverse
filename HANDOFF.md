@@ -21,6 +21,7 @@ Verification, in the order it costs you time:
 npm run lang           # ~1 s, no browser: every written string has a translation
 npm run verify         # builds, serves on 4173, runs all eight suites
 npm run expedition     # just the ground: sites, rover, salvage, the chart
+npm run treecheck      # needs `npm run dev`, not the preview: it imports source
 ```
 
 On a GPU the suites take seconds. On software GL they take tens of minutes,
@@ -42,28 +43,59 @@ a six-part mystery, a landable surface with things on it, and a drivable
 rover. Two languages throughout. See `README.md` for what any of that means
 and `BRAINSTORM.md` for why.
 
+### Closed since
+
+**Trees are solid.** The rover used to drive straight through them; it now
+stops. The vegetation band is tiled, so a tree's world position was always
+CPU-derivable — what was not on the CPU was the vertex shader's per-instance
+acceptance test, and that is what got written: a JS twin of it in
+`src/world/Surface.js`, a near-field index over it in `Surface.treesNear`
+memoised per copy, and a capsule-against-circle push-out in `Rover._collide`.
+
+Two checkers, because this is a dual CPU/GPU implementation and this codebase
+does not take those on trust. `npm run treecheck` (dev server, like
+`fieldcheck`) puts the acceptance test to a real shader compiler instance by
+instance and measures the index's copy stability and threshold margin — 35
+checks. `npm run expedition` drives the thing: a tree the index is confident
+about has to stop the rover, and no push-out anywhere in a run may lack a
+trunk overlapping the capsule.
+
+That second assertion is the one that matters, and it is why the CPU collides
+at a higher `grow` than the shader draws at (`J_GROW_MIN` 0.05 against the
+shader's 0.004 — see its comment). **Half-doing it is worse than not doing
+it:** a rover that stops at invisible obstacles, or drives through visible
+ones, is more confusing than one that drives through everything. Given a
+disagreement near a hard binary, the margin decides which way it is allowed to
+hurt, and drawing a tree nobody collides with is the mistake to prefer. The
+same reasoning runs one level up: `Surface.verifyTreeAgreement` asks this
+machine's compiler the question once per landing, and `treesNear` returns
+nothing at all for the whole world if the answer is no.
+
+That guard is not belt-and-braces. The JS only agrees with the shader because
+it is written against what this machine's compiler *does* to an inlined
+`fract` hash — folds its leading multiply into the caller's constants and fuses
+the result — and written the way the GLSL reads instead, `grow` came out wrong
+by the hash's whole range on 785 of 2079 samples. That is a compiler's habit,
+not a language guarantee, so it is asked rather than assumed.
+
+Three things it does not cover, none of them known to be wrong and all cheap to
+close if you want to:
+
+- **One world.** Everything measured is the first vegetated terran in this
+  galaxy. `tools/treecheck.mjs` already takes the world type as its first
+  argument, so `node tools/treecheck.mjs desert` is a run, not a build.
+- **`tileTo`'s seed shift** is written as two separate roundings and measures
+  bit-exact — but only over the tile indices three poses reach, about 4 against
+  a world that tops out near 15. Same folding question, unguarded. It would
+  fail loudly rather than silently.
+- **The stature check reads `q1` and not `q3`,** so a driver that folded one
+  constant this machine's way and the other differently would ship trunk radii
+  up to a fifth out. The probe's output vector is full; see the comment on
+  `GATE_H` for why that was accepted rather than repacked.
+
 ### Open, in the order I would take them
 
-**1. Rover collides with nothing.** Reported: you drive straight through
-trees. The scatter is GPU-instanced and the vegetation band is *tiled* —
-`BANDS`/`vegBands` in `src/world/Surface.js`, trees at `tile: 420` — so a
-tree's world position is periodic and CPU-derivable, and `scatterBand()`
-already builds the instance data on the CPU. What is *not* on the CPU is the
-per-instance acceptance test: the vertex shader decides from slope, altitude
-and the vegetation mask whether each instance is drawn at all.
-
-So the work is: replicate that acceptance test in JS for the tree bands, build
-a near-field index around the rover, and collide. It is a real piece of work,
-not a patch, and it is the kind of dual CPU/GPU implementation this codebase
-already treats with suspicion — `tools/fieldcheck.mjs` exists because the
-height field had exactly this problem and needed a check to keep the two
-honest. Do the same here: whatever you write, write a checker beside it.
-
-Half-doing it is worse than not doing it. A rover that stops at invisible
-obstacles, or drives through visible ones, is more confusing than one that
-drives through everything.
-
-**2. Sites are placed without checking the route.** `Sites.at()` picks a
+**1. Sites are placed without checking the route.** `Sites.at()` picks a
 bearing and a range and puts a marker there. Nothing guarantees a drivable
 path exists — a marker can sit behind a face too steep to climb. The rover can
 now always crawl (see below), so nothing is strictly unreachable, but a site
@@ -71,19 +103,19 @@ that takes ten minutes of switchbacks is a bad site. Worth sampling a few
 candidate offsets at placement time and preferring the one with the gentler
 approach.
 
-**3. `mystery.mjs` has a stale assertion.** It checks "all five readings
+**2. `mystery.mjs` has a stale assertion.** It checks "all five readings
 reachable" and passes, but there are six now and it counts *found* rather than
 total. It is a weaker claim than its name suggests. `REVELATION_COUNT` is
 exported from `src/game/Mystery.js` for exactly this.
 
-**4. Cloud Run has never actually run.** `Dockerfile`, `nginx/` and
+**3. Cloud Run has never actually run.** `Dockerfile`, `nginx/` and
 `cloudbuild.yaml` are written and the YAML parses, but this container had no
 Docker, so no image was ever built. The first `gcloud builds submit` is the
 real test. README has the full walkthrough including the IAM step that bites
 people. Locally you can at least do `docker build -t staruniverse . && docker
 run --rm -p 8080:8080 staruniverse`.
 
-**5. Thai has never been seen rendered.** No Thai font in the container, so
+**4. Thai has never been seen rendered.** No Thai font in the container, so
 every screenshot here would have been tofu. The strings are all in
 `src/ui/i18n.js` (interface) and `src/ui/story.th.js` (fiction), 155 of the
 latter, and `npm run lang` proves coverage — but coverage is not quality.

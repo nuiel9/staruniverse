@@ -46,7 +46,7 @@
 The precedent tool cannot run anywhere but its author's laptop, and you are about to copy it. Fix it and look at its output before writing anything, so you know what "the two agree" reads like.
 
 **Files:**
-- Modify: `tools/fieldcheck.mjs:8`
+- Modify: `tools/fieldcheck.mjs:8` and its hand-written uniform block (~line 54)
 - Modify: `package.json` (scripts block)
 
 **Interfaces:**
@@ -166,7 +166,7 @@ await bootGame(page, {
   setup: `(()=>{
     g.mode='exterior';
     const solid = g.bodies.filter((b)=>b.spec && b.planet && !b.planet.isGas
-      && b.spec.kind === '${KIND}' && (b.spec.veg||0) > 0.62);
+      && b.spec.type === '${KIND}' && (b.spec.veg||0) > 0.62);
     const body = solid[0];
     if(!body) return {failed:'no vegetated ${KIND} world in this galaxy'};
     g.pose({bodyRef: body, dist:1.6, phase:70, elev:8});
@@ -282,7 +282,7 @@ const s0 = await page.evaluate(async () => {
   };
 
   return {
-    body: S.spec ? S.spec.kind : '?',
+    body: S.spec ? S.spec.type : '?',
     // three sweeps at deliberately incommensurate steps, so the sample set is
     // not a lattice the hash could be accidentally friendly to
     hashA: run(0, 0, 0.1372, WJ.hash11),
@@ -624,13 +624,18 @@ const s1 = await page.evaluate(async (POSES) => {
   if (a < 0 || b < 0 || b < a) return { err: 'could not find the acceptance slice' };
   const body = vsrc.slice(a, b);
 
-  /* The functions and uniforms, from the same compiled source. Everything three
-     prepends sits above `const float VSCALE`, which is why that is the marker —
-     it is the one fieldcheck uses too. The in/out/attribute declarations at the
-     bottom of the region are stripped: iA and iB become plain globals filled by
-     texelFetch, and the vertex stage's varyings would collide with our own
-     output. */
-  const fs0 = vsrc.indexOf('const float VSCALE');
+  /* The functions AND the uniforms, from the same compiled source.
+     The marker is the first line of FIELD_UNIFORMS, not `const float VSCALE`.
+     fieldcheck slices from VSCALE and hand-declares the uniforms it needs,
+     which is why it broke the day uSeaDrop was added — VSCALE is at
+     Surface.js:420 and the field uniforms are at 306-346, so that slice starts
+     *after* them. Starting at `uniform float uSeed;` picks up every uniform the
+     chunks below declare and still excludes everything three prepends (its own
+     matrices, precision qualifiers and the position/normal/uv attributes).
+     The in/out/attribute declarations at the bottom of the region are stripped:
+     iA and iB become plain globals filled by texelFetch, and the vertex stage's
+     varyings would collide with our own output. */
+  const fs0 = vsrc.indexOf('uniform float uSeed;');
   const fs1 = vsrc.indexOf('void main(');
   if (fs0 < 0 || fs1 < 0) return { err: 'could not find the chunk region' };
   const chunk = vsrc.slice(fs0, fs1)
@@ -1259,10 +1264,14 @@ In `src/world/Surface.js`, immediately after `normalAt` (which ends at line 6940
          back into its seed. Numeric rather than a composed string so the hot
          path allocates nothing. */
       const key = i * 4096 + ((_Wt[3] & 63) << 6) + (_Wt[4] & 63);
+      /* A miss is `undefined`; a cached rejection is `null`. Keeping the two
+         apart is most of the point — the great majority of candidates are not
+         trees, and re-deriving that twelve samples at a time every frame is
+         the cost this cache exists to avoid. */
       let e = cur.get(key);
       if (e === undefined) {
-        e = prev && prev.get(key);
-        if (e === undefined || e === false) {
+        e = prev ? prev.get(key) : undefined;
+        if (e === undefined) {
           const a = jTreeAccept(this, i, camX, camZ, fwdX, fwdZ);
           e = a.grow >= J_GROW_MIN
             ? { i, x: a.x, z: a.z, r: a.trR, H: a.H, gy: a.gy }
@@ -1283,8 +1292,6 @@ In `src/world/Surface.js`, immediately after `normalAt` (which ends at line 6940
       + (this._treeMemoPrev ? this._treeMemoPrev.size : 0);
   }
 ```
-
-Note the `e === false` guard is unreachable with this code and should be removed if it survives review — `cur.get` returns `undefined` for a miss and `null` for a cached rejection, and both are handled. Keep the `undefined`/`null` distinction: caching a rejection is most of the point.
 
 - [ ] **Step 5: Run and verify**
 
@@ -1317,6 +1324,237 @@ centre, so nothing can swap copies underneath it."
 
 ---
 
+### Task 7: The guard that ships
+
+**Execution order: this runs AFTER Task 5 and BEFORE Task 6.** It is numbered 7
+because it was added after the plan was written; it gates `treesNear`, so it
+has to exist before Task 6's end-to-end assertions exercise that path — and
+those assertions passing is also the proof that the guard does not wrongly
+disable collision on a machine where the two copies agree.
+
+**Why this exists.** Task 4 discovered that the shader compiler inlines
+`hash11`, folds its leading `p*0.1031` into the caller's argument constants
+(distributing across an add), and fuses the survivor into one rounding — and
+that the JS has to match that folded form bit for bit, because `hash11` is
+`fract`-based and an argument one ulp out gives a completely different answer
+about a quarter of the time. See §2.2.1 of the design document for the measured
+candidate table.
+
+That fold is **one shader compiler's behaviour, not the language's**. A
+player's driver that folds differently puts the whole error back — not as
+drift, but at the hash's full range, which is exactly the invisible walls
+`HANDOFF.md` calls worse than no collision at all. `treecheck` only ever runs
+on a developer's machine. So the same comparison has to ship.
+
+**Files:**
+- Modify: `src/world/Surface.js` — a verification method on the class, and a
+  guard at the top of `treesNear`
+- Test: `tools/treecheck.mjs` — one stage-3 check that the guard passes on a
+  machine where the two agree
+
+**Interfaces:**
+- Consumes: `_trees`, `_camXZ`, `_camFwdXZ` (Task 3); `jTreeAccept` and
+  `__woodyJS` (Task 4); `treesNear` (Task 5).
+- Produces: `surface._treeAgreement` — `null` before the check has run, then
+  `{ ok: boolean, worst: number, reason: string }`. `treesNear` returns `[]`
+  when `ok` is false.
+
+- [ ] **Step 1: Write the failing check — `tools/treecheck.mjs`, stage 3**
+
+Append before the final tally block:
+
+```js
+// ---------------------------------------- stage 3: the guard that ships
+/* The runtime self-check has to reach the same verdict this whole tool does,
+   on the machine the tool is running on — otherwise it is either dead weight
+   or it is about to disable a working feature for every player. */
+const s3 = await page.evaluate(async () => {
+  const g = window.__game;
+  const S = g.surface;
+  if (typeof S.verifyTreeAgreement !== 'function') {
+    return { err: 'Surface.verifyTreeAgreement does not exist' };
+  }
+  const v = S.verifyTreeAgreement(g.renderer);
+  const near = S.treesNear(0, 0, 25);
+  return {
+    ok: v && v.ok, worst: v && v.worst, reason: v && v.reason,
+    cached: S._treeAgreement === v,
+    /* And it must not have disabled anything on a machine that agrees. Not an
+       assertion that trees exist at the origin — that is a property of the
+       world — only that the guard is not the reason if they do not. */
+    disabled: (v && v.ok) === false && near.length === 0,
+  };
+});
+
+if (s3.err) { console.error('stage 3:', s3.err); await browser.close(); process.exit(1); }
+check('the shipped guard agrees with the checker', s3.ok,
+  `worst ${Number(s3.worst).toExponential(2)} · ${s3.reason}`);
+check('the guard caches its verdict rather than re-probing', s3.cached);
+```
+
+- [ ] **Step 2: Run it and watch it fail**
+
+```bash
+npm run dev
+```
+
+```bash
+npm run treecheck
+```
+
+Expected: `stage 3: Surface.verifyTreeAgreement does not exist`, exit 1.
+
+- [ ] **Step 3: Write the probe material**
+
+This runs on the game's own renderer, not a second WebGL context. Copy the
+save-and-restore discipline from `Surface.bake` (`src/world/Surface.js`, search
+for `bake(renderer)`) — in particular it saves and restores
+`renderer.getRenderTarget()`, `renderer.autoClear` AND
+`renderer.shadowMap.needsUpdate`, the last because that flag is one per
+renderer and the first `render()` of a frame consumes it.
+
+Three things differ from `bake`:
+
+- Use `THREE.RawShaderMaterial` with `glslVersion: THREE.GLSL3`, **not**
+  `THREE.ShaderMaterial`. Three injects a prefix into a `ShaderMaterial`'s
+  fragment stage that already declares `viewMatrix` and `cameraPosition`, and
+  the probe declares `viewMatrix` itself — a redeclaration is a compile error.
+  A `RawShaderMaterial` gets no prefix at all, which is what the sliced chunk
+  needs.
+- The instance table goes in as two `THREE.DataTexture`s, 64×64,
+  `THREE.RGBAFormat`, `THREE.FloatType`, `NearestFilter` both ways, with
+  `needsUpdate = true`. Pad `iA`/`iB` into 64·64·4 arrays.
+- The render target is `THREE.FloatType`, 64×64, no depth or stencil.
+
+The fragment shader is **the same slice stage 1 builds**, assembled by the same
+code. Do not hand-write a cut-down version: Task 4 measured that a reduced
+probe is optimised differently and answers differently, and a guard that
+compiles a different expression tree from the one the vertex stage runs is
+worse than no guard, because it can report agreement that does not exist.
+Factor the slice-and-assemble out of stage 1 into a small helper if that is
+what it takes to have exactly one copy of it.
+
+- [ ] **Step 4: Write `verifyTreeAgreement`**
+
+Add to the `Surface` class, near `treesNear`:
+
+```js
+  /**
+   * Does this device's shader compiler agree with the CPU about which
+   * candidates are trees?
+   *
+   * It has to be asked, on the real machine, because the agreement rests on
+   * something the language does not guarantee. `hash11` is inlined by the
+   * shader compiler, its leading multiply is folded back into whatever
+   * constants the caller built the argument from, and the survivor is
+   * contracted into a single rounding — and the JS twin is written to match
+   * that folded form exactly, because `hash11` is `fract`-based and an
+   * argument one ulp out gives a completely different number about a quarter
+   * of the time. See the woody section of "the same law, twice".
+   *
+   * A driver that folds differently would therefore not disagree slightly, it
+   * would disagree completely: a forest the CPU believes in and the player
+   * cannot see. That is the invisible wall the handoff calls worse than no
+   * collision at all, and `tools/treecheck.mjs` cannot see the player's
+   * machine. So the comparison ships, runs once, and on disagreement takes
+   * tree collision away rather than trusting it — which degrades to exactly
+   * the behaviour before this branch existed, and which the handoff names as
+   * the acceptable failure of the two.
+   *
+   * Not being able to run the probe at all counts as disagreement, for the
+   * same reason: an unverified guarantee is not a guarantee.
+   *
+   * @param {THREE.WebGLRenderer} renderer
+   * @returns {{ok:boolean, worst:number, reason:string}}
+   */
+  verifyTreeAgreement(renderer) {
+    if (this._treeAgreement) return this._treeAgreement;
+    if (!this._trees) {
+      return (this._treeAgreement = { ok: true, worst: 0, reason: 'no trees band' });
+    }
+    let out;
+    try {
+      out = this._probeTreeAgreement(renderer);
+    } catch (e) {
+      out = { ok: false, worst: Infinity, reason: `probe failed: ${e && e.message}` };
+    }
+    if (!out.ok) {
+      console.warn('[surface] tree collision disabled:', out.reason,
+        `worst grow disagreement ${out.worst}`);
+    }
+    return (this._treeAgreement = out);
+  }
+```
+
+`_probeTreeAgreement(renderer)` builds the material from Step 3, renders one
+64×64 quad at the **stashed** camera pair (`_camXZ`, `_camFwdXZ` — the pose the
+player is actually in, which is the point of doing this at runtime rather than
+at three synthetic poses), reads back with `renderer.readRenderTargetPixels`,
+and compares `grow` per instance against `jTreeAccept`. It disposes the target,
+the textures, the geometry and the material before returning.
+
+The verdict:
+
+```js
+    const GATE = 0.023;      // half the 0.046 margin, same gate treecheck uses
+    return worst <= GATE
+      ? { ok: true, worst, reason: 'device agrees' }
+      : { ok: false, worst, reason: 'device disagrees about which candidates are trees' };
+```
+
+A folding mismatch produces a disagreement near 1.0 against a gate of 0.023, so
+the discrimination is about forty to one — this is not a delicate threshold.
+
+- [ ] **Step 5: Guard `treesNear`**
+
+At the top of `treesNear`, after the `if (!T) return [];` line:
+
+```js
+    /* Unverified means off. The check runs once and caches; a world whose
+       device disagrees has no tree collision at all rather than collision the
+       player cannot see the reason for. */
+    if (this._treeAgreement && !this._treeAgreement.ok) return [];
+```
+
+and call `verifyTreeAgreement(renderer)` from wherever the renderer is
+available on the ground — `Game.js` already calls `surface.bake(this.renderer)`
+at two sites; the same places are the natural home. Do the call there rather
+than threading a renderer into `treesNear`.
+
+- [ ] **Step 6: Prove the failure path, not just the success path**
+
+A guard that has only ever been seen to pass is not known to work. Temporarily
+perturb one constant in the JS hash fold (e.g. change the folded `1.37*0.1031`
+by one ulp), run `npm run treecheck`, and confirm stage 3 reports
+`the shipped guard agrees with the checker` as FAILED and that `treesNear`
+returns empty. Then revert the perturbation and confirm 18/18. Record both runs
+in your report. Do not commit the perturbation.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/world/Surface.js tools/treecheck.mjs
+git commit -m "Ship the check, because the fold is one compiler's habit
+
+The CPU copy of the tree test matches the GPU only because the JS is
+written against what this machine's shader compiler does to hash11 —
+inline it, fold its leading multiply into the caller's constants,
+contract the survivor. None of that is guaranteed by the language, and a
+driver that folds differently does not disagree slightly: the hash wraps,
+so it disagrees completely, and a forest the CPU believes in that the
+player cannot see is the invisible wall the handoff calls worse than no
+collision at all.
+
+treecheck only ever runs on a developer's machine. So the same comparison
+ships: once per world, on the real device, using the same live-material
+slice the checker uses — a cut-down probe is optimised differently and
+would report an agreement that does not exist. On disagreement, treesNear
+returns nothing and the rover drives through trees, which is exactly
+where this branch started and the failure the handoff says to prefer."
+```
+
+---
+
 ### Task 6: The collision, and the end-to-end assertions
 
 **Files:**
@@ -1342,7 +1580,7 @@ const treesOn = await page.evaluate(async () => {
   /* A vegetated world — the trees band only exists above veg 0.55, and there
      is at least one habitable world per galaxy by construction. */
   const body = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas
-    && b.spec.kind === 'terran' && (b.spec.veg || 0) > 0.62)
+    && b.spec.type === 'terran' && (b.spec.veg || 0) > 0.62)
     .sort((a, b2) => (b2.spec.veg || 0) - (a.spec.veg || 0))[0];
   if (!body) return { skipped: 'no vegetated world in this galaxy' };
   g.pose({ bodyRef: body, dist: 1.6, phase: 70, elev: 8 });
@@ -1413,45 +1651,82 @@ if (treesOn.skipped || !treesOn.hasBand) {
       : `stopped ${hit.clear} m clear of a ${hit.H} m tree`
         + ` (trunk r ${hit.trunkR}) at ${hit.speed} m/s`);
 
-  // and a bearing the index says is clear
+  /* The invisible-wall assertion, and it is NOT "sweep for a clear bearing and
+     drive it". That test would flake, for a reason worth understanding: the
+     tree band is tiled and the cell follows the camera, so `tileTo` lands every
+     instance within half a period of a point 134.4 m down the view axis. Drive
+     a few hundred metres and the cell has moved with you and brought new trees
+     into existence ahead. A corridor sampled once, before the drive, is not the
+     corridor the rover will be in when it gets there — so "clear now" is not a
+     claim about the far end at all.
+
+     What the design actually promises is narrower and stronger, and it can be
+     measured exactly: *the rover is never impeded by something the index does
+     not report*. And there is an exact instrument for "impeded", because the
+     drive step is analytic — `Rover.update` moves the body by precisely
+     `speed * dt` along its heading and nothing else does, so any discrepancy
+     between where the step said the rover would be and where it ended up IS a
+     collision push-out. Steering is left at zero so the heading is constant and
+     the prediction is exact.
+
+     So: drive, and at every step where the body did not land where the drive
+     put it, require a trunk actually overlapping the capsule. Zero unexplained
+     pushes is the assertion. It holds however many trees appear en route. */
   const clear = await page.evaluate(() => {
     const g = window.__game, S = g.surface, R = g.rover;
-    const RUN = 120;
-    /* Sweep bearings for one the corridor is empty along — sampled every 5 m
-       out to the run length, against the capsule's own half-width plus the
-       fattest trunk in range, so "clear" means clear for the vehicle rather
-       than for a point. */
-    let best = null;
-    for (let a = 0; a < 72 && !best; a++) {
-      const yaw = a * Math.PI / 36;
-      const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
-      let ok = true;
-      for (let d = 0; d <= RUN && ok; d += 5) {
-        const px = R.pos.x + fx * d, pz = R.pos.z + fz * d;
-        if (S.treesNear(px, pz, 4.0).length) ok = false;
-      }
-      if (ok) best = yaw;
-    }
-    if (best === null) return { none: true };
-    R.yaw = best; R.speed = 0; R.charge = 1;
+    R.speed = 0; R.charge = 1;
     const x0 = R.pos.x, z0 = R.pos.z;
     const input = { held: (a) => a === 'thrUp', touch: false };
-    for (let i = 0; i < 900; i++) R.update(1 / 30, input, false);
+    const HULL_R = 1.12, HB = 2.9 * 0.5;
+    let steps = 0, pushes = 0, unexplained = 0, worst = 0;
+    for (let i = 0; i < 900; i++) {
+      const [fx, fz] = R.forward();
+      const px = R.pos.x + fx * R.speed * (1 / 30);
+      const pz = R.pos.z + fz * R.speed * (1 / 30);
+      R.update(1 / 30, input, false);
+      steps++;
+      const off = Math.hypot(R.pos.x - px, R.pos.z - pz);
+      if (off <= 1e-6) continue;
+      pushes++;
+      /* A push has to have a trunk behind it. Measure against the capsule the
+         collision itself uses — the segment between the axle midpoints — not
+         against the centre, or a legitimate hit on the nose reads as
+         unexplained. */
+      const near = S.treesNear(R.pos.x, R.pos.z, 25);
+      const [gx, gz] = R.forward();
+      const ax = R.pos.x + gx * HB, az = R.pos.z + gz * HB;
+      const bx = R.pos.x - gx * HB, bz = R.pos.z - gz * HB;
+      let best = Infinity;
+      for (const t of near) {
+        const abx = bx - ax, abz = bz - az;
+        const L2 = abx * abx + abz * abz;
+        let u = L2 > 0 ? ((t.x - ax) * abx + (t.z - az) * abz) / L2 : 0;
+        u = u < 0 ? 0 : (u > 1 ? 1 : u);
+        const dx = ax + abx * u - t.x, dz = az + abz * u - t.z;
+        best = Math.min(best, Math.hypot(dx, dz) - (HULL_R + t.r));
+      }
+      // negative or ~zero means a trunk is touching the capsule, as it should be
+      if (!(best <= 1e-3)) { unexplained++; worst = Math.max(worst, best); }
+    }
     return {
       covered: +Math.hypot(R.pos.x - x0, R.pos.z - z0).toFixed(1),
+      steps, pushes, unexplained, worst: +worst.toFixed(2),
       speed: +R.speed.toFixed(1),
     };
   });
 
-  /* The invisible-wall assertion. Thirty seconds on a bearing with nothing in
-     it has to move the vehicle a long way and leave it still moving; a rover
-     that stops on open ground is the failure this whole design is arranged
-     around avoiding. The floor is generous because the ground may be steep and
-     CRAWL_FLOOR is a tenth of full drive. */
-  check('a bearing the index calls clear is unimpeded', !clear.none
-    && clear.covered > 60 && clear.speed > 0.5,
-    clear.none ? 'no clear bearing found within 120 m'
-      : `${clear.covered} m in 30 s, still making ${clear.speed} m/s`);
+  check('the rover is never stopped by something the index does not report',
+    clear.unexplained === 0,
+    `${clear.pushes} push-outs in ${clear.steps} steps, ${clear.unexplained} unexplained`
+    + (clear.unexplained ? ` · furthest trunk was ${clear.worst} m clear` : '')
+    + ` · covered ${clear.covered} m`);
+
+  /* And it has to actually go somewhere, or the check above is satisfied by a
+     rover that never moved. Deliberately generous: the ground may be steep and
+     CRAWL_FLOOR is a tenth of full drive, so this is a liveness floor rather
+     than a performance claim. */
+  check('and it still covers ground', clear.covered > 60,
+    `${clear.covered} m in 30 s, still making ${clear.speed} m/s`);
 }
 ```
 

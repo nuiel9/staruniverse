@@ -1224,6 +1224,15 @@ float floraMask(vec2 gp, float slope, float shelter, float flow, float above){
    where the ground is before the frame is drawn — a walking player needs a foot
    height and a slope limit, and neither can come out of a vertex shader.
 
+   That "above/below" layout is not a rule every resident of this section
+   obeys, only the one it describes. The trees band, the third resident, breaks
+   it: its own GLSL twin is not above this comment at all, it is `floraVert
+   (tree=true)`, well past this whole section and its own header, out in the
+   flora section further down the file. So read "above" and "below" below as
+   naming which of two copies is meant, not as a claim about which one comes
+   first in the file — the woody section says so again, locally, where it
+   matters.
+
    Two implementations of one law is a liability and there is no clever way
    around it: the field is sampled twenty times per vertex on the GPU, so it
    cannot move to the CPU, and a player cannot read a vertex shader. What makes
@@ -1233,9 +1242,21 @@ float floraMask(vec2 gp, float slope, float shelter, float flow, float above){
    throw, it makes the player sink into hills and hover over hollows, and the
    error tracks every subsequent change to the terrain.
 
-   The JS side is written to be read against the GLSL rather than to be fast. It
-   is called a handful of times a frame, it shares no cache with anything, and
-   it allocates nothing per call.
+   The JS side is written to be read against the GLSL rather than to be fast.
+   That holds without qualification for the height field: it answers a
+   question about one point — where is the ground here — so it is called a
+   handful of times a frame, shares no cache with anything, and allocates
+   nothing per call. It does not hold for the tree test below, which answers a
+   question about a whole band instead: is any of several hundred candidates a
+   tree, right now. treesNear calls jTileTo once per candidate — the size of
+   the trees band, 693 at the default quality tier and up to 1050 at high — it
+   keeps _treeMemo and _treeMemoPrev as a cache across frames precisely because
+   that question is worth remembering, and it allocates: jTreeAccept returns a
+   fresh object every time it actually runs, treesNear builds a second fresh
+   object for every candidate the memo accepts, and a fresh Map is built every
+   time the camera crosses into a new tile epoch. The difference is not
+   sloppiness in the tree test, it is what a whole-band question earns that a
+   single-point one does not.
 
    Do not take the agreement on faith, and do not assume a careful reading is
    enough — the first version of this was a faithful line-for-line
@@ -1398,6 +1419,58 @@ function jDrainage(qx, qy, qz) {
   return n * (0.22 + 0.78 * jSmoothstep(0.42, -0.28, w));
 }
 
+/* hash11, and this one has to be exact rather than close.
+ *
+ * Every other twin in this section is a smooth function of position, so a
+ * single-precision disagreement moves an answer by a fraction of a millimetre.
+ * This one is `fract`-based and chaotic: run at JS double precision it is not a
+ * near miss, it is a different function, and it feeds the tree acceptance test
+ * with a weight of 0.72 out of a threshold of 0.34. An uncorrelated hash means
+ * an uncorrelated forest — trees the player can see that the rover drives
+ * through, and walls in the open ground where nothing is drawn.
+ *
+ * Measured before the frounds went in (tools/treecheck.mjs stage 0, three
+ * sweeps of 4096 samples each): worst error 0.999-1.00 and 4095-4096 of 4096
+ * samples inexact, on every sweep. That is not a rounding error, it is the
+ * function's entire output range — `fract` wraps, so a JS double that drifts
+ * even slightly from the shader's float32 can land on the opposite side of an
+ * integer boundary and return a value near 0 where the GPU returns a value
+ * near 1, or the reverse. A hash that disagreed by a rounding error would have
+ * been the easy case; this one disagrees by wrapping.
+ *
+ * So every operation is rounded to float32 the way the shader's ALU does, and
+ * both literals are hoisted at the shader's own precision — 33.33 and 0.1031
+ * are not exactly representable and using the JS double for either puts the
+ * error straight back.
+ *
+ * `fract` needs no rounding of its own: for any float32 x, x - floor(x) is a
+ * multiple of x's own ulp and is therefore exactly representable. */
+const J_H1031 = Math.fround(0.1031);
+const J_H3333 = Math.fround(33.33);
+
+/* The body of hash11 from `p*0.1031` onwards, split out because at every call
+ * site in the woody band the *caller's* argument and this first multiply are
+ * one expression to the shader compiler, and it does not evaluate them in the
+ * order they are written. See jTreeAccept's hash notes for the measurement;
+ * the split exists so that the folded form can be expressed at all. */
+function jHash11From(q0) {
+  let q = Math.fround(q0 - Math.floor(q0));
+  q = Math.fround(q * Math.fround(q + J_H3333));
+  q = Math.fround(q * Math.fround(q + q));
+  return Math.fround(q - Math.floor(q));
+}
+function jHash11(p) {
+  return jHash11From(Math.fround(Math.fround(p) * J_H1031));
+}
+
+/** meshLod, line for line. See the GLSL at the top of the file for why the
+ *  law is a power of range clamped by the grid builder's own two numbers. */
+function jMeshLod(d, U) {
+  const k = U.uLodK.value;
+  const p = k * Math.pow(Math.max(d, 1), 1 - RING_P);
+  return 0.26 + jClamp(p, d * k * (RING_MIN / LOD_K1), d * k * (RING_MAX / LOD_K1));
+}
+
 const J_VSCALE = 1450;
 function jBench(x, n, k) {
   const s = x * n;
@@ -1541,10 +1614,394 @@ function jTerrainRaw(px, pz, lod, U, out) {
   out[1] = fine;
 }
 
+/* ------------------------------------------------------------ the woody band
+ *
+ * The third resident of this section, and the one with a hard edge in it.
+ *
+ * The height field's twin can be a fraction of a millimetre out and nobody can
+ * tell. This one ends in `grow > 0.004` — a binary — so a disagreement is not a
+ * small error in a number, it is a tree that one copy has and the other does
+ * not. The CPU therefore collides at a *higher* threshold than the GPU draws
+ * at (see J_GROW_MIN below), so the two can only ever disagree in the harmless
+ * direction, and tools/treecheck.mjs measures the real error against that
+ * margin rather than taking it on trust.
+ *
+ * The same standing instruction applies as to everything above: change the
+ * shader and change this in the same edit.
+ *
+ * Navigate to that shader by marker, not by line number. This comment cited
+ * Surface.js:4240-4290 until a two-hundred-line insertion above it moved the
+ * target without moving the number, and 4240 then pointed into a different
+ * shader entirely — the second time an absolute cite in this file has rotted,
+ * and the cite is the whole routing mechanism for "the same law, twice", so it
+ * rotting silently is the one failure it cannot afford. The paired GLSL is the
+ * body of `floraVert(tree=true)` — the `TREE_VERT` material — running from
+ * `vec4 dat = uDatum;` to `if(grow <= 0.004)`, with the tileTo and seed
+ * preamble just above it. Both markers need the shader named to be unique:
+ * `vec4 dat = uDatum;` appears five times in this file and the grow test
+ * twice, and only the pair inside floraVert is this function's twin. This
+ * paragraph used to cite a line range for it, in the same breath as warning
+ * that the Surface.js:4240-4290 cite above had rotted — and a later insertion
+ * moved that range too, while this file was still on the same branch. Believe
+ * the grep and not a number; that is why there no longer is one here. */
+
+/** Where the CPU collides. The shader draws a tree at grow > 0.004; this is
+ *  more than ten times that, so an invisible wall — the failure that makes a
+ *  vehicle feel broken — needs a CPU/GPU disagreement of 0.046 in grow, and
+ *  treecheck reports the measured error against exactly that number. What is
+ *  left is the opposite failure, driving through a marginal tree the shader
+ *  drew, which is both the right way round and the one a player barely
+ *  notices. */
+const J_GROW_MIN = 0.05;
+
+// tileTo's two literals, at the shader's precision: they feed the seed shift,
+// which feeds hash11, where a double is not a near miss. See jHash11.
+const J_T731 = Math.fround(7.31), J_T377 = Math.fround(3.77);
+
+/* The three hash arguments, as the shader compiler actually evaluates them —
+ * and this is the third single-precision effect in this file that no amount of
+ * reading the GLSL would have found.
+ *
+ * treecheck stage 1 found it on its first real run. A faithful term-by-term
+ * transliteration had the whole acceptance chain agreeing to better than 4e-4
+ * in every single input — gp bit-exact, s bit-exact, and m, slope, ao, flow
+ * and above all at 1e-4 or under — and `grow` still came out 0.33 wrong at one
+ * pose and a full 1.0 wrong at another, on roughly a quarter of the band.
+ * Every input agreeing while the answer does not leaves exactly one culprit,
+ * and it is the arithmetic in front of hash11.
+ *
+ * hash11 is `fract`-based, so an argument that is one ulp out does not give an
+ * answer that is one ulp out. About a quarter of the time it gives a
+ * completely different number, and 0.72 of that lands straight in `grow`
+ * against a 0.046 margin. There is no tolerance to spend here: the argument
+ * has to be bit identical or the two forests are uncorrelated, which is trees
+ * the player can see that the rover drives through and walls in the open.
+ *
+ * What the compiler does is one rule with two visible consequences, and none
+ * of it is in the source. hash11 inlines, its first line is `p*0.1031`, and
+ * the compiler is then free — GLSL ES imposes no evaluation order on this —
+ * to fold that 0.1031 into whatever constants the *caller's* argument was
+ * built from, and to contract the surviving multiply-and-add into a single
+ * operation with one rounding:
+ *
+ *   hash11(s*1.37)        becomes  fract(s*(1.37*0.1031))
+ *   hash11(s*9.13 + 0.77) becomes  fract(s*(9.13*0.1031) + 0.77*0.1031)
+ *
+ * — the second distributing the fold across both terms and then fusing them.
+ * So the constants below are those products rather than the literals, the
+ * biased one is evaluated as a fused multiply-add rather than as two rounded
+ * steps, and jHash11From exists because there is no argument you can hand
+ * jHash11 that reproduces any of this: the folding reaches inside the
+ * function, past its first multiply.
+ *
+ * Measured over 2079 samples (693 instances at three poses, against the live
+ * compiled material): written as it appears in the GLSL, JS disagrees with
+ * this machine's GPU on 557-785 of them depending on the argument, worst case
+ * 0.998 — the hash's entire range. Written as below, on none of them, bit for
+ * bit, on all three arguments.
+ *
+ * Two things this is not. It is not exact FMA — the product is rounded to a
+ * double before the add rather than kept infinitely wide — but a disagreement
+ * would need the true result to sit within a double's ulp of a float32 tie,
+ * and none of the 2079 does. And it is not settled: this is a property of one
+ * shader compiler rather than of the language, so a driver that folds
+ * differently would put the error straight back. That is what treecheck is
+ * for, and it would say so on the first run. It cannot be legislated away from
+ * the shader side either — `precise` is GLSL ES 3.20 and WebGL2 is 3.00. */
+const J_HS_K = Math.fround(Math.fround(9.13) * J_H1031);
+const J_HS_B = Math.fround(Math.fround(0.77) * J_H1031);
+const J_H137K = Math.fround(Math.fround(1.37) * J_H1031);
+const J_H473K = Math.fround(Math.fround(4.73) * J_H1031);
+
+/** tileTo, line for line — see the CLUTTER chunk for why a tiled band's cell
+ *  is centred a third of its own width down the view axis rather than under
+ *  the lens. Writes [gpx, gpz, seedShift, tx, tz]; the tile index comes out
+ *  because the near-field index memoises on it. */
+function jTileTo(baseX, baseZ, period, camX, camZ, fwdX, fwdZ, out) {
+  if (period <= 0) {
+    out[0] = baseX; out[1] = baseZ; out[2] = 0; out[3] = 0; out[4] = 0;
+    return;
+  }
+  const fl = Math.hypot(fwdX, fwdZ);
+  const ux = fl > 1e-4 ? fwdX / fl : 0;
+  const uz = fl > 1e-4 ? fwdZ / fl : 1;
+  const cx = camX + ux * period * 0.32;
+  const cz = camZ + uz * period * 0.32;
+  const tx = Math.floor((cx - baseX) / period + 0.5);
+  const tz = Math.floor((cz - baseZ) / period + 0.5);
+  const d = Math.fround(Math.fround(tx * J_T731) + Math.fround(tz * J_T377));
+  const shift = Math.fround(d - Math.fround(23 * Math.floor(Math.fround(d / 23))));
+  out[0] = baseX + tx * period;
+  out[1] = baseZ + tz * period;
+  out[2] = shift;
+  out[3] = tx; out[4] = tz;
+}
+
+/* groundYFlat, from heightAt. fieldcheck.mjs already establishes that the two
+   differ by exactly the horizon bend, and groundYFlat and heightAt agree line
+   for line including the sea clamp on types 0 and 5 — so there is no second
+   copy of the field here, only the bend added back.
+
+   Added per *sample*, not once per instance: standOn differences the field
+   across its own footprint and terrainAround does it across ninety metres, and
+   putting one instance-centre bend into both sides of a difference would
+   quietly corrupt every slope in the band. It is one multiply. */
+function jFlatY(S, x, z, lod) {
+  return S.heightAt(x, z, lod) + (x * x + z * z) / (2 * S.U.uPlanetR.value);
+}
+
+/** standOn's height, without the normal — nothing in the acceptance test uses
+ *  the normal. Lowest of a footprint's three samples, so a tree can only ever
+ *  be slightly buried; see the GLSL for why that is what the grid needs. */
+function jStandOnY(S, gpx, gpz, foot, lod) {
+  const ee = Math.max(foot, lod + 0.8);
+  return Math.min(
+    jFlatY(S, gpx, gpz, lod),
+    jFlatY(S, gpx + ee, gpz, lod),
+    jFlatY(S, gpx, gpz + ee, lod),
+  );
+}
+
+/** terrainAround, line for line: shelter and *hillside* slope from two
+ *  deliberately non-orthogonal samples ninety metres out, with the gradient
+ *  they imply solved rather than assumed. Writes [ao, slope]. */
+function jTerrainAround(S, gpx, gpz, gy, lod, out) {
+  const R = Math.max(90, lod * 4.5);
+  const sl = Math.max(lod, R * 0.42);
+  const d1x = 0.95 * R, d1z = 0.30 * R;
+  const d2x = -0.60 * R, d2z = -0.75 * R;
+  const h1 = jFlatY(S, gpx + d1x, gpz + d1z, sl) - gy;
+  const h2 = jFlatY(S, gpx + d2x, gpz + d2z, sl) - gy;
+  out[0] = jClamp(1 - jClamp(Math.max(h1, h2) / R, 0, 1) * 0.55, 0.2, 1);
+  const det = d1x * d2z - d1z * d2x;
+  const gx = (h1 * d2z - h2 * d1z) / det;
+  const gz = (d1x * h2 - d2x * h1) / det;
+  out[1] = jClamp(Math.hypot(gx, gz), 0, 2);
+}
+
+/** floraMask, line for line. Two things here are easy to flatten and must not
+ *  be: m0 and m1 sample the raw gp while `flow` comes from drainage at
+ *  gp + the site offset — they are different points — and the whole vec3 is
+ *  scaled, so the constant y channel is scaled too. */
+function jFloraMask(gpx, gpz, slope, shelter, flow, above) {
+  const m0 = jSnoise(gpx * 0.0021, 401 * 0.0021, gpz * 0.0021) * 0.5 + 0.5;
+  const m1 = jSnoise(gpx * 0.017, 53 * 0.017, gpz * 0.017) * 0.5 + 0.5;
+  const stand = jSmoothstep(0.22, 0.66, m0 * 0.60 + m1 * 0.40) * 1.45;
+  const sl = 1 - jSmoothstep(0.20, 0.55, slope);
+  const sh = jMix(0.70, 1.45, shelter);
+  const wet = 1 + jSmoothstep(0.36, 0.92, flow) * 1.4;
+  const alt = 1 - jSmoothstep(0.34 + (m0 - 0.5) * 0.34, 0.80 + (m0 - 0.5) * 0.34, above);
+  return jClamp(stand * sl * sh * wet * alt, 0, 1.4);
+}
+
+/* Scratch, at module scope, so the *sampling* path allocates nothing: the
+   tile fold and the terrainAround pair write through these rather than
+   returning a pair each, and jTreeAccept runs over the whole band. What it
+   does allocate is its own return value, one object per candidate — that is
+   deliberate and it is not on a per-frame path, because the near-field index
+   memoises the answer on the tile index and so builds these once per instance
+   per tile rather than once per query. */
+const _Wt = [0, 0, 0, 0, 0];
+const _Wta = [0, 0];
+
+/** One instance of the trees band, answered without a frame.
+ *
+ * The shader's own order, from `vec4 dat = uDatum;` to the grow test, with the
+ * view-dependent parts left out: behindCamera and the dh fade decide what is
+ * *drawn*, not what exists, and the crown LOD decides how much of a tree to
+ * build. One term is genuinely dropped rather than merely skipped —
+ * `grow *= 1 - smoothstep(uFade*0.55, uFade, dh)` — because for trees uFade is
+ * 760, so the factor is exactly 1 inside 418 m and collision happens inside 25.
+ * treecheck keeps the term on the GPU side, so if it ever does fire in range
+ * the two disagree and the check fails rather than the rover quietly gaining a
+ * wall.
+ *
+ * @param {Surface} S
+ * @param {number} i          instance index into _trees
+ * @param {number} camX,camZ  the drawn frame's camera, ground metres
+ * @param {number} fwdX,fwdZ  the drawn frame's camera forward, need not be unit
+ * @returns {{accept:boolean, grow:number, gy:number, H:number, trR:number,
+ *            x:number, z:number, tx:number, tz:number}}
+ */
+function jTreeAccept(S, i, camX, camZ, fwdX, fwdZ) {
+  const T = S._trees;
+  const iA = T.iA, iB = T.iB, k = i * 4;
+  jTileTo(iA[k], iA[k + 1], T.tile, camX, camZ, fwdX, fwdZ, _Wt);
+  const gpx = _Wt[0], gpz = _Wt[1];
+  const s = Math.fround(iA[k + 2] + _Wt[2]);
+
+  const lod = jMeshLod(Math.hypot(gpx, gpz), S.U);
+  const gy = jStandOnY(S, gpx, gpz, iB[k] * 2, lod);
+  jTerrainAround(S, gpx, gpz, gy, lod, _Wta);
+  const ao = _Wta[0], slope = _Wta[1];
+
+  const seaY = S._seaY;
+  const above = jClamp((gy - seaY) / 900, 0, 1);
+  const shelter = jClamp((1 - ao) * 1.7, 0, 1);        // shelterOf
+  /* drainage takes the *pre-scaled* q — the GLSL scales the vec3 by 0.00013
+     before calling, and jDrainage starts after that. And it is sampled at
+     gp + the site offset, unlike floraMask's own two lookups. */
+  const dk = 0.00013;
+  const flow = jDrainage((gpx + S._site[0]) * dk, S.U.uSeed.value * 31.7 * dk,
+    (gpz + S._site[1]) * dk);
+  const m = jFloraMask(gpx, gpz, slope, shelter, flow, above)
+    * Math.pow(S.U.uVeg.value, 0.55);
+
+  const pick = T.pick, form = T.form;
+  // hash11(s*9.13 + 0.77), folded and fused — see the note above the constants
+  const hs = jHash11From(Math.fround(s * J_HS_K + J_HS_B));
+  let grow = jClamp((m - pick[0] - hs * pick[1]) * 2.1, 0, 1);
+  grow *= 1 - jSmoothstep(pick[2], pick[3], slope);
+  grow *= jSmoothstep(form[2], form[3], Math.hypot(gpx, gpz));
+  const ty = S.U.uType.value | 0;
+  if ((ty === 0 || ty === 5) && gy < seaY + 1.5) grow = 0;
+
+  /* Stature is a property of the tree, not of the piece being drawn, so it
+     comes off the instance seed alone — the same q1/q3 the shader uses. At
+     grow 0 a tree is still 0.55 of full height, which is why a marginal tree
+     is not a sapling and why treecheck reports the tallest mismatch. */
+  const q1 = jHash11From(Math.fround(s * J_H137K));   // hash11(s*1.37), folded
+  const q3 = jHash11From(Math.fround(s * J_H473K));   // hash11(s*4.73), folded
+  const H = iB[k + 1] * (0.62 + 0.55 * q1) * (0.55 + 0.45 * grow);
+  const trR = H * 0.021 * (0.80 + 0.4 * q3);
+
+  return {
+    accept: grow > 0.004, grow, gy, H, trR,
+    x: gpx, z: gpz, tx: _Wt[3], tz: _Wt[4],
+  };
+}
+
+/** The probe's two shaders, cut out of a live compiled flora material.
+ *
+ * There is exactly one copy of this assembly and both callers use it, which is
+ * the whole point of it being a function at all. `tools/treecheck.mjs` stage 1
+ * runs it on a developer's machine against three synthetic poses;
+ * `Surface._probeTreeAgreement` runs it on the player's machine at the pose
+ * they landed at. If those two compiled different text they would be entitled
+ * to different answers, and the one that ships would be reporting an agreement
+ * the checker never established — Task 4 measured exactly that: a hand-written
+ * cut-down probe gets optimised differently from the real vertex stage and
+ * disagrees with it, which cost an afternoon and one wrong fix. A guard that
+ * compiles a different expression tree from the stage it is vouching for is
+ * worse than no guard.
+ *
+ * Where the acceptance slice starts is the whole trick. Slicing from
+ * `void main(){` picks up three early-outs that write gl_Position and a
+ * crown-LOD block that reads the `position` attribute — neither is legal in a
+ * fragment shader, and by the time the source is a compiled string the
+ * `${tree ? ...}` markers that would let you cut the block out are gone.
+ * Starting at `vec4 dat = uDatum;` steps over all of it in one move and still
+ * keeps every line that could be wrong as live shader text.
+ *
+ * The functions AND the uniforms come from the same compiled source, and the
+ * marker for that region is the first line of FIELD_UNIFORMS rather than
+ * `const float VSCALE`. tools/fieldcheck.mjs slices from VSCALE and
+ * hand-declares the uniforms it needs, which is why it broke the day uSeaDrop
+ * was added: VSCALE sits below the field uniforms, so that slice starts after
+ * them. Starting at `uniform float uSeed;` picks up every uniform the chunks
+ * below declare. The in/out/attribute/varying declarations in the region are
+ * stripped: iA and iB become plain globals filled by texelFetch, and the vertex
+ * stage's varyings would collide with our own output.
+ *
+ * NOISE is prepended rather than sliced because it sits *above* the uniform
+ * region in floraVert, and it is the same module constant the material was
+ * built from, so this is not a second copy of it.
+ *
+ * Neither source carries the preamble three will put in front of it, and
+ * `prefix` is what that preamble is. An earlier version of this comment said
+ * three prepends `#version 300 es` "and nothing else" to a RawShaderMaterial,
+ * which is not true and is the wrong kind of claim to have on a mechanism whose
+ * whole justification is that it measures rather than predicts: r185's raw path
+ * (WebGLProgram.js, the `isRawShaderMaterial` branch) prepends the version line
+ * and then `#define SHADER_TYPE <material.type>` and
+ * `#define SHADER_NAME <material.name>`, plus any custom defines, of which the
+ * probe declares none. Those two macros are inert here — nothing in the slice
+ * or in NOISE goes by either name — but "inert" is a thing someone has to
+ * re-establish, whereas identical text is not. So the checker prepends the
+ * version line and this same `prefix`, and the two paths compile the same
+ * bytes. TREE_PROBE_NAME is the material name that makes the second macro
+ * predictable; without setting it the name would be the empty string, which
+ * still emits the line and is a worse thing to have to remember.
+ *
+ * @param {string} vsrc  a flora material's vertexShader source (TREE_VERT)
+ * @returns {{vert:string, frag:string, prefix:string}}
+ * @throws if either marker has moved — silence there would mean probing
+ *   something other than the acceptance test, which is the one failure this
+ *   whole mechanism cannot afford.
+ */
+export const TREE_PROBE_NAME = 'treeAgreementProbe';
+
+export function treeProbeGLSL(vsrc) {
+  const a = vsrc.indexOf('vec4 dat = uDatum;');
+  const b = vsrc.indexOf('if(grow <= 0.004)');
+  if (a < 0 || b < 0 || b < a) throw new Error('could not find the acceptance slice');
+  const body = vsrc.slice(a, b);
+
+  const fs0 = vsrc.indexOf('uniform float uSeed;');
+  const fs1 = vsrc.indexOf('void main(');
+  if (fs0 < 0 || fs1 < 0) throw new Error('could not find the chunk region');
+  const chunk = vsrc.slice(fs0, fs1)
+    .split('\n').filter((L) => !/^\s*(in|out|attribute|varying)\s/.test(L)).join('\n');
+
+  /* One full-screen triangle, and the attribute has to be called `position`
+     because three takes a non-indexed draw's vertex count off
+     geometry.attributes.position — a differently named attribute draws
+     nothing. The clip position is written directly, so no matrix is read and
+     the camera's projection never enters into it. */
+  const vert = `
+  in vec3 position;
+  void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+  const frag = `
+  precision highp float;
+  ${NOISE.replace(/^#ifndef LS_NOISE|#define LS_NOISE|#endif$/gm, '')}
+  uniform mat4 viewMatrix, projectionMatrix;
+  ${chunk}
+  uniform sampler2D uIA, uIB;
+  uniform int uN;
+  vec4 iA, iB;
+  out vec4 oCol;
+  void main(){
+    int idx = int(gl_FragCoord.y)*64 + int(gl_FragCoord.x);
+    if(idx >= uN){ oCol = vec4(-1.0); return; }
+    ivec2 tc = ivec2(idx % 64, idx / 64);
+    iA = texelFetch(uIA, tc, 0);
+    iB = texelFetch(uIB, tc, 0);
+    float sShift;
+    vec2 gp = tileTo(iA.xy, uTileP, uCamPos, viewMatrix, sShift);
+    float s = iA.z + sShift;
+    float dh = length(vec2(gp.x - uCamPos.x, gp.y - uCamPos.z));
+    ${body}
+    float accept = grow > 0.004 ? 1.0 : 0.0;
+    /* H is not in the slice — it is computed below the grow test and below
+       \`float bi = position.z;\`, so reaching it would drag the attribute back
+       in. Three lines, duplicated, and treecheck stage 1 fails loudly if this
+       copy and the JS one ever disagree. */
+    float q1 = hash11(s*1.37), q3 = hash11(s*4.73);
+    float H = iB.y*(0.62 + 0.55*q1)*(0.55 + 0.45*grow);
+    oCol = vec4(accept, grow, gy, H);
+  }`;
+
+  /* Exactly what three's raw path builds and joins with a newline, in its
+     order — see the comment above. It ends in a newline because three's does:
+     `prefixVertex += '\n'` once the list is non-empty. */
+  const prefix = `#define SHADER_TYPE RawShaderMaterial\n#define SHADER_NAME ${TREE_PROBE_NAME}\n`;
+
+  return { vert, frag, prefix };
+}
+
 /* Exported so the two implementations can actually be diffed rather than
    assumed equal. Nothing in the game imports this. */
 export const __fieldJS = {
   snoise: jSnoise, fbm: jFbm, ridged: jRidged, terrainRaw: jTerrainRaw,
+};
+
+/* Exported for tools/treecheck.mjs, for the same reason __fieldJS is: the tree
+   acceptance test exists twice and the two copies have to be diffable rather
+   than assumed equal. Nothing in the game imports this. */
+export const __woodyJS = {
+  hash11: jHash11, meshLod: jMeshLod, tileTo: jTileTo, accept: jTreeAccept,
+  GROW_MIN: J_GROW_MIN,
 };
 
 /* ------------------------------------------------------ where you came down
@@ -4258,6 +4715,18 @@ ${tree ? `
      metres before the water. What comes out of those three is a treeline that
      follows shelter and drainage rather than a contour, stands that thin into
      scrub at their edges, and open ground between them. */
+  /* This line has a CPU twin, and nothing here points at it: jTreeAccept, up
+     in "the same law, twice" near the top of this file, derives grow from the
+     same hash11 fold and the same 2.1 scale, because the rover has to answer
+     "is there a tree here" off the GPU, one frame later. Touch the hash11
+     argument, the 2.1, or uPick here and touch jTreeAccept in the same edit —
+     the routing the other direction relies on the reader already knowing this
+     twin exists, which is exactly the assumption a comment at this end cannot
+     make. It is also enforced by more than reading: the shipped guard
+     compiles and runs this exact slice on the player's own machine at every
+     landing, including the acceptance suite's, so an acceptance-affecting
+     change here without its twin pushes grow past the guard's gate, empties
+     treesNear, and fails the suite loudly rather than shipping quietly wrong. */
   float grow = clamp((m - uPick.x - hash11(s*9.13 + 0.77)*uPick.y)*2.1, 0.0, 1.0);
   grow *= 1.0 - smoothstep(uPick.z, uPick.w, slope);
   /* Clear of the pad. The site search picks flat ground and the ship comes
@@ -5982,6 +6451,36 @@ export class Surface {
        from the same place, so they cannot describe different surfaces, and no
        vertex shader has to spend twenty-two octaves rediscovering a constant. */
     this._datum = [0, 0];
+    /* What the CPU needs to answer "is there a tree here" without a frame.
+       Filled by the woody band below when the world has one; null otherwise,
+       and every consumer checks. See treesNear. */
+    this._trees = null;
+    /* The acceptance test is twelve height-field evaluations per candidate, so
+       the answer is memoised per (instance, tile index) — it is deterministic
+       per copy, and the tile index changes once every 420 m of driving. Two
+       generations are kept: the current tile's answers and the previous
+       tile's, so crossing a boundary does not throw away everything at once
+       and then re-derive it. Anything older is dropped whole. */
+    this._treeMemo = null;
+    this._treeMemoPrev = null;
+    this._treeMemoAt = 0;          // the camera cell these were computed in
+    /* Whether this device's shader compiler and the CPU twin above agree about
+       which candidates are trees — null until the question has been asked, and
+       it is asked once per world rather than once per frame. See
+       verifyTreeAgreement for why a question the language cannot answer has to
+       be put to the machine, and treesNear for what happens when the answer is
+       no. Per surface rather than per session on purpose: it is cheap, it is
+       once, and a landing is the only moment where taking a few tens of
+       milliseconds to be sure costs nobody a frame they would notice. */
+    this._treeAgreement = null;
+    /* The camera the *drawn* frame used, stashed at the moment its uniforms
+       are written. tileTo wraps every tiled instance into the cell nearest a
+       point 0.32 periods down the view axis, so which trees exist at all
+       depends on where the camera is looking — and a consumer that read
+       game.camera directly would be asking about a frame that has not been
+       drawn yet. */
+    this._camXZ = new THREE.Vector2();
+    this._camFwdXZ = new THREE.Vector2(0, 1);
     /* Where on the world this is, chosen rather than assumed — see pickSite.
        Everything downstream reads it out of uDatum.zw, so the mesh, the
        scatter, the marched shadow and the walking player cannot land on four
@@ -6346,6 +6845,22 @@ export class Surface {
           const u = (r + ti.A[k * 4 + 2] / 40) % 1;
           ti.B[k * 4 + 1] = w.h0 + (w.h1 - w.h0) * Math.pow(u, w.hp);
         }
+        /* Keep the trees band. The rover has to collide with these and the
+           acceptance test that decides which of them exist runs on the CPU
+           now (see the woody section of "the same law, twice"), so the
+           instance table cannot be a local that dies with this closure.
+           These are the same arrays the attributes point at, not copies, and
+           the band's own pick/form vectors rather than the material's
+           uniforms — so an edit to WOODY reaches both paths at once.
+
+           Trees only. Scrub tops out at 2.4 m and is something you drive
+           over, not into. */
+        if (w.key === 'trees') {
+          this._trees = {
+            iA: ti.A, iB: ti.B, n: nT, tile: w.tile, fade: w.fade,
+            pick: w.pick.slice(), form: w.form.slice(),
+          };
+        }
         const tmat = new THREE.ShaderMaterial({
           vertexShader: TREE_VERT,
           fragmentShader: TREE_FRAG,
@@ -6629,6 +7144,13 @@ export class Surface {
 
     U.uSunDir.value.copy(sun);
     U.uCamPos.value.copy(ctx.camPos);
+    /* Stashed here rather than read later, and stashed *together*: this is the
+       exact pair the frame's tileTo will use, and treesNear has to ask about
+       the frame that was drawn rather than about wherever the camera has got
+       to by the time the rover asks. The forward is left unnormalised because
+       tileTo normalises it itself. */
+    this._camXZ.set(ctx.camPos.x, ctx.camPos.z);
+    if (ctx.camFwd) this._camFwdXZ.set(ctx.camFwd.x, ctx.camFwd.z);
     U.uTime.value = ctx.time;
     su.uSunColor.value.copy(ctx.sunColor);
     this.sky.position.copy(ctx.camPos);
@@ -6937,6 +7459,432 @@ export class Surface {
     const nx = -(ya - yc) * 0.5, nz = -(yb - yd) * 0.5;
     const l = Math.hypot(nx, e, nz) || 1;
     return { x: nx / l, y: e / l, z: nz / l };
+  }
+
+  /**
+   * Does this device's shader compiler agree with the CPU about which
+   * candidates are trees?
+   *
+   * It has to be asked, on the real machine, because the agreement rests on
+   * something the language does not guarantee. `hash11` is inlined by the
+   * shader compiler, its leading multiply is folded back into whatever
+   * constants the caller built the argument from, and the survivor is
+   * contracted into a single rounding — and the JS twin is written to match
+   * that folded form exactly, because `hash11` is `fract`-based and an
+   * argument one ulp out gives a completely different number about a quarter
+   * of the time. See the woody section of "the same law, twice".
+   *
+   * A driver that folds differently would therefore not disagree slightly, it
+   * would disagree completely: a forest the CPU believes in and the player
+   * cannot see. That is the invisible wall the handoff calls worse than no
+   * collision at all, and `tools/treecheck.mjs` cannot see the player's
+   * machine. So the comparison ships, runs once, and on disagreement takes
+   * tree collision away rather than trusting it — which degrades to exactly
+   * the behaviour before this branch existed, and which the handoff names as
+   * the acceptable failure of the two.
+   *
+   * Not being able to run the probe at all counts as disagreement, for the
+   * same reason: an unverified guarantee is not a guarantee.
+   *
+   * @param {THREE.WebGLRenderer} renderer
+   * @returns {{ok:boolean, worst:number, reason:string}}
+   */
+  verifyTreeAgreement(renderer) {
+    if (this._treeAgreement) return this._treeAgreement;
+    if (!this._trees) {
+      return (this._treeAgreement = { ok: true, worst: 0, reason: 'no trees band' });
+    }
+    let out;
+    try {
+      out = this._probeTreeAgreement(renderer);
+    } catch (e) {
+      out = { ok: false, worst: Infinity, reason: `probe failed: ${e && e.message}` };
+    }
+    if (!out.ok) {
+      console.warn('[surface] tree collision disabled:', out.reason,
+        `worst grow disagreement ${out.worst}`);
+    }
+    return (this._treeAgreement = out);
+  }
+
+  /**
+   * Evaluate the live material's own acceptance slice over the whole instance
+   * table, on the game's renderer, and diff it against the CPU twin — `grow`,
+   * which decides whether a tree exists at all, and `H`, which is where the
+   * other two folded hashes show up and which sets the trunk radius the
+   * collision uses. Both gates are argued at the bottom of the method.
+   *
+   * The shader is `treeProbeGLSL`'s — the identical text treecheck stage 1
+   * compiles, for the reason written at length there. It is a
+   * `RawShaderMaterial` rather than a `ShaderMaterial` because three injects a
+   * prefix into a `ShaderMaterial`'s fragment stage that already declares
+   * `viewMatrix`, which the slice declares itself; a redeclaration is a
+   * compile error and there is no way to opt out of the prefix.
+   *
+   * The instance table goes in as two 64x64 float textures rather than as
+   * instanced attributes because the probe is a full-screen triangle, not a
+   * scatter: one fragment answers for one candidate, and `texelFetch` reads the
+   * same float32 the vertex stage would have been handed.
+   *
+   * The pose is the *stashed* camera pair, not a synthetic one. That is the
+   * entire reason for doing this at runtime rather than trusting three fixed
+   * poses in a tool: it is the copy of the band the player is actually
+   * standing in that has to be right, and `tileTo` folds the tile index back
+   * into every seed, so a different pose is a different set of hashes.
+   *
+   * The renderer state discipline is `bake`'s, and for the same reasons —
+   * including `shadowMap.needsUpdate`, which is one flag for the whole renderer
+   * that the first `render()` of a frame consumes.
+   *
+   * @param {THREE.WebGLRenderer} renderer
+   * @returns {{ok:boolean, worst:number, reason:string}}
+   */
+  _probeTreeAgreement(renderer) {
+    const T = this._trees;
+    const mesh = this.floraMeshes.find((m) => m.name === 'trees');
+    if (!mesh) throw new Error('the trees band has no mesh to slice');
+    const src = treeProbeGLSL(mesh.material.vertexShader);
+
+    const camX = this._camXZ.x, camZ = this._camXZ.y;
+    const fwdX = this._camFwdXZ.x, fwdZ = this._camFwdXZ.y;
+
+    /* 64x64 holds 4096 candidates and the largest band is 1050, so one texel
+       per instance fits with room to spare; the tail is padded with zeros and
+       masked off by uN in the shader. RGBAFormat/FloatType/Nearest because
+       these are four raw float32s per instance and not a picture — any
+       filtering or format conversion here would be a quiet corruption of the
+       exact bits the whole comparison is about.
+
+       Said out loud rather than left to the count, because both the padding
+       and the did-it-draw check below depend on it: a band that outgrew the
+       texture would be silently truncated at 4096 and would have no spare
+       texel left to prove the draw happened. */
+    if (T.n > 64 * 64 - 1) {
+      throw new Error(`the trees band (${T.n}) no longer fits one 64x64 probe texture`);
+    }
+    const mkTex = (a) => {
+      const pad = new Float32Array(64 * 64 * 4);
+      pad.set(a.subarray(0, Math.min(a.length, pad.length)));
+      const t = new THREE.DataTexture(pad, 64, 64, THREE.RGBAFormat, THREE.FloatType);
+      t.minFilter = THREE.NearestFilter;
+      t.magFilter = THREE.NearestFilter;
+      t.needsUpdate = true;
+      return t;
+    };
+    const texA = mkTex(T.iA), texB = mkTex(T.iB);
+
+    const rt = new THREE.WebGLRenderTarget(64, 64, {
+      type: THREE.FloatType,
+      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+      depthBuffer: false, stencilBuffer: false, generateMipmaps: false,
+    });
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(
+      new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
+
+    /* Every uniform the sliced chunk declares, by sharing the live material's
+       own bag rather than retyping any of it — a uniform that changes name or
+       meaning upstream then reaches the probe automatically instead of
+       silently keeping an old value. uCamPos is the one that must NOT be
+       shared: it is written per frame for the material that is drawing, and
+       the probe needs the stashed pose in it, so it gets its own object. */
+    const mat = new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      /* Named, because three writes the name into a `#define SHADER_NAME` line
+         in front of both stages and the checker has to reproduce that line
+         exactly — see treeProbeGLSL's `prefix`. */
+      name: TREE_PROBE_NAME,
+      vertexShader: src.vert,
+      fragmentShader: src.frag,
+      uniforms: Object.assign({}, mesh.material.uniforms, {
+        uCamPos: { value: new THREE.Vector3(camX, 0, camZ) },
+        uIA: { value: texA }, uIB: { value: texB }, uN: { value: T.n },
+      }),
+      depthTest: false, depthWrite: false,
+    });
+
+    const quad = new THREE.Mesh(geo, mat);
+    quad.frustumCulled = false;
+    const scn = new THREE.Scene();
+    scn.add(quad);
+
+    /* The GPU reads the heading out of the view matrix — tileTo takes
+       -(viewM[0][2], viewM[2][2]) — so the pose has to reach the shader as a
+       camera rather than as a pair of numbers. lookAt builds exactly the
+       matrix treecheck's stage 1 assembles by hand: it points the camera's -Z
+       at the target with +Y up, which makes viewM[0][2] and viewM[2][2] the
+       camera's own +Z in world, which is what tileTo negates. The forward is
+       handed over unnormalised, because lookAt normalises it itself and
+       jTileTo normalises the same pair — and the degenerate fallback below is
+       jTileTo's own, so a stationary camera cannot make the two disagree about
+       a direction neither of them has. */
+    const cam = new THREE.Camera();
+    cam.position.set(camX, 0, camZ);
+    const fl = Math.hypot(fwdX, fwdZ);
+    cam.lookAt(camX + (fl > 1e-4 ? fwdX : 0), 0, camZ + (fl > 1e-4 ? fwdZ : 1));
+    cam.updateMatrixWorld();
+
+    const px = new Float32Array(64 * 64 * 4);
+    const prevTarget = renderer.getRenderTarget();
+    const prevClear = renderer.autoClear;
+    const wasNeeded = renderer.shadowMap.needsUpdate;
+    try {
+      renderer.autoClear = true;
+      renderer.setRenderTarget(rt);
+      renderer.render(scn, cam);
+      renderer.readRenderTargetPixels(rt, 0, 0, 64, 64, px);
+    } finally {
+      renderer.setRenderTarget(prevTarget);
+      renderer.autoClear = prevClear;
+      renderer.shadowMap.needsUpdate = wasNeeded;
+      /* Every one of these is a GPU allocation on a path that runs once, so
+         they go back before the verdict is even computed — a probe that leaked
+         a render target per landing would be a worse bug than the one it is
+         looking for. */
+      rt.dispose(); texA.dispose(); texB.dispose(); geo.dispose(); mat.dispose();
+    }
+
+    /* Did the draw actually happen? Nothing above this line would notice if it
+       had not. A device without a renderable float target, or one where three
+       logs a shader compile failure and carries on rather than throwing, leaves
+       the cleared buffer in `px` — which reads as `grow = 0` for every instance
+       and would be *reported* as the device disagreeing about which candidates
+       are trees. That verdict is the safe direction by luck rather than by
+       construction, and worse, the console line and any bug report built on it
+       would name the wrong cause.
+
+       The probe already writes its own proof: `oCol = vec4(-1.0)` for every
+       texel past uN, and with 693 instances in 4096 texels there are thousands
+       of them. Nothing that failed to draw can produce a -1, so one texel is
+       enough to tell a rendered frame from a cleared one. The last one is used
+       because the band is guaranteed shorter than the texture. */
+    if (px[(64 * 64 - 1) * 4] !== -1) {
+      throw new Error('the probe did not draw — no float render target, or the '
+        + 'slice failed to compile');
+    }
+
+    let worst = 0, worstH = 0;
+    for (let i = 0; i < T.n; i++) {
+      const js = jTreeAccept(this, i, camX, camZ, fwdX, fwdZ);
+      worst = Math.max(worst, Math.abs(js.grow - px[i * 4 + 1]));
+      /* Stature, because `grow` alone does not cover the fold — but only half
+         of stature. H comes off hash11(s*1.37), which this line measures
+         directly: q1. The trunk radius, trR, is what treesNear actually hands
+         the collision, and it comes off hash11(s*4.73) — q3 — which nothing in
+         this loop reads. oCol only carries (accept, grow, gy, H): there was no
+         room to add trR without repacking the probe's output across its three
+         other consumers, gy included, which tools/treecheck.mjs's own
+         ground-height gate already spends it on. Reading q3 was considered and
+         rejected on that basis, not overlooked.
+
+         The gap this leaves is bounded, not open. q1 and q3 are the same
+         folding question put to hash11 with different constants, decided by
+         the same compiler on the same machine — a driver that folds one of
+         them differently folds the other one differently too, so a q1
+         divergence here already implies a q3 divergence this loop never sees;
+         they are not two independent ways to fail unread. What is genuinely
+         accepted unread is a q3-only divergence with q1 agreeing, and the
+         formula bounds that on its own: trR is H*0.021*(0.80 + 0.4*q3), so the
+         whole range of q3 swings it about ±20% around a trunk that is roughly
+         0.2 m to begin with, against a 1.12 m collision capsule. */
+      worstH = Math.max(worstH, Math.abs(js.H - px[i * 4 + 3]));
+    }
+
+    /* Half the 0.046 margin, the same gate treecheck measures against — the
+       CPU collides at 0.05 and the GPU draws at 0.004, so an invisible wall
+       needs 0.046 of disagreement in grow and this keeps a factor of two in
+       hand. It is not a delicate threshold: a folding mismatch is the hash's
+       whole range times 0.72, so it lands near 1.0 against a gate of 0.023 and
+       the discrimination is about forty to one.
+
+       There is one structural disagreement that is not a folding failure and
+       has to fit under the gate, which is why the gate is not tighter than
+       treecheck's. The GPU side keeps `grow *= 1 - smoothstep(uFade*0.55,
+       uFade, dh)` — it is above the grow test, so it is inside the slice — and
+       the CPU twin drops it, on the argument that trees fade from 418 m and
+       collision happens inside 25. Bounded rather than assumed: the wrap puts
+       an instance at most half a period per axis from the cell centre, which
+       for a 420 m tile is 297 m diagonally, and the centre is 0.32 periods
+       (134 m) down the view axis, so dh cannot exceed 431 m. At 431 m the
+       smoothstep has reached 0.0045, so the very worst that term can
+       contribute is 0.0045 in grow against a gate of 0.023 — a fifth of it,
+       and only for an instance that is both at the far corner of the cell and
+       growing. */
+    const GATE = 0.023;
+    /* Half a metre, and it is deliberately not treecheck's ten millimetres.
+       That gate is measured on a developer's machine against a twin known to be
+       right, where 10 mm is tight enough to catch a *differently* folded q1 —
+       the naive transliteration is out by 2.9e-3 in q1, which is 29 mm of
+       stature at this band's 18 m ceiling. This one has a different job and two
+       hard bounds to sit between.
+
+       Below it: H is a function of grow as well as of q1, at about 9.5 m per
+       unit of grow, so the dropped fade term bounded at 0.0045 above carries up
+       to 43 mm of stature with it. A gate at 10 mm would fire on that alone, on
+       a device that agrees about everything, and take collision away for no
+       reason.
+
+       Above it: the failure this is for is a *wrapped* hash, not a shifted one.
+       q1 then disagrees across its whole range, and H moves by
+       iB.y*0.55*Δq1*(0.55 + 0.45*grow) — at the shortest tree the band can
+       produce, 6 m, that is already 1.8 m, and the number taken here is the
+       worst over the whole band, where a quarter of the instances are wrong at
+       once. Measured rather than argued: 1.37*0.1031 perturbed by a single ulp
+       puts this at 3.48 m while `grow` stays at 3.1e-4, which is the blind spot
+       this term exists to close and the proof that a grow-only diff would have
+       shipped straight past it.
+
+       So half a metre sits about a hundred times above what an agreeing device
+       measures here (3 mm), twelve times above the largest disagreement that is
+       still not a fault, 3.6 times below the theoretical floor argued above
+       (1.8 m), and seven times below the fault as it was actually measured
+       (3.48 m). */
+    const GATE_H = 0.5;
+    if (worst > GATE) {
+      return { ok: false, worst, reason: 'device disagrees about which candidates are trees' };
+    }
+    if (worstH > GATE_H) {
+      return {
+        ok: false, worst,
+        reason: `device disagrees about tree stature by ${worstH.toFixed(2)} m`,
+      };
+    }
+    return { ok: true, worst, reason: 'device agrees' };
+  }
+
+  /**
+   * The trees a thing at (x, z) could run into, within r metres.
+   *
+   * Three passes, cheapest first, because the acceptance test is twelve
+   * height-field evaluations and there are 1050 candidates: wrap every
+   * instance into the copy the camera is standing in (one floor and one
+   * multiply), reject on distance, and only then ask whether the survivors are
+   * trees at all. At one tree per ~168 m² a 25 m disc holds a dozen candidates
+   * before acceptance, so the expensive pass runs a dozen times, not a
+   * thousand — and memoised, most of those dozen are already answered.
+   *
+   * The threshold is J_GROW_MIN, not the shader's 0.004. See its comment: the
+   * two copies disagree near a hard binary and this is which way the
+   * disagreement is allowed to hurt.
+   *
+   * Asks about the camera pair the last drawn frame used, which on the ground
+   * is one frame old — Rover.update runs before updateCamera and updateSurface.
+   * At a hard yaw that is about 3.5 m of movement in the cell centre against
+   * some forty metres of margin before a tree could change copies. See the
+   * design note; treecheck stage 2 measures the margin that is actually left.
+   *
+   * @param {number} x
+   * @param {number} z
+   * @param {number} r  metres
+   * @returns {Array<{i:number, x:number, z:number, r:number, H:number, gy:number}>}
+   *   trunk centres and trunk radii. Empty when the world has no trees band,
+   *   and empty for the whole world when verifyTreeAgreement has found that
+   *   this device's shader compiler answers the acceptance test differently
+   *   from the CPU — see there for why that is the failure to prefer.
+   */
+  treesNear(x, z, r) {
+    const T = this._trees;
+    if (!T) return [];
+    /* Unverified means off, and that is the whole condition rather than half of
+       it. This line used to read `this._treeAgreement && !this._treeAgreement.ok`,
+       which let a surface whose agreement had never been *asked about* collide
+       freely — the exact case verifyTreeAgreement's own doc calls disagreement,
+       written the opposite way round. A Surface is constructed in exactly two
+       places, both in Game.js — `_prepareGround` and `_buildGroundNow` — and
+       both verify immediately after `bake`, before `_buildGround` publishes the
+       surface as `T.surface` and `_stageGround` as `game.surface`. There is no
+       path to a surface a caller could reach that has not been asked, so this
+       half of the condition should never fire; if some later path forgets, the
+       consequence is a rover that drives through trees on a surface nobody
+       checked, which is the failure this whole mechanism is built to prefer.
+       The check runs once and caches. */
+    if (!this._treeAgreement || !this._treeAgreement.ok) return [];
+    const camX = this._camXZ.x, camZ = this._camXZ.y;
+    const fwdX = this._camFwdXZ.x, fwdZ = this._camFwdXZ.y;
+    const period = T.tile;
+
+    /* Which cell the camera itself is in, which is what ages the memo. Not the
+       per-instance tile index — that varies by one across the band, because
+       each instance wraps about its own base position. */
+    const fl = Math.hypot(fwdX, fwdZ);
+    const ux = fl > 1e-4 ? fwdX / fl : 0, uz = fl > 1e-4 ? fwdZ / fl : 1;
+    const cx = camX + ux * period * 0.32, cz = camZ + uz * period * 0.32;
+    const epoch = Math.floor(cx / period + 0.5) * 8191 + Math.floor(cz / period + 0.5);
+    if (!this._treeMemo || epoch !== this._treeMemoAt) {
+      this._treeMemoPrev = this._treeMemo;
+      this._treeMemo = new Map();
+      this._treeMemoAt = epoch;
+    }
+    const cur = this._treeMemo, prev = this._treeMemoPrev;
+
+    const out = [];
+    const r2 = r * r;
+    const iA = T.iA;
+    for (let i = 0; i < T.n; i++) {
+      const k = i * 4;
+      jTileTo(iA[k], iA[k + 1], period, camX, camZ, fwdX, fwdZ, _Wt);
+      const dx = _Wt[0] - x, dz = _Wt[1] - z;
+      if (dx * dx + dz * dz > r2) continue;
+
+      /* Keyed on the instance and its own tile index, because the same
+         candidate is a different tree in every copy — the tile index is
+         folded back into its seed, so an entry answered at one (tx, tz) is
+         simply wrong at another. Numeric rather than a composed string so the
+         hot path allocates nothing.
+
+         The packing is fixed-width, so it aliases: two absolute tile indices
+         that differ by a multiple of 1024 on the same axis collide on one
+         key, and the memo would then hand back a tree from the wrong copy —
+         wrong x, z, r, H, gy, silently. There is no packing that cannot
+         alias; the question is only whether the alias distance is reachable.
+         At this band's 420 m period, 1024 tiles is 430 km, and the rover's
+         full-charge pack (Rover.js PACK_RANGE) tops out at a 14 km round trip
+         to the farthest landing site at 6.2 km — so the alias sits some
+         seventy times past the edge of the world this key ever has to
+         describe.
+
+         The key must be the *absolute* tile index, not one relative to the
+         current epoch: _treeMemoPrev is read after the epoch has already
+         moved, so a relative key would give the same physical (instance,
+         tile) two different keys depending on which generation answered it,
+         and the fallback lookup below would silently miss or, worse, hit the
+         wrong entry.
+
+         Headroom, checked rather than assumed: the trees band tops out at
+         n = 1050 (WOODY[0], hi tier), so the largest key is
+         1049 * 2^20 + 1023*1024 + 1023 ≈ 1.1e9 — about seven orders of
+         magnitude under 2^53 (9.0e15), where a JS number stops representing
+         every integer exactly. */
+      const key = i * 1048576 + ((_Wt[3] & 1023) << 10) + (_Wt[4] & 1023);
+      /* A miss is `undefined`; a cached rejection is `null`. Keeping the two
+         apart is most of the point — the great majority of candidates are not
+         trees, and re-deriving that twelve samples at a time every frame is
+         the cost this cache exists to avoid. */
+      let e = cur.get(key);
+      if (e === undefined) {
+        e = prev ? prev.get(key) : undefined;
+        if (e === undefined) {
+          const a = jTreeAccept(this, i, camX, camZ, fwdX, fwdZ);
+          e = a.grow >= J_GROW_MIN
+            ? { i, x: a.x, z: a.z, r: a.trR, H: a.H, gy: a.gy }
+            : null;
+        }
+        cur.set(key, e);
+      }
+      if (e) out.push(e);
+    }
+    return out;
+  }
+
+  /** How many acceptance answers are currently cached, across both
+   *  generations. Not an assertion in itself — an instrument treecheck reads
+   *  so that a claim about the memo's shape (cold vs. warm, bounded across an
+   *  epoch change) is a number someone can look at rather than an assumption
+   *  baked into the cache and never checked. */
+  _treeMemoSize() {
+    return (this._treeMemo ? this._treeMemo.size : 0)
+      + (this._treeMemoPrev ? this._treeMemoPrev.size : 0);
   }
 
   dispose() {
