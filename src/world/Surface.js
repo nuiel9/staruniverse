@@ -7357,10 +7357,35 @@ export class Surface {
       if (dx * dx + dz * dz > r2) continue;
 
       /* Keyed on the instance and its own tile index, because the same
-         candidate is a different tree in every copy — the tile index is folded
-         back into its seed. Numeric rather than a composed string so the hot
-         path allocates nothing. */
-      const key = i * 4096 + ((_Wt[3] & 63) << 6) + (_Wt[4] & 63);
+         candidate is a different tree in every copy — the tile index is
+         folded back into its seed, so an entry answered at one (tx, tz) is
+         simply wrong at another. Numeric rather than a composed string so the
+         hot path allocates nothing.
+
+         The packing is fixed-width, so it aliases: two absolute tile indices
+         that differ by a multiple of 1024 on the same axis collide on one
+         key, and the memo would then hand back a tree from the wrong copy —
+         wrong x, z, r, H, gy, silently. There is no packing that cannot
+         alias; the question is only whether the alias distance is reachable.
+         At this band's 420 m period, 1024 tiles is 430 km, and the rover's
+         full-charge pack (Rover.js PACK_RANGE) tops out at a 14 km round trip
+         to the farthest landing site at 6.2 km — so the alias sits some
+         seventy times past the edge of the world this key ever has to
+         describe.
+
+         The key must be the *absolute* tile index, not one relative to the
+         current epoch: _treeMemoPrev is read after the epoch has already
+         moved, so a relative key would give the same physical (instance,
+         tile) two different keys depending on which generation answered it,
+         and the fallback lookup below would silently miss or, worse, hit the
+         wrong entry.
+
+         Headroom, checked rather than assumed: the trees band tops out at
+         n = 1050 (WOODY[0], hi tier), so the largest key is
+         1049 * 2^20 + 1023*1024 + 1023 ≈ 1.1e9 — about seven orders of
+         magnitude under 2^53 (9.0e15), where a JS number stops representing
+         every integer exactly. */
+      const key = i * 1048576 + ((_Wt[3] & 1023) << 10) + (_Wt[4] & 1023);
       /* A miss is `undefined`; a cached rejection is `null`. Keeping the two
          apart is most of the point — the great majority of candidates are not
          trees, and re-deriving that twelve samples at a time every frame is
@@ -7381,9 +7406,11 @@ export class Surface {
     return out;
   }
 
-  /** How many acceptance answers are currently cached. For treecheck, which
-   *  asserts that steady driving pays for a handful of new trees rather than
-   *  the whole band every frame. */
+  /** How many acceptance answers are currently cached, across both
+   *  generations. Not an assertion in itself — an instrument treecheck reads
+   *  so that a claim about the memo's shape (cold vs. warm, bounded across an
+   *  epoch change) is a number someone can look at rather than an assumption
+   *  baked into the cache and never checked. */
   _treeMemoSize() {
     return (this._treeMemo ? this._treeMemo.size : 0)
       + (this._treeMemoPrev ? this._treeMemoPrev.size : 0);

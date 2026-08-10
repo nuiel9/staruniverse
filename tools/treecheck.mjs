@@ -595,6 +595,75 @@ for (const r of s2.out) {
     + ` · ${(r.halfPeriod - r.worstAxis).toFixed(0)} m of margin`);
 }
 
+// ------------------------------- stage 2b: the two-generation eviction
+/* The loop above resets S._treeMemo before every pose, so `_treeMemoPrev` is
+   null at query time in all three of it and the fallback path — the entire
+   reason a second generation exists rather than one — never actually runs.
+   This exercises it: three queries along POSES[0]'s own heading, each a
+   whole tile period (420 m) further than the last, with the memo left alone
+   the entire time. (0, -1) is an axis-aligned heading on purpose, so the
+   epoch's floor() index changes by exactly one each step with nothing left
+   to floating-point luck. */
+const s2b = await page.evaluate(async (pose0) => {
+  const g = window.__game;
+  const S = g.surface;
+  const surfMod = await import('/src/world/Surface.js');
+  const WJ = surfMod.__woodyJS;
+  const T = S._trees;
+  if (!S._treeMemo) return { err: 'memo is cold entering stage 2b — stage 2 should have warmed it' };
+
+  const R = 25;
+  let [fx, fz] = pose0.f;
+  const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
+  const [px0, pz0] = pose0.p;
+
+  const step = (cx, cz) => {
+    S._camXZ.set(cx, cz);
+    S._camFwdXZ.set(fx, fz);
+    const rx = cx + fx * 9.5, rz = cz + fz * 9.5;
+    const near = S.treesNear(rx, rz, R);
+
+    const truth = [];
+    for (let i = 0; i < T.n; i++) {
+      const a = WJ.accept(S, i, cx, cz, fx, fz);
+      if (a.grow >= WJ.GROW_MIN && Math.hypot(a.x - rx, a.z - rz) <= R) truth.push({ ...a, i });
+    }
+
+    return {
+      complete: truth.every((t) => near.some((q) => q.i === t.i)),
+      sound: near.every((q) => truth.some((t) => t.i === q.i)),
+      curSize: S._treeMemo.size,
+      prevSize: S._treeMemoPrev ? S._treeMemoPrev.size : 0,
+    };
+  };
+
+  // Do NOT reset the memo anywhere in here — that is the one thing the loop
+  // above already covers, and it is exactly what leaves `prev` untested.
+  const a1 = step(px0, pz0);
+  const a2 = step(px0 + fx * T.tile, pz0 + fz * T.tile);
+  const a3 = step(px0 + fx * T.tile * 2, pz0 + fz * T.tile * 2);
+  return { a1, a2, a3 };
+}, POSES[0]);
+
+if (s2b.err) { console.error('stage 2b:', s2b.err); await browser.close(); process.exit(1); }
+
+check('crossing a tile boundary is complete and sound both sides',
+  s2b.a1.complete && s2b.a1.sound && s2b.a2.complete && s2b.a2.sound
+  && s2b.a3.complete && s2b.a3.sound);
+check('the previous generation is populated after the epoch moves',
+  s2b.a1.curSize > 0 && s2b.a2.prevSize === s2b.a1.curSize,
+  `gen1 cur ${s2b.a1.curSize} → gen2 prev ${s2b.a2.prevSize}`);
+/* This is the eviction check, not just a size check: if a third generation
+   were being kept instead of two, a3's prev would include gen1's leftovers
+   and this equality would fail — prevSize would be too big, not merely
+   "large". Exact equality is the point: promotion replaces the previous
+   generation wholesale rather than merging into it, so nothing accumulates
+   across an epoch the rover has already left. */
+check('the memo holds exactly two generations, not three, after a second boundary',
+  s2b.a3.prevSize === s2b.a2.curSize,
+  `gen2 cur ${s2b.a2.curSize} → gen3 prev ${s2b.a3.prevSize}`
+  + ` (gen1's ${s2b.a1.curSize} is gone)`);
+
 const bad = checks.filter(([, ok]) => !ok).length;
 console.log(`\n${checks.length - bad}/${checks.length} ok`);
 await browser.close();
