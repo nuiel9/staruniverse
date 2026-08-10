@@ -6033,6 +6033,18 @@ export class Surface {
        from the same place, so they cannot describe different surfaces, and no
        vertex shader has to spend twenty-two octaves rediscovering a constant. */
     this._datum = [0, 0];
+    /* What the CPU needs to answer "is there a tree here" without a frame.
+       Filled by the woody band below when the world has one; null otherwise,
+       and every consumer checks. See treesNear. */
+    this._trees = null;
+    /* The camera the *drawn* frame used, stashed at the moment its uniforms
+       are written. tileTo wraps every tiled instance into the cell nearest a
+       point 0.32 periods down the view axis, so which trees exist at all
+       depends on where the camera is looking — and a consumer that read
+       game.camera directly would be asking about a frame that has not been
+       drawn yet. */
+    this._camXZ = new THREE.Vector2();
+    this._camFwdXZ = new THREE.Vector2(0, 1);
     /* Where on the world this is, chosen rather than assumed — see pickSite.
        Everything downstream reads it out of uDatum.zw, so the mesh, the
        scatter, the marched shadow and the walking player cannot land on four
@@ -6397,6 +6409,22 @@ export class Surface {
           const u = (r + ti.A[k * 4 + 2] / 40) % 1;
           ti.B[k * 4 + 1] = w.h0 + (w.h1 - w.h0) * Math.pow(u, w.hp);
         }
+        /* Keep the trees band. The rover has to collide with these and the
+           acceptance test that decides which of them exist runs on the CPU
+           now (see the woody section of "the same law, twice"), so the
+           instance table cannot be a local that dies with this closure.
+           These are the same arrays the attributes point at, not copies, and
+           the band's own pick/form vectors rather than the material's
+           uniforms — so an edit to WOODY reaches both paths at once.
+
+           Trees only. Scrub tops out at 2.4 m and is something you drive
+           over, not into. */
+        if (w.key === 'trees') {
+          this._trees = {
+            iA: ti.A, iB: ti.B, n: nT, tile: w.tile, fade: w.fade,
+            pick: w.pick.slice(), form: w.form.slice(),
+          };
+        }
         const tmat = new THREE.ShaderMaterial({
           vertexShader: TREE_VERT,
           fragmentShader: TREE_FRAG,
@@ -6680,6 +6708,13 @@ export class Surface {
 
     U.uSunDir.value.copy(sun);
     U.uCamPos.value.copy(ctx.camPos);
+    /* Stashed here rather than read later, and stashed *together*: this is the
+       exact pair the frame's tileTo will use, and treesNear has to ask about
+       the frame that was drawn rather than about wherever the camera has got
+       to by the time the rover asks. The forward is left unnormalised because
+       tileTo normalises it itself. */
+    this._camXZ.set(ctx.camPos.x, ctx.camPos.z);
+    if (ctx.camFwd) this._camFwdXZ.set(ctx.camFwd.x, ctx.camFwd.z);
     U.uTime.value = ctx.time;
     su.uSunColor.value.copy(ctx.sunColor);
     this.sky.position.copy(ctx.camPos);

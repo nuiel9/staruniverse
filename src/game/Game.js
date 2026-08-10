@@ -52,6 +52,7 @@ const TINE_COUNT = 7;
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
+const _camFwd = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _m4 = new THREE.Matrix4();
 const _q1 = new THREE.Quaternion();
@@ -2048,6 +2049,11 @@ export class Game {
     this.surface.update(dt, {
       sunDir: sunLocal, sunColor: _sunCol,
       camPos: this.camera.position, time: this.time,
+      /* The camera's own -Z in world space, which is exactly the
+         vec2(-viewM[0][2], -viewM[2][2]) the tiled scatter's tileTo reads out
+         of the view matrix. The ground CPU needs it because a tiled band's
+         cells are centred down the view axis, not on the camera. */
+      camFwd: _camFwd.set(0, 0, -1).applyQuaternion(this.camera.quaternion),
       shadowNB: this._shadowNB,
       shadowBox: {
         half: 0.11 * 1000 + (this._groundExtra || 0),
