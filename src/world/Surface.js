@@ -1224,6 +1224,15 @@ float floraMask(vec2 gp, float slope, float shelter, float flow, float above){
    where the ground is before the frame is drawn — a walking player needs a foot
    height and a slope limit, and neither can come out of a vertex shader.
 
+   That "above/below" layout is not a rule every resident of this section
+   obeys, only the one it describes. The trees band, the third resident, breaks
+   it: its own GLSL twin is not above this comment at all, it is `floraVert
+   (tree=true)`, well past this whole section and its own header, out in the
+   flora section further down the file. So read "above" and "below" below as
+   naming which of two copies is meant, not as a claim about which one comes
+   first in the file — the woody section says so again, locally, where it
+   matters.
+
    Two implementations of one law is a liability and there is no clever way
    around it: the field is sampled twenty times per vertex on the GPU, so it
    cannot move to the CPU, and a player cannot read a vertex shader. What makes
@@ -1233,9 +1242,21 @@ float floraMask(vec2 gp, float slope, float shelter, float flow, float above){
    throw, it makes the player sink into hills and hover over hollows, and the
    error tracks every subsequent change to the terrain.
 
-   The JS side is written to be read against the GLSL rather than to be fast. It
-   is called a handful of times a frame, it shares no cache with anything, and
-   it allocates nothing per call.
+   The JS side is written to be read against the GLSL rather than to be fast.
+   That holds without qualification for the height field: it answers a
+   question about one point — where is the ground here — so it is called a
+   handful of times a frame, shares no cache with anything, and allocates
+   nothing per call. It does not hold for the tree test below, which answers a
+   question about a whole band instead: is any of several hundred candidates a
+   tree, right now. treesNear calls jTileTo once per candidate — the size of
+   the trees band, 693 at the default quality tier and up to 1050 at high — it
+   keeps _treeMemo and _treeMemoPrev as a cache across frames precisely because
+   that question is worth remembering, and it allocates: jTreeAccept returns a
+   fresh object every time it actually runs, treesNear builds a second fresh
+   object for every candidate the memo accepts, and a fresh Map is built every
+   time the camera crosses into a new tile epoch. The difference is not
+   sloppiness in the tree test, it is what a whole-band question earns that a
+   single-point one does not.
 
    Do not take the agreement on faith, and do not assume a careful reading is
    enough — the first version of this was a faithful line-for-line
@@ -1618,10 +1639,11 @@ function jTerrainRaw(px, pz, lod, U, out) {
  * `vec4 dat = uDatum;` to `if(grow <= 0.004)`, with the tileTo and seed
  * preamble just above it. Both markers need the shader named to be unique:
  * `vec4 dat = uDatum;` appears five times in this file and the grow test
- * twice, and only the pair inside floraVert is this function's twin. As of
- * this writing that is about 4513-4606 — and note that writing this paragraph
- * moved it twenty lines, which is the argument in one sentence. Believe the
- * grep and not the number. */
+ * twice, and only the pair inside floraVert is this function's twin. This
+ * paragraph used to cite a line range for it, in the same breath as warning
+ * that the Surface.js:4240-4290 cite above had rotted — and a later insertion
+ * moved that range too, while this file was still on the same branch. Believe
+ * the grep and not a number; that is why there no longer is one here. */
 
 /** Where the CPU collides. The shader draws a tree at grow > 0.004; this is
  *  more than ten times that, so an invisible wall — the failure that makes a
@@ -4693,6 +4715,18 @@ ${tree ? `
      metres before the water. What comes out of those three is a treeline that
      follows shelter and drainage rather than a contour, stands that thin into
      scrub at their edges, and open ground between them. */
+  /* This line has a CPU twin, and nothing here points at it: jTreeAccept, up
+     in "the same law, twice" near the top of this file, derives grow from the
+     same hash11 fold and the same 2.1 scale, because the rover has to answer
+     "is there a tree here" off the GPU, one frame later. Touch the hash11
+     argument, the 2.1, or uPick here and touch jTreeAccept in the same edit —
+     the routing the other direction relies on the reader already knowing this
+     twin exists, which is exactly the assumption a comment at this end cannot
+     make. It is also enforced by more than reading: the shipped guard
+     compiles and runs this exact slice on the player's own machine at every
+     landing, including the acceptance suite's, so an acceptance-affecting
+     change here without its twin pushes grow past the guard's gate, empties
+     treesNear, and fails the suite loudly rather than shipping quietly wrong. */
   float grow = clamp((m - uPick.x - hash11(s*9.13 + 0.77)*uPick.y)*2.1, 0.0, 1.0);
   grow *= 1.0 - smoothstep(uPick.z, uPick.w, slope);
   /* Clear of the pad. The site search picks flat ground and the ship comes
@@ -7634,16 +7668,26 @@ export class Surface {
     for (let i = 0; i < T.n; i++) {
       const js = jTreeAccept(this, i, camX, camZ, fwdX, fwdZ);
       worst = Math.max(worst, Math.abs(js.grow - px[i * 4 + 1]));
-      /* Stature as well as existence, because `grow` alone does not cover the
-         fold. H and the trunk radius come off hash11(s*1.37) and hash11(s*4.73)
-         — the same folding question with different constants — and trR is what
-         treesNear hands the collision as the radius. A driver that folded
-         9.13*0.1031 the way this machine does and 1.37*0.1031 some other way
-         would sail through a grow-only diff and then give the rover trunks of
-         the wrong size. That is a bounded failure rather than an invisible wall
-         (the tree is drawn, the radius is out by decimetres) which is why it is
-         a second gate and not this one, but the number is already in the buffer
-         and leaving it unread was a blind spot in the unsafe direction. */
+      /* Stature, because `grow` alone does not cover the fold — but only half
+         of stature. H comes off hash11(s*1.37), which this line measures
+         directly: q1. The trunk radius, trR, is what treesNear actually hands
+         the collision, and it comes off hash11(s*4.73) — q3 — which nothing in
+         this loop reads. oCol only carries (accept, grow, gy, H): there was no
+         room to add trR without repacking the probe's output across its three
+         other consumers, gy included, which tools/treecheck.mjs's own
+         ground-height gate already spends it on. Reading q3 was considered and
+         rejected on that basis, not overlooked.
+
+         The gap this leaves is bounded, not open. q1 and q3 are the same
+         folding question put to hash11 with different constants, decided by
+         the same compiler on the same machine — a driver that folds one of
+         them differently folds the other one differently too, so a q1
+         divergence here already implies a q3 divergence this loop never sees;
+         they are not two independent ways to fail unread. What is genuinely
+         accepted unread is a q3-only divergence with q1 agreeing, and the
+         formula bounds that on its own: trR is H*0.021*(0.80 + 0.4*q3), so the
+         whole range of q3 swings it about ±20% around a trunk that is roughly
+         0.2 m to begin with, against a 1.12 m collision capsule. */
       worstH = Math.max(worstH, Math.abs(js.H - px[i * 4 + 3]));
     }
 
@@ -7693,7 +7737,9 @@ export class Surface {
 
        So half a metre sits about a hundred times above what an agreeing device
        measures here (3 mm), twelve times above the largest disagreement that is
-       still not a fault, and seven times below the smallest one that is. */
+       still not a fault, 3.6 times below the theoretical floor argued above
+       (1.8 m), and seven times below the fault as it was actually measured
+       (3.48 m). */
     const GATE_H = 0.5;
     if (worst > GATE) {
       return { ok: false, worst, reason: 'device disagrees about which candidates are trees' };

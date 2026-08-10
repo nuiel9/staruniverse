@@ -397,18 +397,30 @@ const settle = () => page.evaluate(() => new Promise((res) => {
  * A run that only ever measured the second would be reporting success on a
  * mechanism it never invoked.
  */
-const driveSegment = ({ steps, tx, tz }) => {
+const driveSegment = ({ steps }) => {
   const g = window.__game, S = g.surface, R = g.rover;
   const input = { held: (a) => a === 'thrUp', touch: false };
-  const HULL_R = 1.12, HB = 2.9 * 0.5, DT = 1 / 30;
-  let pushes = 0, unexplained = 0, worst = 0, blind = 0, closest = Infinity;
+  // The capsule the collision itself uses. R.hullR and R.halfWheelbase are
+  // public on the instance for exactly this — see the comment in the Rover
+  // constructor — so this suite measures the same numbers _collide does
+  // rather than carrying a second copy that could drift out of step with them.
+  const HB = R.halfWheelbase, DT = 1 / 30;
+  let pushes = 0, unexplained = 0, worst = 0, blind = 0;
   for (let i = 0; i < steps; i++) {
     const [fx, fz] = R.forward();
     const sx = R.pos.x, sz = R.pos.z;
     R.update(DT, input, false);
-    if (tx !== undefined) {
-      closest = Math.min(closest, Math.hypot(R.pos.x - tx, R.pos.z - tz));
-    }
+    /* The prediction reads `speed` *after* the step, which is right — see the
+       doc comment above — but it has one latent false positive that has
+       nothing to do with trees. When the pack empties mid-step, Rover.update
+       moves the body first, using the speed the frame started with, and only
+       then zeroes `speed` because the charge ran out. That one frame predicts
+       the *start* position (speed now reads 0) against a body that has
+       already moved a full step, and it would read here as a push with
+       nothing behind it. Unreachable in this suite — charge is reset to 1 for
+       every run and a run costs a small fraction of a full pack — but it will
+       eventually fire on a longer run, and whoever sees it should not go
+       looking for a tree bug. */
     const px = sx + fx * R.speed * DT;
     const pz = sz + fz * R.speed * DT;
     if (Math.hypot(R.pos.x - px, R.pos.z - pz) <= 1e-6) continue;
@@ -428,7 +440,7 @@ const driveSegment = ({ steps, tx, tz }) => {
       let u = L2 > 0 ? ((t.x - ax) * abx + (t.z - az) * abz) / L2 : 0;
       u = u < 0 ? 0 : (u > 1 ? 1 : u);
       const dx = ax + abx * u - t.x, dz = az + abz * u - t.z;
-      best = Math.min(best, Math.hypot(dx, dz) - (HULL_R + t.r));
+      best = Math.min(best, Math.hypot(dx, dz) - (R.hullR + t.r));
     }
     // negative or ~zero means a trunk is touching the capsule, as it should be
     if (!(best <= 1e-3)) {
@@ -443,8 +455,7 @@ const driveSegment = ({ steps, tx, tz }) => {
     }
   }
   return {
-    pushes, unexplained, blind, worst,
-    closest, x: R.pos.x, z: R.pos.z, speed: R.speed,
+    pushes, unexplained, blind, worst, x: R.pos.x, z: R.pos.z, speed: R.speed,
   };
 };
 
@@ -459,7 +470,7 @@ if (treesOn.skipped || !treesOn.hasBand) {
   await settle();
 
   // find a tree the index is confident about, and park short of it
-  const aimed = await page.evaluate(() => {
+  await page.evaluate(() => {
     const g = window.__game, S = g.surface, R = g.rover;
     const near = S.treesNear(R.pos.x, R.pos.z, 300);
     if (!near.length) return { none: true };
@@ -488,22 +499,24 @@ if (treesOn.skipped || !treesOn.hasBand) {
   });
 
   const hit = mark.none ? null
-    : await page.evaluate(driveSegment, { steps: 900, tx: mark.tx, tz: mark.tz });
+    : await page.evaluate(driveSegment, { steps: 900 });
 
   /* What "it stopped because of a tree" actually means, asked of the rover at
      rest rather than of the tree it was aimed at.
 
-     The obvious version — distance to the trunk `aimed` picked — is not the
-     claim. `mark` re-queries the index after the settle frames and the nearest
-     tree then is not necessarily the one the nose is on, and the rover may
-     well be stopped by a third one it met on the way; on this seed that
+     The obvious version — distance to the trunk the parking step picked — is
+     not the claim. `mark` re-queries the index after the settle frames and the
+     nearest tree then is not necessarily the one the nose is on, and the rover
+     may well be stopped by a third one it met on the way; on this seed that
      reported a perfectly true "2.85 m clear" about a tree it never touched.
      What matters is that *some* trunk the index returns is in contact with the
      capsule. That is the real claim, it does not care which tree, and it is
      the thing an invisible wall would fail. */
   const rest = mark.none ? null : await page.evaluate(() => {
     const g = window.__game, S = g.surface, R = g.rover;
-    const HULL_R = 1.12, HB = 2.9 * 0.5;
+    // R.hullR / R.halfWheelbase, not a local copy — see the comment in the
+    // Rover constructor and the matching note in driveSegment above.
+    const HB = R.halfWheelbase;
     const near = S.treesNear(R.pos.x, R.pos.z, 25);
     const [fx, fz] = R.forward();
     const ax = R.pos.x + fx * HB, az = R.pos.z + fz * HB;
@@ -515,7 +528,7 @@ if (treesOn.skipped || !treesOn.hasBand) {
       let u = L2 > 0 ? ((t.x - ax) * abx + (t.z - az) * abz) / L2 : 0;
       u = u < 0 ? 0 : (u > 1 ? 1 : u);
       const dx = ax + abx * u - t.x, dz = az + abz * u - t.z;
-      const d = Math.hypot(dx, dz) - (HULL_R + t.r);
+      const d = Math.hypot(dx, dz) - (R.hullR + t.r);
       if (d < gap) { gap = d; gr = t.r; gH = t.H; }
     }
     return {

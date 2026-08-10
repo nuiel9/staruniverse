@@ -123,6 +123,16 @@ export class Rover {
     this._q = new THREE.Quaternion();
     this._up = new THREE.Vector3(0, 1, 0);
     this._grade = 0;
+
+    /* Public on purpose. tools/expedition.mjs runs against the built bundle in
+       a real browser, so it cannot import HULL_R and WHEELBASE off this
+       module's scope the way _collide below does — it can only read what an
+       instance exposes. The acceptance suite has to measure the same capsule
+       the collision itself uses, not carry its own copy of these numbers, or
+       changing TRACK or WHEELBASE here would silently stop matching what the
+       suite checks against. */
+    this.hullR = HULL_R;
+    this.halfWheelbase = WHEELBASE * 0.5;
   }
 
   holdUsed() { return Object.values(this.hold).reduce((a, b) => a + b, 0); }
