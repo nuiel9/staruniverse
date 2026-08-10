@@ -1398,6 +1398,50 @@ function jDrainage(qx, qy, qz) {
   return n * (0.22 + 0.78 * jSmoothstep(0.42, -0.28, w));
 }
 
+/* hash11, and this one has to be exact rather than close.
+ *
+ * Every other twin in this section is a smooth function of position, so a
+ * single-precision disagreement moves an answer by a fraction of a millimetre.
+ * This one is `fract`-based and chaotic: run at JS double precision it is not a
+ * near miss, it is a different function, and it feeds the tree acceptance test
+ * with a weight of 0.72 out of a threshold of 0.34. An uncorrelated hash means
+ * an uncorrelated forest — trees the player can see that the rover drives
+ * through, and walls in the open ground where nothing is drawn.
+ *
+ * Measured before the frounds went in (tools/treecheck.mjs stage 0, three
+ * sweeps of 4096 samples each): worst error 0.999-1.00 and 4095-4096 of 4096
+ * samples inexact, on every sweep. That is not a rounding error, it is the
+ * function's entire output range — `fract` wraps, so a JS double that drifts
+ * even slightly from the shader's float32 can land on the opposite side of an
+ * integer boundary and return a value near 0 where the GPU returns a value
+ * near 1, or the reverse. A hash that disagreed by a rounding error would have
+ * been the easy case; this one disagrees by wrapping.
+ *
+ * So every operation is rounded to float32 the way the shader's ALU does, and
+ * both literals are hoisted at the shader's own precision — 33.33 and 0.1031
+ * are not exactly representable and using the JS double for either puts the
+ * error straight back.
+ *
+ * `fract` needs no rounding of its own: for any float32 x, x - floor(x) is a
+ * multiple of x's own ulp and is therefore exactly representable. */
+const J_H1031 = Math.fround(0.1031);
+const J_H3333 = Math.fround(33.33);
+function jHash11(p) {
+  let q = Math.fround(Math.fround(p) * J_H1031);
+  q = Math.fround(q - Math.floor(q));
+  q = Math.fround(q * Math.fround(q + J_H3333));
+  q = Math.fround(q * Math.fround(q + q));
+  return Math.fround(q - Math.floor(q));
+}
+
+/** meshLod, line for line. See the GLSL at the top of the file for why the
+ *  law is a power of range clamped by the grid builder's own two numbers. */
+function jMeshLod(d, U) {
+  const k = U.uLodK.value;
+  const p = k * Math.pow(Math.max(d, 1), 1 - RING_P);
+  return 0.26 + jClamp(p, d * k * (RING_MIN / LOD_K1), d * k * (RING_MAX / LOD_K1));
+}
+
 const J_VSCALE = 1450;
 function jBench(x, n, k) {
   const s = x * n;
@@ -1545,6 +1589,13 @@ function jTerrainRaw(px, pz, lod, U, out) {
    assumed equal. Nothing in the game imports this. */
 export const __fieldJS = {
   snoise: jSnoise, fbm: jFbm, ridged: jRidged, terrainRaw: jTerrainRaw,
+};
+
+/* Exported for tools/treecheck.mjs, for the same reason __fieldJS is: the tree
+   acceptance test exists twice and the two copies have to be diffable rather
+   than assumed equal. Nothing in the game imports this. */
+export const __woodyJS = {
+  hash11: jHash11, meshLod: jMeshLod,
 };
 
 /* ------------------------------------------------------ where you came down
