@@ -46,7 +46,7 @@
 The precedent tool cannot run anywhere but its author's laptop, and you are about to copy it. Fix it and look at its output before writing anything, so you know what "the two agree" reads like.
 
 **Files:**
-- Modify: `tools/fieldcheck.mjs:8`
+- Modify: `tools/fieldcheck.mjs:8` and its hand-written uniform block (~line 54)
 - Modify: `package.json` (scripts block)
 
 **Interfaces:**
@@ -624,13 +624,18 @@ const s1 = await page.evaluate(async (POSES) => {
   if (a < 0 || b < 0 || b < a) return { err: 'could not find the acceptance slice' };
   const body = vsrc.slice(a, b);
 
-  /* The functions and uniforms, from the same compiled source. Everything three
-     prepends sits above `const float VSCALE`, which is why that is the marker —
-     it is the one fieldcheck uses too. The in/out/attribute declarations at the
-     bottom of the region are stripped: iA and iB become plain globals filled by
-     texelFetch, and the vertex stage's varyings would collide with our own
-     output. */
-  const fs0 = vsrc.indexOf('const float VSCALE');
+  /* The functions AND the uniforms, from the same compiled source.
+     The marker is the first line of FIELD_UNIFORMS, not `const float VSCALE`.
+     fieldcheck slices from VSCALE and hand-declares the uniforms it needs,
+     which is why it broke the day uSeaDrop was added — VSCALE is at
+     Surface.js:420 and the field uniforms are at 306-346, so that slice starts
+     *after* them. Starting at `uniform float uSeed;` picks up every uniform the
+     chunks below declare and still excludes everything three prepends (its own
+     matrices, precision qualifiers and the position/normal/uv attributes).
+     The in/out/attribute declarations at the bottom of the region are stripped:
+     iA and iB become plain globals filled by texelFetch, and the vertex stage's
+     varyings would collide with our own output. */
+  const fs0 = vsrc.indexOf('uniform float uSeed;');
   const fs1 = vsrc.indexOf('void main(');
   if (fs0 < 0 || fs1 < 0) return { err: 'could not find the chunk region' };
   const chunk = vsrc.slice(fs0, fs1)
