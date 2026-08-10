@@ -167,6 +167,7 @@ const STRINGS = {
   'gm.stowed': ['rover stowed · deploy with R', 'ยานสำรวจเก็บอยู่ · กด R เพื่อนำออก'],
   'gm.beyond': ['no return', 'ไปแล้วกลับไม่ได้'],
   'gm.empty': ['Nothing surveyed here.', 'ยังไม่มีอะไรถูกสำรวจที่นี่'],
+  'gm.steep': ['STEEP — GOING AROUND IS FASTER', 'ชันมาก — อ้อมไปเร็วกว่า'],
   'gm.note': ['inner ring is there and back · outer is one way',
     'วงในคือไปกลับได้ · วงนอกคือไปได้อย่างเดียว'],
 

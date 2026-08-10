@@ -54,6 +54,27 @@ const GRADE_STALL = 0.62;      // ~32°
 /* Coarse enough to skip the fine detail band. See the note in `update`. */
 const GRADE_LOD = 14;
 
+/* And the LOD the *wheels* read.
+
+   This was 1.0 — full detail — on the reasoning that a boulder under one
+   corner ought to tilt the vehicle. That reasoning was right and the number
+   was wrong: at full detail `heightAt` carries a grit band with metre-scale
+   variation, and across a two-metre track a one-metre difference is fourteen
+   degrees of roll. The result was a rover permanently cocked over, resting on
+   a single wheel with the other three in the air — which is what a player
+   sees and reports as floating.
+
+   Raising it did not work. `heightAt` returns a coarse band plus a `fine`
+   one, and the fine band is added whatever the LOD — so at 1, 3 and 8 the
+   field still varied five metres across a 2.9 m wheelbase, which is not
+   landform, it is rocks. The smoothing that does work is spatial: each
+   contact is the mean of a small footprint, which is what a wheel physically
+   is. LOD still helps a little and costs nothing, so it stays. */
+const WHEEL_LOD = 8.0;
+
+/** The fraction of drive that survives the steepest ground. Never zero. */
+const CRAWL_FLOOR = 0.10;
+
 const WHEELBASE = 2.9;
 const TRACK = 2.0;
 
@@ -67,6 +88,11 @@ const CONTACTS = [
   new THREE.Vector3(-TRACK * 0.56, 0, -WHEELBASE * 0.5),
 ];
 const _c = new THREE.Vector3();
+const _up = new THREE.Vector3();
+const _fwd = new THREE.Vector3();
+const _right = new THREE.Vector3();
+const _m = new THREE.Matrix4();
+
 
 export class Rover {
   constructor(game) {
@@ -187,8 +213,21 @@ export class Rover {
        the thing that makes reading the landscape worth doing. */
     const climb = Math.max(0, this._grade * Math.sign(throttle || 1));
     const bite = 1 - THREE.MathUtils.smoothstep(climb, GRADE_FREE, GRADE_STALL);
+    // For the readout: 0 is clear going, 1 is as steep as the drive can take.
+    this.gradeLoad = 1 - bite;
 
-    const wantAccel = throttle > 0 ? ACCEL * bite : throttle < 0 ? -ACCEL * 0.6 * bite : 0;
+    /* There is always *some* authority left.
+
+       `bite` gated acceleration straight to zero past about thirty degrees,
+       so on a steep face the rover simply would not move and nothing on
+       screen said why — which is indistinguishable from a broken control, and
+       was reported as one. A floor of a tenth means the worst slope in the
+       game can still be crawled, slowly and at a punishing charge cost. The
+       route around remains the better answer without "go around" and "you are
+       stuck" being the same experience. */
+    const authority = Math.max(CRAWL_FLOOR, bite);
+    const wantAccel = throttle > 0 ? ACCEL * authority
+      : throttle < 0 ? -ACCEL * 0.6 * authority : 0;
     if (wantAccel === 0) {
       // coast down, and stop cleanly rather than creeping forever
       const d = Math.sign(this.speed) * DRAG * dt * 6;
@@ -200,7 +239,7 @@ export class Rover {
     if (throttle < 0 && this.speed > 0) this.speed -= BRAKE * dt;
     if (throttle > 0 && this.speed < 0) this.speed += BRAKE * dt;
 
-    const capF = MAX_FWD * Math.max(0.12, bite);
+    const capF = MAX_FWD * Math.max(CRAWL_FLOOR, bite);
     this.speed = THREE.MathUtils.clamp(this.speed, -MAX_REV, capF);
 
     // ---- steering. A stationary rover does not pivot on the spot, and
@@ -244,16 +283,17 @@ export class Rover {
 
     // The four wheel contacts, in the ground plane around the current centre.
     const corners = [[hb, -ht], [hb, ht], [-hb, -ht], [-hb, ht]].map(([a, b]) => ({
-      a, b, y: gh(this.pos.x + fx * a + rx * b, this.pos.z + fz * a + rz * b),
+      a, b, y: this._footprint(this.pos.x + fx * a + rx * b, this.pos.z + fz * a + rz * b),
     }));
     const [fl, fr, bl, br] = corners.map((c) => c.y);
 
     /* The attitude from the contacts rather than from the height field's own
-       gradient: the wheels are what touches the ground, and a boulder under
+       gradient: the wheels are what touches the ground, and real ground under
        one corner should tilt the vehicle even though the analytic normal at
        the centre knows nothing about it. */
     const pitch = Math.atan(((bl + br) - (fl + fr)) / (2 * WHEELBASE));
     const roll = Math.atan(((fl + bl) - (fr + br)) / (2 * TRACK));
+    this.tilt = Math.max(Math.abs(pitch), Math.abs(roll));
 
     /* Seat it on the *lowest* wheel, measured rather than predicted.
 
@@ -271,19 +311,35 @@ export class Rover {
        wheels actually ended up, and raise everything by whatever the deepest
        one is short. Exact regardless of rotation order or Euler convention,
        and the suite measures the same contacts it does. */
+    /* Orient from a basis, not from three successive Euler turns.
+
+       The model is authored nose-toward +Z, so after the half turn that puts
+       its nose along the world's forward, its local +X points *left* — which
+       silently inverted both the pitch and the roll applied after it. Building
+       the basis directly removes every sign there was to get wrong: local +Z
+       becomes the travel direction laid onto the slope, local +Y becomes the
+       surface normal, and local +X falls out of the cross product. */
+    /* The normal comes from the samples themselves, in world space. Building
+       it from the pitch/roll angles instead mixed two frames — those angles
+       are about the *body's* axes and were being written into world
+       components — and the attitude that came out did not match the ground
+       under it, so the uphill wheels hung five metres in the air. Two tangents
+       across the wheelbase and the track, crossed, cannot get that wrong. */
+    _fwd.set(fx * WHEELBASE, (fl + fr) * 0.5 - (bl + br) * 0.5, fz * WHEELBASE);
+    _right.set(rx * TRACK, (fr + br) * 0.5 - (fl + bl) * 0.5, rz * TRACK);
+    _up.crossVectors(_right, _fwd).normalize();
+    if (_up.y < 0) _up.negate();
+    _fwd.addScaledVector(_up, -_fwd.dot(_up)).normalize();
+    _right.crossVectors(_up, _fwd).normalize();
+    _m.makeBasis(_right, _up, _fwd);
+    this.object.quaternion.setFromRotationMatrix(_m);
     this.object.position.set(this.pos.x, 0, this.pos.z);
-    this.object.rotation.set(0, 0, 0);
-    // The model is authored nose-toward +Z; the world's forward at yaw 0 is
-    // -Z, so the mesh carries a half turn the controller does not.
-    this.object.rotateY(this.yaw + Math.PI);
-    this.object.rotateX(pitch);
-    this.object.rotateZ(roll);
     this.object.updateMatrixWorld(true);
 
     let lift = -Infinity;
     for (const p of CONTACTS) {
       _c.copy(p).applyMatrix4(this.object.matrixWorld);
-      lift = Math.max(lift, gh(_c.x, _c.z) - _c.y);
+      lift = Math.max(lift, this._footprint(_c.x, _c.z) - _c.y);
     }
     this.pos.y = lift;
     this.object.position.y = lift;
@@ -309,12 +365,11 @@ export class Rover {
    * conflated the two and failed the vehicle for being on bumpy ground.
    */
   contacts() {
-    const gh = this._height.bind(this);
     this.object.updateMatrixWorld(true);
     let low = Infinity, high = -Infinity;
     for (const p of CONTACTS) {
       _c.copy(p).applyMatrix4(this.object.matrixWorld);
-      const d = _c.y - gh(_c.x, _c.z);
+      const d = _c.y - this._footprint(_c.x, _c.z);
       if (d < low) low = d;
       if (d > high) high = d;
     }
@@ -324,6 +379,24 @@ export class Rover {
   _height(x, z, lod = 1.0) {
     const s = this.game.surface;
     return s && s.heightAt ? s.heightAt(x, z, lod) : 0;
+  }
+
+  /**
+   * Ground under a wheel, as the wheel experiences it.
+   *
+   * A point sample makes a 0.55 m wheel infinitely sharp: it drops into every
+   * crack in the fine band and the body pivots off a rock the tyre would
+   * simply roll over. Averaging a small footprint is the cheap stand-in for a
+   * contact patch, and it is what finally stopped the vehicle standing on one
+   * corner with the rest in the air.
+   */
+  _footprint(x, z) {
+    const r = 0.75;
+    return (this._height(x, z, WHEEL_LOD)
+      + this._height(x + r, z, WHEEL_LOD)
+      + this._height(x - r, z, WHEEL_LOD)
+      + this._height(x, z + r, WHEEL_LOD)
+      + this._height(x, z - r, WHEEL_LOD)) * 0.2;
   }
 
   /** Where the chase camera wants to be, in ground metres. */

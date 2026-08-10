@@ -23,9 +23,11 @@ import { PACK_RANGE } from '../ship/Rover.js';
      everything you can reach *and get back from*. The second is the one that
      matters, and a number in a corner never communicated it.
 
-     **Where you actually are.** The rover's position and heading, updated
-     live, so the map answers "am I pointing at it" rather than only "where
-     is it".
+     **Where you actually are, facing up.** It is heading-up and centred on
+     you, the way a car's navigation is, because the question while driving is
+     "is that thing ahead of me or behind me" and a north-up chart makes you
+     do the rotation in your head at speed. North is marked on the rim and
+     swings as you turn, which is the cue that tells you you *are* turning.
 
      **Relative distance.** Four ranges in a column are four numbers; four
      ranges on a disc are a route.
@@ -58,6 +60,7 @@ export class GroundMap {
     this.canvas = document.getElementById('gmCanvas');
     this.side = document.getElementById('gmSide');
     this.packEl = document.getElementById('gmPack');
+    this.steepEl = document.getElementById('gmSteep');
     this.open = false;
     this._dpr = 1;
 
@@ -104,6 +107,7 @@ export class GroundMap {
        broken while driving because the numbers never moved, and the numbers
        never moved because they were answering a different question. */
     const me = g.groundPos();
+    const rover0 = g.rover;
     const sites = g.sites.manifest(body, me.x, me.z);
 
     const cv = this.canvas;
@@ -123,8 +127,19 @@ export class GroundMap {
     const cx = w / 2, cy = h / 2;
     const R = Math.min(w, h) / 2 - 18;
     const k = R / far;
-    const px = (x) => cx + x * k;
-    const py = (z) => cy - z * k;
+
+    /* Heading-up, centred on you. The world rotates under a fixed reticle
+       rather than a marker rotating inside a fixed world — so "ahead" is
+       always the top of the disc, and a site drawn to the right is a site you
+       turn right for, with no mental rotation at speed.
+
+       Everything below therefore plots *world* metres and lets this transform
+       place them; nothing needs to know about the rotation. */
+    const rot = g.landed.driving && rover0.deployed
+      ? -Math.atan2(...rover0.forward()) : 0;
+    const cos = Math.cos(rot), sin = Math.sin(rot);
+    const px = (x, z) => cx + ((x - me.x) * cos - (z - me.z) * sin) * k;
+    const py = (x, z) => cy - ((x - me.x) * sin + (z - me.z) * cos) * k;
 
     // ---- ground tone and the graticule
     c.fillStyle = 'rgba(8,16,22,0.55)';
@@ -132,8 +147,8 @@ export class GroundMap {
 
     c.strokeStyle = 'rgba(120,170,190,0.14)';
     c.lineWidth = 1;
-    for (let ring = 1000; ring <= far; ring += 1000) {
-      c.beginPath(); c.arc(cx, cy, ring * k, 0, Math.PI * 2); c.stroke();
+    for (let r = 1000; r <= far; r += 1000) {
+      c.beginPath(); c.arc(cx, cy, r * k, 0, Math.PI * 2); c.stroke();
     }
     c.beginPath();
     c.moveTo(cx - R, cy); c.lineTo(cx + R, cy);
@@ -141,29 +156,37 @@ export class GroundMap {
     c.stroke();
 
     // ---- the pack, as the two circles that actually decide the trip
-    const rover = g.rover;
+    const rover = rover0;
     const reach = rover.metresLeft();
+    /* Centred on the *ship*, not on you: the range that matters is the range
+       from the thing you have to get back to. */
+    const shipX = px(0, 0), shipY = py(0, 0);
     const ring = (m, colour, dash) => {
-      if (m <= 0 || m * k > R * 1.4) return;
+      if (m <= 0) return;
       c.save();
       c.setLineDash(dash);
       c.strokeStyle = colour;
       c.lineWidth = 1.4;
-      c.beginPath(); c.arc(cx, cy, m * k, 0, Math.PI * 2); c.stroke();
+      c.beginPath(); c.arc(shipX, shipY, m * k, 0, Math.PI * 2); c.stroke();
       c.restore();
     };
     ring(reach, 'rgba(232,164,76,0.40)', [4, 5]);          // one-way
     ring(reach / 2, 'rgba(63,216,232,0.55)', [2, 4]);      // there and back
 
     // ---- north
-    c.fillStyle = 'rgba(160,200,215,0.7)';
+    const nAng = rot - Math.PI / 2;
+    const nx = cx + Math.cos(nAng) * (R - 7);
+    const ny = cy + Math.sin(nAng) * (R - 7);
+    c.fillStyle = 'rgba(160,200,215,0.75)';
     c.font = '9px ui-monospace, monospace';
     c.textAlign = 'center';
-    c.fillText('N', cx, cy - R - 6);
+    c.textBaseline = 'middle';
+    c.fillText('N', nx, ny);
+    c.textBaseline = 'alphabetic';
 
     // ---- the sites
     for (const s of sites) {
-      const x = px(s.x), y = py(s.z);
+      const x = px(s.x, s.z), y = py(s.x, s.z);
       const st = STYLE[s.kind] || STYLE.seam;
       const spent = s.kind === 'seam'
         ? g.prospect.remaining(body, s.dep) <= 0 : s.done;
@@ -184,32 +207,21 @@ export class GroundMap {
       c.fillText(labelFor(s), x + 8, y + 3);
     }
 
-    // ---- the ship, always at the origin of this frame
+    // ---- the ship, wherever it now sits relative to you
     c.fillStyle = '#e2f2f8';
-    c.beginPath(); c.arc(cx, cy, 3.5, 0, Math.PI * 2); c.fill();
+    c.beginPath(); c.arc(shipX, shipY, 3.5, 0, Math.PI * 2); c.fill();
     c.strokeStyle = 'rgba(226,242,248,0.55)';
     c.lineWidth = 1;
-    c.beginPath(); c.arc(cx, cy, 7, 0, Math.PI * 2); c.stroke();
+    c.beginPath(); c.arc(shipX, shipY, 7, 0, Math.PI * 2); c.stroke();
 
-    // ---- and you
-    if (g.landed.driving && rover.deployed) {
-      const x = px(rover.pos.x), y = py(rover.pos.z);
-      const [fx, fz] = rover.forward();
-      c.save();
-      c.translate(x, y);
-      c.fillStyle = '#3fd8e8';
-      c.beginPath();
-      c.moveTo(fx * 8, -fz * 8);
-      c.lineTo(-fz * 5 - fx * 4, -fx * 5 + fz * 4);
-      c.lineTo(fz * 5 - fx * 4, fx * 5 + fz * 4);
-      c.closePath();
-      c.fill();
-      c.restore();
-    } else if (g.landed.onFoot) {
-      const x = px(g.player.pos.x), y = py(g.player.pos.z);
-      c.fillStyle = '#3fd8e8';
-      c.beginPath(); c.arc(x, y, 3, 0, Math.PI * 2); c.fill();
-    }
+    // ---- and you, at the centre, always pointing up
+    c.fillStyle = '#3fd8e8';
+    c.beginPath();
+    c.moveTo(cx, cy - 8);
+    c.lineTo(cx - 5, cy + 5);
+    c.lineTo(cx + 5, cy + 5);
+    c.closePath();
+    c.fill();
 
     this._side(sites, body, reach);
   }
@@ -219,6 +231,9 @@ export class GroundMap {
     const g = this.game;
     const km = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
     const me = g.groundPos();
+    /* Compass bearing, still absolute: the number is what you would set on a
+       heading indicator, and the *picture* is what tells you which way to
+       turn. Two relative readouts saying the same thing would be redundant. */
     const bearingTo = (s) => {
       const a = Math.atan2(s.x - me.x, s.z - me.z) * 180 / Math.PI;
       return Math.round((a + 360) % 360);
@@ -239,9 +254,15 @@ export class GroundMap {
     }).join('');
 
     if (this.packEl) {
+      /* When the drive is fighting the slope, that is the thing to say — a
+         player on a steep face is asking "is this broken", and the pack
+         percentage does not answer them. */
+      const steep = g.landed.driving && g.rover.gradeLoad > 0.75;
       this.packEl.textContent = g.landed.driving
         ? `${Math.round(g.rover.charge * 100)}% · ${km(reach)}`
         : t('gm.stowed');
+      this.packEl.classList.toggle('warn', !!steep);
+      if (this.steepEl) this.steepEl.textContent = steep ? t('gm.steep') : '';
     }
     this.side.innerHTML = `<div class="gm-rows">${
       rows || `<div class="gm-note">${t('gm.empty')}</div>`}</div>

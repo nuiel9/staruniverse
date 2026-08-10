@@ -162,7 +162,12 @@ const drive = await page.evaluate(() => {
     travelled: Math.round(travelled), target: s.range,
     chargeUsed: +(c0 - g.rover.charge).toFixed(3),
     seconds: Math.round(steps / 30),
-    onGround: Math.abs(g.rover.pos.y - g.surface.heightAt(g.rover.pos.x, g.rover.pos.z, 1)) < 0.5,
+    /* Against the field the wheels are seated on. Comparing the body centre
+       to the *fine* field measured a disagreement between two LODs rather
+       than anything about the vehicle, and the wheel check below is the real
+       assertion in any case. */
+    onGround: Math.abs(g.rover.pos.y
+      - g.surface.heightAt(g.rover.pos.x, g.rover.pos.z, 3.0)) < 1.5,
     /* The centre matching the ground under the centre proves almost nothing —
        a tilted body can match at the middle and hang clear at every wheel,
        which is exactly what "the rover floats" looks like. What matters is
@@ -176,7 +181,7 @@ check('it drives to a site under its own power', drive.arrived,
   `${drive.travelled} m of a ${drive.target} m run, ${drive.seconds} s`);
 check('it sits on the terrain, not through it', drive.onGround);
 check('it stays planted for the whole drive — no floating, no sinking',
-  Math.abs(drive.worstLow) < 0.05,
+  Math.abs(drive.worstLow) < 0.05 && drive.maxSpread < 2.0,
   `lowest wheel off by at most ${drive.worstLow} m`
   + ` · terrain asked for ${drive.maxSpread} m of articulation`);
 check('driving costs charge in proportion to distance', drive.chargeUsed > 0.02,

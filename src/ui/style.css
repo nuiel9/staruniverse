@@ -692,3 +692,7 @@ html[lang="th"] .gm-note{letter-spacing:0;text-transform:none;line-height:var(--
 #gmCanvas{width:300px;height:300px;display:block}
 #groundmap .map-side{border-left:none;border-top:1px solid var(--line-s);
   padding:11px 12px 12px;max-height:230px;overflow-y:auto}
+.gm-top b.warn{color:#e8a44c}
+.gm-steep{padding:0 12px;font-size:9px;letter-spacing:.18em;color:#e8a44c;text-align:center}
+.gm-steep:empty{display:none}
+html[lang="th"] .gm-steep{letter-spacing:0;text-transform:none}
