@@ -1324,6 +1324,237 @@ centre, so nothing can swap copies underneath it."
 
 ---
 
+### Task 7: The guard that ships
+
+**Execution order: this runs AFTER Task 5 and BEFORE Task 6.** It is numbered 7
+because it was added after the plan was written; it gates `treesNear`, so it
+has to exist before Task 6's end-to-end assertions exercise that path — and
+those assertions passing is also the proof that the guard does not wrongly
+disable collision on a machine where the two copies agree.
+
+**Why this exists.** Task 4 discovered that the shader compiler inlines
+`hash11`, folds its leading `p*0.1031` into the caller's argument constants
+(distributing across an add), and fuses the survivor into one rounding — and
+that the JS has to match that folded form bit for bit, because `hash11` is
+`fract`-based and an argument one ulp out gives a completely different answer
+about a quarter of the time. See §2.2.1 of the design document for the measured
+candidate table.
+
+That fold is **one shader compiler's behaviour, not the language's**. A
+player's driver that folds differently puts the whole error back — not as
+drift, but at the hash's full range, which is exactly the invisible walls
+`HANDOFF.md` calls worse than no collision at all. `treecheck` only ever runs
+on a developer's machine. So the same comparison has to ship.
+
+**Files:**
+- Modify: `src/world/Surface.js` — a verification method on the class, and a
+  guard at the top of `treesNear`
+- Test: `tools/treecheck.mjs` — one stage-3 check that the guard passes on a
+  machine where the two agree
+
+**Interfaces:**
+- Consumes: `_trees`, `_camXZ`, `_camFwdXZ` (Task 3); `jTreeAccept` and
+  `__woodyJS` (Task 4); `treesNear` (Task 5).
+- Produces: `surface._treeAgreement` — `null` before the check has run, then
+  `{ ok: boolean, worst: number, reason: string }`. `treesNear` returns `[]`
+  when `ok` is false.
+
+- [ ] **Step 1: Write the failing check — `tools/treecheck.mjs`, stage 3**
+
+Append before the final tally block:
+
+```js
+// ---------------------------------------- stage 3: the guard that ships
+/* The runtime self-check has to reach the same verdict this whole tool does,
+   on the machine the tool is running on — otherwise it is either dead weight
+   or it is about to disable a working feature for every player. */
+const s3 = await page.evaluate(async () => {
+  const g = window.__game;
+  const S = g.surface;
+  if (typeof S.verifyTreeAgreement !== 'function') {
+    return { err: 'Surface.verifyTreeAgreement does not exist' };
+  }
+  const v = S.verifyTreeAgreement(g.renderer);
+  const near = S.treesNear(0, 0, 25);
+  return {
+    ok: v && v.ok, worst: v && v.worst, reason: v && v.reason,
+    cached: S._treeAgreement === v,
+    /* And it must not have disabled anything on a machine that agrees. Not an
+       assertion that trees exist at the origin — that is a property of the
+       world — only that the guard is not the reason if they do not. */
+    disabled: (v && v.ok) === false && near.length === 0,
+  };
+});
+
+if (s3.err) { console.error('stage 3:', s3.err); await browser.close(); process.exit(1); }
+check('the shipped guard agrees with the checker', s3.ok,
+  `worst ${Number(s3.worst).toExponential(2)} · ${s3.reason}`);
+check('the guard caches its verdict rather than re-probing', s3.cached);
+```
+
+- [ ] **Step 2: Run it and watch it fail**
+
+```bash
+npm run dev
+```
+
+```bash
+npm run treecheck
+```
+
+Expected: `stage 3: Surface.verifyTreeAgreement does not exist`, exit 1.
+
+- [ ] **Step 3: Write the probe material**
+
+This runs on the game's own renderer, not a second WebGL context. Copy the
+save-and-restore discipline from `Surface.bake` (`src/world/Surface.js`, search
+for `bake(renderer)`) — in particular it saves and restores
+`renderer.getRenderTarget()`, `renderer.autoClear` AND
+`renderer.shadowMap.needsUpdate`, the last because that flag is one per
+renderer and the first `render()` of a frame consumes it.
+
+Three things differ from `bake`:
+
+- Use `THREE.RawShaderMaterial` with `glslVersion: THREE.GLSL3`, **not**
+  `THREE.ShaderMaterial`. Three injects a prefix into a `ShaderMaterial`'s
+  fragment stage that already declares `viewMatrix` and `cameraPosition`, and
+  the probe declares `viewMatrix` itself — a redeclaration is a compile error.
+  A `RawShaderMaterial` gets no prefix at all, which is what the sliced chunk
+  needs.
+- The instance table goes in as two `THREE.DataTexture`s, 64×64,
+  `THREE.RGBAFormat`, `THREE.FloatType`, `NearestFilter` both ways, with
+  `needsUpdate = true`. Pad `iA`/`iB` into 64·64·4 arrays.
+- The render target is `THREE.FloatType`, 64×64, no depth or stencil.
+
+The fragment shader is **the same slice stage 1 builds**, assembled by the same
+code. Do not hand-write a cut-down version: Task 4 measured that a reduced
+probe is optimised differently and answers differently, and a guard that
+compiles a different expression tree from the one the vertex stage runs is
+worse than no guard, because it can report agreement that does not exist.
+Factor the slice-and-assemble out of stage 1 into a small helper if that is
+what it takes to have exactly one copy of it.
+
+- [ ] **Step 4: Write `verifyTreeAgreement`**
+
+Add to the `Surface` class, near `treesNear`:
+
+```js
+  /**
+   * Does this device's shader compiler agree with the CPU about which
+   * candidates are trees?
+   *
+   * It has to be asked, on the real machine, because the agreement rests on
+   * something the language does not guarantee. `hash11` is inlined by the
+   * shader compiler, its leading multiply is folded back into whatever
+   * constants the caller built the argument from, and the survivor is
+   * contracted into a single rounding — and the JS twin is written to match
+   * that folded form exactly, because `hash11` is `fract`-based and an
+   * argument one ulp out gives a completely different number about a quarter
+   * of the time. See the woody section of "the same law, twice".
+   *
+   * A driver that folds differently would therefore not disagree slightly, it
+   * would disagree completely: a forest the CPU believes in and the player
+   * cannot see. That is the invisible wall the handoff calls worse than no
+   * collision at all, and `tools/treecheck.mjs` cannot see the player's
+   * machine. So the comparison ships, runs once, and on disagreement takes
+   * tree collision away rather than trusting it — which degrades to exactly
+   * the behaviour before this branch existed, and which the handoff names as
+   * the acceptable failure of the two.
+   *
+   * Not being able to run the probe at all counts as disagreement, for the
+   * same reason: an unverified guarantee is not a guarantee.
+   *
+   * @param {THREE.WebGLRenderer} renderer
+   * @returns {{ok:boolean, worst:number, reason:string}}
+   */
+  verifyTreeAgreement(renderer) {
+    if (this._treeAgreement) return this._treeAgreement;
+    if (!this._trees) {
+      return (this._treeAgreement = { ok: true, worst: 0, reason: 'no trees band' });
+    }
+    let out;
+    try {
+      out = this._probeTreeAgreement(renderer);
+    } catch (e) {
+      out = { ok: false, worst: Infinity, reason: `probe failed: ${e && e.message}` };
+    }
+    if (!out.ok) {
+      console.warn('[surface] tree collision disabled:', out.reason,
+        `worst grow disagreement ${out.worst}`);
+    }
+    return (this._treeAgreement = out);
+  }
+```
+
+`_probeTreeAgreement(renderer)` builds the material from Step 3, renders one
+64×64 quad at the **stashed** camera pair (`_camXZ`, `_camFwdXZ` — the pose the
+player is actually in, which is the point of doing this at runtime rather than
+at three synthetic poses), reads back with `renderer.readRenderTargetPixels`,
+and compares `grow` per instance against `jTreeAccept`. It disposes the target,
+the textures, the geometry and the material before returning.
+
+The verdict:
+
+```js
+    const GATE = 0.023;      // half the 0.046 margin, same gate treecheck uses
+    return worst <= GATE
+      ? { ok: true, worst, reason: 'device agrees' }
+      : { ok: false, worst, reason: 'device disagrees about which candidates are trees' };
+```
+
+A folding mismatch produces a disagreement near 1.0 against a gate of 0.023, so
+the discrimination is about forty to one — this is not a delicate threshold.
+
+- [ ] **Step 5: Guard `treesNear`**
+
+At the top of `treesNear`, after the `if (!T) return [];` line:
+
+```js
+    /* Unverified means off. The check runs once and caches; a world whose
+       device disagrees has no tree collision at all rather than collision the
+       player cannot see the reason for. */
+    if (this._treeAgreement && !this._treeAgreement.ok) return [];
+```
+
+and call `verifyTreeAgreement(renderer)` from wherever the renderer is
+available on the ground — `Game.js` already calls `surface.bake(this.renderer)`
+at two sites; the same places are the natural home. Do the call there rather
+than threading a renderer into `treesNear`.
+
+- [ ] **Step 6: Prove the failure path, not just the success path**
+
+A guard that has only ever been seen to pass is not known to work. Temporarily
+perturb one constant in the JS hash fold (e.g. change the folded `1.37*0.1031`
+by one ulp), run `npm run treecheck`, and confirm stage 3 reports
+`the shipped guard agrees with the checker` as FAILED and that `treesNear`
+returns empty. Then revert the perturbation and confirm 18/18. Record both runs
+in your report. Do not commit the perturbation.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/world/Surface.js tools/treecheck.mjs
+git commit -m "Ship the check, because the fold is one compiler's habit
+
+The CPU copy of the tree test matches the GPU only because the JS is
+written against what this machine's shader compiler does to hash11 —
+inline it, fold its leading multiply into the caller's constants,
+contract the survivor. None of that is guaranteed by the language, and a
+driver that folds differently does not disagree slightly: the hash wraps,
+so it disagrees completely, and a forest the CPU believes in that the
+player cannot see is the invisible wall the handoff calls worse than no
+collision at all.
+
+treecheck only ever runs on a developer's machine. So the same comparison
+ships: once per world, on the real device, using the same live-material
+slice the checker uses — a cut-down probe is optimised differently and
+would report an agreement that does not exist. On disagreement, treesNear
+returns nothing and the rover drives through trees, which is exactly
+where this branch started and the failure the handoff says to prefer."
+```
+
+---
+
 ### Task 6: The collision, and the end-to-end assertions
 
 **Files:**
