@@ -495,9 +495,22 @@ So the same comparison ships. Once per landing, on the real device:
 
 A mismatched driver then degrades to **exactly today's behaviour** — the rover
 drives through trees — which the handoff names as the acceptable failure, and
-never to the unacceptable one. It also covers the `tileTo` `dot()` contraction
-residual noted at the end of §2.2.1, at the pose that actually matters rather
-than at three synthetic ones.
+never to the unacceptable one.
+
+**What it does not cover, corrected after implementation.** An earlier draft of
+this section claimed the guard also covers the `tileTo` `dot()` contraction
+residual at the end of §2.2.1, "at the pose that actually matters". It does
+not. The guard runs immediately after the surface is built, at which point the
+camera stash is still its constructor default — origin, facing +Z — so the tile
+indices it exercises are near zero, which is the regime §2.2.1 already reports
+as bit-exact.
+
+That costs nothing for the guard's actual job: the hash fold is a property of
+the compiled program, exercised by every instance at every pose, so the
+comparison discriminates wherever it is taken — both halves are evaluated at
+the same pair, whatever that pair is. The `dot()` residual remains what §2.2.1
+says it is: measured bit-exact over the indices three poses reach, and unproven
+beyond them.
 
 The alternative considered and not taken: have the CPU compute the three
 per-instance hashes and upload them as instance attributes on tile change, so
