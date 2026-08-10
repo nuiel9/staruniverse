@@ -1426,12 +1426,20 @@ function jDrainage(qx, qy, qz) {
  * multiple of x's own ulp and is therefore exactly representable. */
 const J_H1031 = Math.fround(0.1031);
 const J_H3333 = Math.fround(33.33);
-function jHash11(p) {
-  let q = Math.fround(Math.fround(p) * J_H1031);
-  q = Math.fround(q - Math.floor(q));
+
+/* The body of hash11 from `p*0.1031` onwards, split out because at every call
+ * site in the woody band the *caller's* argument and this first multiply are
+ * one expression to the shader compiler, and it does not evaluate them in the
+ * order they are written. See jTreeAccept's hash notes for the measurement;
+ * the split exists so that the folded form can be expressed at all. */
+function jHash11From(q0) {
+  let q = Math.fround(q0 - Math.floor(q0));
   q = Math.fround(q * Math.fround(q + J_H3333));
   q = Math.fround(q * Math.fround(q + q));
   return Math.fround(q - Math.floor(q));
+}
+function jHash11(p) {
+  return jHash11From(Math.fround(Math.fround(p) * J_H1031));
 }
 
 /** meshLod, line for line. See the GLSL at the top of the file for why the
@@ -1585,6 +1593,241 @@ function jTerrainRaw(px, pz, lod, U, out) {
   out[1] = fine;
 }
 
+/* ------------------------------------------------------------ the woody band
+ *
+ * The third resident of this section, and the one with a hard edge in it.
+ *
+ * The height field's twin can be a fraction of a millimetre out and nobody can
+ * tell. This one ends in `grow > 0.004` — a binary — so a disagreement is not a
+ * small error in a number, it is a tree that one copy has and the other does
+ * not. The CPU therefore collides at a *higher* threshold than the GPU draws
+ * at (see J_GROW_MIN below), so the two can only ever disagree in the harmless
+ * direction, and tools/treecheck.mjs measures the real error against that
+ * margin rather than taking it on trust.
+ *
+ * The same standing instruction applies as to everything above: change the
+ * shader at Surface.js:4240-4290 and change this in the same edit. */
+
+/** Where the CPU collides. The shader draws a tree at grow > 0.004; this is
+ *  more than ten times that, so an invisible wall — the failure that makes a
+ *  vehicle feel broken — needs a CPU/GPU disagreement of 0.046 in grow, and
+ *  treecheck reports the measured error against exactly that number. What is
+ *  left is the opposite failure, driving through a marginal tree the shader
+ *  drew, which is both the right way round and the one a player barely
+ *  notices. */
+const J_GROW_MIN = 0.05;
+
+// tileTo's two literals, at the shader's precision: they feed the seed shift,
+// which feeds hash11, where a double is not a near miss. See jHash11.
+const J_T731 = Math.fround(7.31), J_T377 = Math.fround(3.77);
+
+/* The three hash arguments, as the shader compiler actually evaluates them —
+ * and this is the third single-precision effect in this file that no amount of
+ * reading the GLSL would have found.
+ *
+ * treecheck stage 1 found it on its first real run. A faithful term-by-term
+ * transliteration had the whole acceptance chain agreeing to better than 4e-4
+ * in every single input — gp bit-exact, s bit-exact, and m, slope, ao, flow
+ * and above all at 1e-4 or under — and `grow` still came out 0.33 wrong at one
+ * pose and a full 1.0 wrong at another, on roughly a quarter of the band.
+ * Every input agreeing while the answer does not leaves exactly one culprit,
+ * and it is the arithmetic in front of hash11.
+ *
+ * hash11 is `fract`-based, so an argument that is one ulp out does not give an
+ * answer that is one ulp out. About a quarter of the time it gives a
+ * completely different number, and 0.72 of that lands straight in `grow`
+ * against a 0.046 margin. There is no tolerance to spend here: the argument
+ * has to be bit identical or the two forests are uncorrelated, which is trees
+ * the player can see that the rover drives through and walls in the open.
+ *
+ * What the compiler does is one rule with two visible consequences, and none
+ * of it is in the source. hash11 inlines, its first line is `p*0.1031`, and
+ * the compiler is then free — GLSL ES imposes no evaluation order on this —
+ * to fold that 0.1031 into whatever constants the *caller's* argument was
+ * built from, and to contract the surviving multiply-and-add into a single
+ * operation with one rounding:
+ *
+ *   hash11(s*1.37)        becomes  fract(s*(1.37*0.1031))
+ *   hash11(s*9.13 + 0.77) becomes  fract(s*(9.13*0.1031) + 0.77*0.1031)
+ *
+ * — the second distributing the fold across both terms and then fusing them.
+ * So the constants below are those products rather than the literals, the
+ * biased one is evaluated as a fused multiply-add rather than as two rounded
+ * steps, and jHash11From exists because there is no argument you can hand
+ * jHash11 that reproduces any of this: the folding reaches inside the
+ * function, past its first multiply.
+ *
+ * Measured over 2079 samples (693 instances at three poses, against the live
+ * compiled material): written as it appears in the GLSL, JS disagrees with
+ * this machine's GPU on 557-785 of them depending on the argument, worst case
+ * 0.998 — the hash's entire range. Written as below, on none of them, bit for
+ * bit, on all three arguments.
+ *
+ * Two things this is not. It is not exact FMA — the product is rounded to a
+ * double before the add rather than kept infinitely wide — but a disagreement
+ * would need the true result to sit within a double's ulp of a float32 tie,
+ * and none of the 2079 does. And it is not settled: this is a property of one
+ * shader compiler rather than of the language, so a driver that folds
+ * differently would put the error straight back. That is what treecheck is
+ * for, and it would say so on the first run. It cannot be legislated away from
+ * the shader side either — `precise` is GLSL ES 3.20 and WebGL2 is 3.00. */
+const J_HS_K = Math.fround(Math.fround(9.13) * J_H1031);
+const J_HS_B = Math.fround(Math.fround(0.77) * J_H1031);
+const J_H137K = Math.fround(Math.fround(1.37) * J_H1031);
+const J_H473K = Math.fround(Math.fround(4.73) * J_H1031);
+
+/** tileTo, line for line — see the CLUTTER chunk for why a tiled band's cell
+ *  is centred a third of its own width down the view axis rather than under
+ *  the lens. Writes [gpx, gpz, seedShift, tx, tz]; the tile index comes out
+ *  because the near-field index memoises on it. */
+function jTileTo(baseX, baseZ, period, camX, camZ, fwdX, fwdZ, out) {
+  if (period <= 0) {
+    out[0] = baseX; out[1] = baseZ; out[2] = 0; out[3] = 0; out[4] = 0;
+    return;
+  }
+  const fl = Math.hypot(fwdX, fwdZ);
+  const ux = fl > 1e-4 ? fwdX / fl : 0;
+  const uz = fl > 1e-4 ? fwdZ / fl : 1;
+  const cx = camX + ux * period * 0.32;
+  const cz = camZ + uz * period * 0.32;
+  const tx = Math.floor((cx - baseX) / period + 0.5);
+  const tz = Math.floor((cz - baseZ) / period + 0.5);
+  const d = Math.fround(Math.fround(tx * J_T731) + Math.fround(tz * J_T377));
+  const shift = Math.fround(d - Math.fround(23 * Math.floor(Math.fround(d / 23))));
+  out[0] = baseX + tx * period;
+  out[1] = baseZ + tz * period;
+  out[2] = shift;
+  out[3] = tx; out[4] = tz;
+}
+
+/* groundYFlat, from heightAt. fieldcheck.mjs already establishes that the two
+   differ by exactly the horizon bend, and groundYFlat and heightAt agree line
+   for line including the sea clamp on types 0 and 5 — so there is no second
+   copy of the field here, only the bend added back.
+
+   Added per *sample*, not once per instance: standOn differences the field
+   across its own footprint and terrainAround does it across ninety metres, and
+   putting one instance-centre bend into both sides of a difference would
+   quietly corrupt every slope in the band. It is one multiply. */
+function jFlatY(S, x, z, lod) {
+  return S.heightAt(x, z, lod) + (x * x + z * z) / (2 * S.U.uPlanetR.value);
+}
+
+/** standOn's height, without the normal — nothing in the acceptance test uses
+ *  the normal. Lowest of a footprint's three samples, so a tree can only ever
+ *  be slightly buried; see the GLSL for why that is what the grid needs. */
+function jStandOnY(S, gpx, gpz, foot, lod) {
+  const ee = Math.max(foot, lod + 0.8);
+  return Math.min(
+    jFlatY(S, gpx, gpz, lod),
+    jFlatY(S, gpx + ee, gpz, lod),
+    jFlatY(S, gpx, gpz + ee, lod),
+  );
+}
+
+/** terrainAround, line for line: shelter and *hillside* slope from two
+ *  deliberately non-orthogonal samples ninety metres out, with the gradient
+ *  they imply solved rather than assumed. Writes [ao, slope]. */
+function jTerrainAround(S, gpx, gpz, gy, lod, out) {
+  const R = Math.max(90, lod * 4.5);
+  const sl = Math.max(lod, R * 0.42);
+  const d1x = 0.95 * R, d1z = 0.30 * R;
+  const d2x = -0.60 * R, d2z = -0.75 * R;
+  const h1 = jFlatY(S, gpx + d1x, gpz + d1z, sl) - gy;
+  const h2 = jFlatY(S, gpx + d2x, gpz + d2z, sl) - gy;
+  out[0] = jClamp(1 - jClamp(Math.max(h1, h2) / R, 0, 1) * 0.55, 0.2, 1);
+  const det = d1x * d2z - d1z * d2x;
+  const gx = (h1 * d2z - h2 * d1z) / det;
+  const gz = (d1x * h2 - d2x * h1) / det;
+  out[1] = jClamp(Math.hypot(gx, gz), 0, 2);
+}
+
+/** floraMask, line for line. Two things here are easy to flatten and must not
+ *  be: m0 and m1 sample the raw gp while `flow` comes from drainage at
+ *  gp + the site offset — they are different points — and the whole vec3 is
+ *  scaled, so the constant y channel is scaled too. */
+function jFloraMask(gpx, gpz, slope, shelter, flow, above) {
+  const m0 = jSnoise(gpx * 0.0021, 401 * 0.0021, gpz * 0.0021) * 0.5 + 0.5;
+  const m1 = jSnoise(gpx * 0.017, 53 * 0.017, gpz * 0.017) * 0.5 + 0.5;
+  const stand = jSmoothstep(0.22, 0.66, m0 * 0.60 + m1 * 0.40) * 1.45;
+  const sl = 1 - jSmoothstep(0.20, 0.55, slope);
+  const sh = jMix(0.70, 1.45, shelter);
+  const wet = 1 + jSmoothstep(0.36, 0.92, flow) * 1.4;
+  const alt = 1 - jSmoothstep(0.34 + (m0 - 0.5) * 0.34, 0.80 + (m0 - 0.5) * 0.34, above);
+  return jClamp(stand * sl * sh * wet * alt, 0, 1.4);
+}
+
+// Scratch, at module scope: this path allocates nothing per call.
+const _Wt = [0, 0, 0, 0, 0];
+const _Wta = [0, 0];
+
+/** One instance of the trees band, answered without a frame.
+ *
+ * The shader's own order, from `vec4 dat = uDatum;` to the grow test, with the
+ * view-dependent parts left out: behindCamera and the dh fade decide what is
+ * *drawn*, not what exists, and the crown LOD decides how much of a tree to
+ * build. One term is genuinely dropped rather than merely skipped —
+ * `grow *= 1 - smoothstep(uFade*0.55, uFade, dh)` — because for trees uFade is
+ * 760, so the factor is exactly 1 inside 418 m and collision happens inside 25.
+ * treecheck keeps the term on the GPU side, so if it ever does fire in range
+ * the two disagree and the check fails rather than the rover quietly gaining a
+ * wall.
+ *
+ * @param {Surface} S
+ * @param {number} i          instance index into _trees
+ * @param {number} camX,camZ  the drawn frame's camera, ground metres
+ * @param {number} fwdX,fwdZ  the drawn frame's camera forward, need not be unit
+ * @returns {{accept:boolean, grow:number, gy:number, H:number, trR:number,
+ *            x:number, z:number, tx:number, tz:number}}
+ */
+function jTreeAccept(S, i, camX, camZ, fwdX, fwdZ) {
+  const T = S._trees;
+  const iA = T.iA, iB = T.iB, k = i * 4;
+  jTileTo(iA[k], iA[k + 1], T.tile, camX, camZ, fwdX, fwdZ, _Wt);
+  const gpx = _Wt[0], gpz = _Wt[1];
+  const s = Math.fround(iA[k + 2] + _Wt[2]);
+
+  const lod = jMeshLod(Math.hypot(gpx, gpz), S.U);
+  const gy = jStandOnY(S, gpx, gpz, iB[k] * 2, lod);
+  jTerrainAround(S, gpx, gpz, gy, lod, _Wta);
+  const ao = _Wta[0], slope = _Wta[1];
+
+  const seaY = S._seaY;
+  const above = jClamp((gy - seaY) / 900, 0, 1);
+  const shelter = jClamp((1 - ao) * 1.7, 0, 1);        // shelterOf
+  /* drainage takes the *pre-scaled* q — the GLSL scales the vec3 by 0.00013
+     before calling, and jDrainage starts after that. And it is sampled at
+     gp + the site offset, unlike floraMask's own two lookups. */
+  const dk = 0.00013;
+  const flow = jDrainage((gpx + S._site[0]) * dk, S.U.uSeed.value * 31.7 * dk,
+    (gpz + S._site[1]) * dk);
+  const m = jFloraMask(gpx, gpz, slope, shelter, flow, above)
+    * Math.pow(S.U.uVeg.value, 0.55);
+
+  const pick = T.pick, form = T.form;
+  // hash11(s*9.13 + 0.77), folded and fused — see the note above the constants
+  const hs = jHash11From(Math.fround(s * J_HS_K + J_HS_B));
+  let grow = jClamp((m - pick[0] - hs * pick[1]) * 2.1, 0, 1);
+  grow *= 1 - jSmoothstep(pick[2], pick[3], slope);
+  grow *= jSmoothstep(form[2], form[3], Math.hypot(gpx, gpz));
+  const ty = S.U.uType.value | 0;
+  if ((ty === 0 || ty === 5) && gy < seaY + 1.5) grow = 0;
+
+  /* Stature is a property of the tree, not of the piece being drawn, so it
+     comes off the instance seed alone — the same q1/q3 the shader uses. At
+     grow 0 a tree is still 0.55 of full height, which is why a marginal tree
+     is not a sapling and why treecheck reports the tallest mismatch. */
+  const q1 = jHash11From(Math.fround(s * J_H137K));   // hash11(s*1.37), folded
+  const q3 = jHash11From(Math.fround(s * J_H473K));   // hash11(s*4.73), folded
+  const H = iB[k + 1] * (0.62 + 0.55 * q1) * (0.55 + 0.45 * grow);
+  const trR = H * 0.021 * (0.80 + 0.4 * q3);
+
+  return {
+    accept: grow > 0.004, grow, gy, H, trR,
+    x: gpx, z: gpz, tx: _Wt[3], tz: _Wt[4],
+  };
+}
+
 /* Exported so the two implementations can actually be diffed rather than
    assumed equal. Nothing in the game imports this. */
 export const __fieldJS = {
@@ -1595,7 +1838,8 @@ export const __fieldJS = {
    acceptance test exists twice and the two copies have to be diffable rather
    than assumed equal. Nothing in the game imports this. */
 export const __woodyJS = {
-  hash11: jHash11, meshLod: jMeshLod,
+  hash11: jHash11, meshLod: jMeshLod, tileTo: jTileTo, accept: jTreeAccept,
+  GROW_MIN: J_GROW_MIN,
 };
 
 /* ------------------------------------------------------ where you came down
