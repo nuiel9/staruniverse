@@ -424,9 +424,17 @@ Harness mechanics, named here because they are the fiddly part:
   `texelFetch` by instance index derived from `gl_FragCoord`. They are declared
   in the probe as plain `vec4`s filled from those fetches — the slice
   references `iA` and `iB` by name and must not see an `attribute`.
-- Declare `uniform mat4 viewMatrix, projectionMatrix;` in the fragment shader.
-  This is legal — three.js only injects those declarations into the vertex
-  stage — and they are filled from the live camera at each pose.
+- Declare `uniform mat4 viewMatrix, projectionMatrix;` in the fragment shader,
+  and use a **`RawShaderMaterial`** to do it.
+
+  An earlier draft of this line said the declaration was safe because three
+  only injects those uniforms into the vertex stage. That is false, and it was
+  checked against the vendored r185 rather than remembered: three's fragment
+  prefix emits `uniform mat4 viewMatrix;` for every non-raw material. It is
+  true of `projectionMatrix` and not of `viewMatrix`, so a probe built on
+  `ShaderMaterial` fails to compile on a redeclaration — which is the whole
+  reason both the checker and the shipped guard use `RawShaderMaterial`, which
+  gets no prefix at all beyond `#version` and two `#define`s.
 - Output `(accept, grow, gy, H)` per instance.
 - Compare only instances the pose did not `behindCamera`-cull, or use a pose
   that cannot cull them. A culled instance has no `grow` to compare.
