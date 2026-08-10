@@ -170,6 +170,13 @@ here, but `hash11` amplifies its input error by roughly three to four orders of
 magnitude. Budget: **~1e-3 in `grow`**, against a margin of `0.046`. That is a
 prediction, not a claim. `treecheck` measures it.
 
+If the driver contracts the `dot(t, vec2(7.31, 3.77))` inside `sShift`, `s`
+loses a ulp at a scale of ~100 — about `1e-5` — and the same amplification puts
+`5e-3` to `1e-2` into `grow`. Still comfortably inside the margin, but a
+measured bound at 10–20 % of it is the expected outcome in that case rather
+than a sign something is wrong. What would be a sign is a bound above `1e-2`,
+or any accept/reject disagreement away from the threshold.
+
 ### 2.3 The dropped term
 
 Dropped: `grow *= 1 - smoothstep(uFade*0.55, uFade, dh)`.
@@ -335,14 +342,43 @@ controller does not have.
 
 Built on `fieldcheck.mjs`'s trick: the acceptance prologue is not exported, so
 lift it out of the material three has already compiled —
-`surface.floraMeshes.find(m => m.name === 'trees').material.vertexShader` —
-slice from `void main(){` to the `grow <= 0.004` line, and run it in a
-**fragment** shader that writes one texel per instance to an `RGBA32F` target.
+`surface.floraMeshes.find(m => m.name === 'trees').material.vertexShader` — and
+run it in a **fragment** shader that writes one texel per instance to an
+`RGBA32F` target.
+
+**Where the slice starts, and why not at `void main(){`.** The obvious slice —
+`void main(){` through the `grow <= 0.004` line — will not compile in a
+fragment stage, for three reasons that are all in the first forty lines of it:
+the three early-outs write `gl_Position`; the crown-LOD block reads the
+`position` **attribute** (`Surface.js:4229`, `4236`); and by the time the
+source is a compiled string the `${tree ? ...}` markers are gone, so that block
+cannot be excised by marker either.
+
+So the slice runs from **`vec4 dat = uDatum;`** (`Surface.js:4240`) through the
+`grow <= 0.004` test, rewritten as an accept flag. That one move skips all
+three early-outs and the LOD block, and it keeps every line of the risky
+arithmetic — `standOn`, `terrainAround`, `floraMask`, `drainage`, both
+`hash11`s in `grow` — as live text lifted from the shader rather than as a
+third copy.
+
+Two things then have to be hand-written in the probe:
+
+- **The preamble**, three lines: `gp = tileTo(iA.xy, uTileP, uCamPos,
+  viewMatrix, sShift)`, `s = iA.z + sShift`, and `dh`. `tileTo` itself is still
+  live chunk text, so only the call sites are duplicated.
+- **`H`**, which is not in the slice at all: it is computed *after* the grow
+  test (`Surface.js:4319`) and its `q1`/`q3` hashes sit below
+  `float bi = position.z;`, so extending the slice to reach it would pull the
+  attribute back in. Its three lines are duplicated in the probe. That is one
+  formula existing in three places, which is a real cost and is accepted
+  because check 1 below fails loudly on any mismatch in it.
 
 Harness mechanics, named here because they are the fiddly part:
 
 - `iA` and `iB` upload as two `RGBA32F` textures, `n` texels wide;
-  `texelFetch` by instance index derived from `gl_FragCoord`.
+  `texelFetch` by instance index derived from `gl_FragCoord`. They are declared
+  in the probe as plain `vec4`s filled from those fetches — the slice
+  references `iA` and `iB` by name and must not see an `attribute`.
 - Declare `uniform mat4 viewMatrix, projectionMatrix;` in the fragment shader.
   This is legal — three.js only injects those declarations into the vertex
   stage — and they are filled from the live camera at each pose.
