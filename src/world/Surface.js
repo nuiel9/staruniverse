@@ -1849,6 +1849,107 @@ function jTreeAccept(S, i, camX, camZ, fwdX, fwdZ) {
   };
 }
 
+/** The probe's two shaders, cut out of a live compiled flora material.
+ *
+ * There is exactly one copy of this assembly and both callers use it, which is
+ * the whole point of it being a function at all. `tools/treecheck.mjs` stage 1
+ * runs it on a developer's machine against three synthetic poses;
+ * `Surface._probeTreeAgreement` runs it on the player's machine at the pose
+ * they landed at. If those two compiled different text they would be entitled
+ * to different answers, and the one that ships would be reporting an agreement
+ * the checker never established — Task 4 measured exactly that: a hand-written
+ * cut-down probe gets optimised differently from the real vertex stage and
+ * disagrees with it, which cost an afternoon and one wrong fix. A guard that
+ * compiles a different expression tree from the stage it is vouching for is
+ * worse than no guard.
+ *
+ * Where the acceptance slice starts is the whole trick. Slicing from
+ * `void main(){` picks up three early-outs that write gl_Position and a
+ * crown-LOD block that reads the `position` attribute — neither is legal in a
+ * fragment shader, and by the time the source is a compiled string the
+ * `${tree ? ...}` markers that would let you cut the block out are gone.
+ * Starting at `vec4 dat = uDatum;` steps over all of it in one move and still
+ * keeps every line that could be wrong as live shader text.
+ *
+ * The functions AND the uniforms come from the same compiled source, and the
+ * marker for that region is the first line of FIELD_UNIFORMS rather than
+ * `const float VSCALE`. tools/fieldcheck.mjs slices from VSCALE and
+ * hand-declares the uniforms it needs, which is why it broke the day uSeaDrop
+ * was added: VSCALE sits below the field uniforms, so that slice starts after
+ * them. Starting at `uniform float uSeed;` picks up every uniform the chunks
+ * below declare. The in/out/attribute/varying declarations in the region are
+ * stripped: iA and iB become plain globals filled by texelFetch, and the vertex
+ * stage's varyings would collide with our own output.
+ *
+ * NOISE is prepended rather than sliced because it sits *above* the uniform
+ * region in floraVert, and it is the same module constant the material was
+ * built from, so this is not a second copy of it.
+ *
+ * Neither source carries `#version 300 es`: three prepends exactly that line
+ * and nothing else to a RawShaderMaterial declared `glslVersion: GLSL3`, and
+ * the checker's raw WebGL2 path prepends the same string itself, so the two
+ * compile byte-identical text.
+ *
+ * @param {string} vsrc  a flora material's vertexShader source (TREE_VERT)
+ * @returns {{vert:string, frag:string}}
+ * @throws if either marker has moved — silence there would mean probing
+ *   something other than the acceptance test, which is the one failure this
+ *   whole mechanism cannot afford.
+ */
+export function treeProbeGLSL(vsrc) {
+  const a = vsrc.indexOf('vec4 dat = uDatum;');
+  const b = vsrc.indexOf('if(grow <= 0.004)');
+  if (a < 0 || b < 0 || b < a) throw new Error('could not find the acceptance slice');
+  const body = vsrc.slice(a, b);
+
+  const fs0 = vsrc.indexOf('uniform float uSeed;');
+  const fs1 = vsrc.indexOf('void main(');
+  if (fs0 < 0 || fs1 < 0) throw new Error('could not find the chunk region');
+  const chunk = vsrc.slice(fs0, fs1)
+    .split('\n').filter((L) => !/^\s*(in|out|attribute|varying)\s/.test(L)).join('\n');
+
+  /* One full-screen triangle, and the attribute has to be called `position`
+     because three takes a non-indexed draw's vertex count off
+     geometry.attributes.position — a differently named attribute draws
+     nothing. The clip position is written directly, so no matrix is read and
+     the camera's projection never enters into it. */
+  const vert = `
+  in vec3 position;
+  void main(){ gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+  const frag = `
+  precision highp float;
+  ${NOISE.replace(/^#ifndef LS_NOISE|#define LS_NOISE|#endif$/gm, '')}
+  uniform mat4 viewMatrix, projectionMatrix;
+  ${chunk}
+  uniform sampler2D uIA, uIB;
+  uniform int uN;
+  vec4 iA, iB;
+  out vec4 oCol;
+  void main(){
+    int idx = int(gl_FragCoord.y)*64 + int(gl_FragCoord.x);
+    if(idx >= uN){ oCol = vec4(-1.0); return; }
+    ivec2 tc = ivec2(idx % 64, idx / 64);
+    iA = texelFetch(uIA, tc, 0);
+    iB = texelFetch(uIB, tc, 0);
+    float sShift;
+    vec2 gp = tileTo(iA.xy, uTileP, uCamPos, viewMatrix, sShift);
+    float s = iA.z + sShift;
+    float dh = length(vec2(gp.x - uCamPos.x, gp.y - uCamPos.z));
+    ${body}
+    float accept = grow > 0.004 ? 1.0 : 0.0;
+    /* H is not in the slice — it is computed below the grow test and below
+       \`float bi = position.z;\`, so reaching it would drag the attribute back
+       in. Three lines, duplicated, and treecheck stage 1 fails loudly if this
+       copy and the JS one ever disagree. */
+    float q1 = hash11(s*1.37), q3 = hash11(s*4.73);
+    float H = iB.y*(0.62 + 0.55*q1)*(0.55 + 0.45*grow);
+    oCol = vec4(accept, grow, gy, H);
+  }`;
+
+  return { vert, frag };
+}
+
 /* Exported so the two implementations can actually be diffed rather than
    assumed equal. Nothing in the game imports this. */
 export const __fieldJS = {
@@ -6311,6 +6412,15 @@ export class Surface {
     this._treeMemo = null;
     this._treeMemoPrev = null;
     this._treeMemoAt = 0;          // the camera cell these were computed in
+    /* Whether this device's shader compiler and the CPU twin above agree about
+       which candidates are trees — null until the question has been asked, and
+       it is asked once per world rather than once per frame. See
+       verifyTreeAgreement for why a question the language cannot answer has to
+       be put to the machine, and treesNear for what happens when the answer is
+       no. Per surface rather than per session on purpose: it is cheap, it is
+       once, and a landing is the only moment where taking a few tens of
+       milliseconds to be sure costs nobody a frame they would notice. */
+    this._treeAgreement = null;
     /* The camera the *drawn* frame used, stashed at the moment its uniforms
        are written. tileTo wraps every tiled instance into the cell nearest a
        point 0.32 periods down the view axis, so which trees exist at all
@@ -7300,6 +7410,207 @@ export class Surface {
   }
 
   /**
+   * Does this device's shader compiler agree with the CPU about which
+   * candidates are trees?
+   *
+   * It has to be asked, on the real machine, because the agreement rests on
+   * something the language does not guarantee. `hash11` is inlined by the
+   * shader compiler, its leading multiply is folded back into whatever
+   * constants the caller built the argument from, and the survivor is
+   * contracted into a single rounding — and the JS twin is written to match
+   * that folded form exactly, because `hash11` is `fract`-based and an
+   * argument one ulp out gives a completely different number about a quarter
+   * of the time. See the woody section of "the same law, twice".
+   *
+   * A driver that folds differently would therefore not disagree slightly, it
+   * would disagree completely: a forest the CPU believes in and the player
+   * cannot see. That is the invisible wall the handoff calls worse than no
+   * collision at all, and `tools/treecheck.mjs` cannot see the player's
+   * machine. So the comparison ships, runs once, and on disagreement takes
+   * tree collision away rather than trusting it — which degrades to exactly
+   * the behaviour before this branch existed, and which the handoff names as
+   * the acceptable failure of the two.
+   *
+   * Not being able to run the probe at all counts as disagreement, for the
+   * same reason: an unverified guarantee is not a guarantee.
+   *
+   * @param {THREE.WebGLRenderer} renderer
+   * @returns {{ok:boolean, worst:number, reason:string}}
+   */
+  verifyTreeAgreement(renderer) {
+    if (this._treeAgreement) return this._treeAgreement;
+    if (!this._trees) {
+      return (this._treeAgreement = { ok: true, worst: 0, reason: 'no trees band' });
+    }
+    let out;
+    try {
+      out = this._probeTreeAgreement(renderer);
+    } catch (e) {
+      out = { ok: false, worst: Infinity, reason: `probe failed: ${e && e.message}` };
+    }
+    if (!out.ok) {
+      console.warn('[surface] tree collision disabled:', out.reason,
+        `worst grow disagreement ${out.worst}`);
+    }
+    return (this._treeAgreement = out);
+  }
+
+  /**
+   * Evaluate the live material's own acceptance slice over the whole instance
+   * table, on the game's renderer, and diff `grow` against the CPU twin.
+   *
+   * The shader is `treeProbeGLSL`'s — the identical text treecheck stage 1
+   * compiles, for the reason written at length there. It is a
+   * `RawShaderMaterial` rather than a `ShaderMaterial` because three injects a
+   * prefix into a `ShaderMaterial`'s fragment stage that already declares
+   * `viewMatrix`, which the slice declares itself; a redeclaration is a
+   * compile error and there is no way to opt out of the prefix.
+   *
+   * The instance table goes in as two 64x64 float textures rather than as
+   * instanced attributes because the probe is a full-screen triangle, not a
+   * scatter: one fragment answers for one candidate, and `texelFetch` reads the
+   * same float32 the vertex stage would have been handed.
+   *
+   * The pose is the *stashed* camera pair, not a synthetic one. That is the
+   * entire reason for doing this at runtime rather than trusting three fixed
+   * poses in a tool: it is the copy of the band the player is actually
+   * standing in that has to be right, and `tileTo` folds the tile index back
+   * into every seed, so a different pose is a different set of hashes.
+   *
+   * The renderer state discipline is `bake`'s, and for the same reasons —
+   * including `shadowMap.needsUpdate`, which is one flag for the whole renderer
+   * that the first `render()` of a frame consumes.
+   *
+   * @param {THREE.WebGLRenderer} renderer
+   * @returns {{ok:boolean, worst:number, reason:string}}
+   */
+  _probeTreeAgreement(renderer) {
+    const T = this._trees;
+    const mesh = this.floraMeshes.find((m) => m.name === 'trees');
+    if (!mesh) throw new Error('the trees band has no mesh to slice');
+    const src = treeProbeGLSL(mesh.material.vertexShader);
+
+    const camX = this._camXZ.x, camZ = this._camXZ.y;
+    const fwdX = this._camFwdXZ.x, fwdZ = this._camFwdXZ.y;
+
+    /* 64x64 holds 4096 candidates and the largest band is 1050, so one texel
+       per instance fits with room to spare; the tail is padded with zeros and
+       masked off by uN in the shader. RGBAFormat/FloatType/Nearest because
+       these are four raw float32s per instance and not a picture — any
+       filtering or format conversion here would be a quiet corruption of the
+       exact bits the whole comparison is about. */
+    const mkTex = (a) => {
+      const pad = new Float32Array(64 * 64 * 4);
+      pad.set(a.subarray(0, Math.min(a.length, pad.length)));
+      const t = new THREE.DataTexture(pad, 64, 64, THREE.RGBAFormat, THREE.FloatType);
+      t.minFilter = THREE.NearestFilter;
+      t.magFilter = THREE.NearestFilter;
+      t.needsUpdate = true;
+      return t;
+    };
+    const texA = mkTex(T.iA), texB = mkTex(T.iB);
+
+    const rt = new THREE.WebGLRenderTarget(64, 64, {
+      type: THREE.FloatType,
+      minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+      depthBuffer: false, stencilBuffer: false, generateMipmaps: false,
+    });
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(
+      new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
+
+    /* Every uniform the sliced chunk declares, by sharing the live material's
+       own bag rather than retyping any of it — a uniform that changes name or
+       meaning upstream then reaches the probe automatically instead of
+       silently keeping an old value. uCamPos is the one that must NOT be
+       shared: it is written per frame for the material that is drawing, and
+       the probe needs the stashed pose in it, so it gets its own object. */
+    const mat = new THREE.RawShaderMaterial({
+      glslVersion: THREE.GLSL3,
+      vertexShader: src.vert,
+      fragmentShader: src.frag,
+      uniforms: Object.assign({}, mesh.material.uniforms, {
+        uCamPos: { value: new THREE.Vector3(camX, 0, camZ) },
+        uIA: { value: texA }, uIB: { value: texB }, uN: { value: T.n },
+      }),
+      depthTest: false, depthWrite: false,
+    });
+
+    const quad = new THREE.Mesh(geo, mat);
+    quad.frustumCulled = false;
+    const scn = new THREE.Scene();
+    scn.add(quad);
+
+    /* The GPU reads the heading out of the view matrix — tileTo takes
+       -(viewM[0][2], viewM[2][2]) — so the pose has to reach the shader as a
+       camera rather than as a pair of numbers. lookAt builds exactly the
+       matrix treecheck's stage 1 assembles by hand: it points the camera's -Z
+       at the target with +Y up, which makes viewM[0][2] and viewM[2][2] the
+       camera's own +Z in world, which is what tileTo negates. The forward is
+       handed over unnormalised, because lookAt normalises it itself and
+       jTileTo normalises the same pair — and the degenerate fallback below is
+       jTileTo's own, so a stationary camera cannot make the two disagree about
+       a direction neither of them has. */
+    const cam = new THREE.Camera();
+    cam.position.set(camX, 0, camZ);
+    const fl = Math.hypot(fwdX, fwdZ);
+    cam.lookAt(camX + (fl > 1e-4 ? fwdX : 0), 0, camZ + (fl > 1e-4 ? fwdZ : 1));
+    cam.updateMatrixWorld();
+
+    const px = new Float32Array(64 * 64 * 4);
+    const prevTarget = renderer.getRenderTarget();
+    const prevClear = renderer.autoClear;
+    const wasNeeded = renderer.shadowMap.needsUpdate;
+    try {
+      renderer.autoClear = true;
+      renderer.setRenderTarget(rt);
+      renderer.render(scn, cam);
+      renderer.readRenderTargetPixels(rt, 0, 0, 64, 64, px);
+    } finally {
+      renderer.setRenderTarget(prevTarget);
+      renderer.autoClear = prevClear;
+      renderer.shadowMap.needsUpdate = wasNeeded;
+      /* Every one of these is a GPU allocation on a path that runs once, so
+         they go back before the verdict is even computed — a probe that leaked
+         a render target per landing would be a worse bug than the one it is
+         looking for. */
+      rt.dispose(); texA.dispose(); texB.dispose(); geo.dispose(); mat.dispose();
+    }
+
+    let worst = 0;
+    for (let i = 0; i < T.n; i++) {
+      const js = jTreeAccept(this, i, camX, camZ, fwdX, fwdZ);
+      worst = Math.max(worst, Math.abs(js.grow - px[i * 4 + 1]));
+    }
+
+    /* Half the 0.046 margin, the same gate treecheck measures against — the
+       CPU collides at 0.05 and the GPU draws at 0.004, so an invisible wall
+       needs 0.046 of disagreement in grow and this keeps a factor of two in
+       hand. It is not a delicate threshold: a folding mismatch is the hash's
+       whole range times 0.72, so it lands near 1.0 against a gate of 0.023 and
+       the discrimination is about forty to one.
+
+       There is one structural disagreement that is not a folding failure and
+       has to fit under the gate, which is why the gate is not tighter than
+       treecheck's. The GPU side keeps `grow *= 1 - smoothstep(uFade*0.55,
+       uFade, dh)` — it is above the grow test, so it is inside the slice — and
+       the CPU twin drops it, on the argument that trees fade from 418 m and
+       collision happens inside 25. Bounded rather than assumed: the wrap puts
+       an instance at most half a period per axis from the cell centre, which
+       for a 420 m tile is 297 m diagonally, and the centre is 0.32 periods
+       (134 m) down the view axis, so dh cannot exceed 431 m. At 431 m the
+       smoothstep has reached 0.0045, so the very worst that term can
+       contribute is 0.0045 in grow against a gate of 0.023 — a fifth of it,
+       and only for an instance that is both at the far corner of the cell and
+       growing. */
+    const GATE = 0.023;
+    return worst <= GATE
+      ? { ok: true, worst, reason: 'device agrees' }
+      : { ok: false, worst, reason: 'device disagrees about which candidates are trees' };
+  }
+
+  /**
    * The trees a thing at (x, z) could run into, within r metres.
    *
    * Three passes, cheapest first, because the acceptance test is twelve
@@ -7324,11 +7635,18 @@ export class Surface {
    * @param {number} z
    * @param {number} r  metres
    * @returns {Array<{i:number, x:number, z:number, r:number, H:number, gy:number}>}
-   *   trunk centres and trunk radii. Empty when the world has no trees band.
+   *   trunk centres and trunk radii. Empty when the world has no trees band,
+   *   and empty for the whole world when verifyTreeAgreement has found that
+   *   this device's shader compiler answers the acceptance test differently
+   *   from the CPU — see there for why that is the failure to prefer.
    */
   treesNear(x, z, r) {
     const T = this._trees;
     if (!T) return [];
+    /* Unverified means off. The check runs once and caches; a world whose
+       device disagrees has no tree collision at all rather than collision the
+       player cannot see the reason for. */
+    if (this._treeAgreement && !this._treeAgreement.ok) return [];
     const camX = this._camXZ.x, camZ = this._camXZ.y;
     const fwdX = this._camFwdXZ.x, fwdZ = this._camFwdXZ.y;
     const period = T.tile;

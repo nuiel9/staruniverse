@@ -7,9 +7,12 @@
  * disagreement there is not a small error in a height, it is a tree that one
  * copy has and the other does not.
  *
- * Three stages, cheapest first, in the order that localises a failure:
+ * Four stages, cheapest first, in the order that localises a failure:
  *   0  hash11 and meshLod alone, JS against GPU. The precision story lives here.
  *   1  the whole acceptance test, per instance, at three camera poses.
+ *   3  the guard the game ships, which asks stage 1's question on the player's
+ *      machine. It runs here, out of numerical order, because everything below
+ *      it goes through treesNear and the guard is what turns treesNear off.
  *   2  the near-field index: copy stability and the threshold margin.
  *
  * Runs against the DEV server, like fieldcheck — it imports source modules.
@@ -218,7 +221,6 @@ const POSES = [
 const s1 = await page.evaluate(async (POSES) => {
   const g = window.__game;
   const S = g.surface;
-  const mod = await import('/src/gfx/glsl/noise.js');
   const surfMod = await import('/src/world/Surface.js');
   const WJ = surfMod.__woodyJS;
   if (!WJ.accept) return { err: '__woodyJS.accept is not exported' };
@@ -227,36 +229,25 @@ const s1 = await page.evaluate(async (POSES) => {
 
   const mesh = S.floraMeshes.find((m) => m.name === 'trees');
   if (!mesh) return { err: 'no trees mesh' };
-  const vsrc = mesh.material.vertexShader;
 
-  /* The slice, and where it starts is the whole trick.
-     Slicing from `void main(){` picks up three early-outs that write
-     gl_Position and a crown-LOD block that reads the `position` attribute —
-     neither is legal in a fragment shader, and by the time the source is a
-     compiled string the ${tree ? ...} markers that would let you cut the block
-     out are gone. Starting at `vec4 dat = uDatum;` steps over all of it in one
-     move and still keeps every line that could be wrong as live shader text. */
-  const a = vsrc.indexOf('vec4 dat = uDatum;');
-  const b = vsrc.indexOf('if(grow <= 0.004)');
-  if (a < 0 || b < 0 || b < a) return { err: 'could not find the acceptance slice' };
-  const body = vsrc.slice(a, b);
+  /* The slice is not built here any more, and that is the point: the shipped
+     guard (stage 3, Surface.verifyTreeAgreement) has to compile the *same*
+     text this stage does, or a pass here says nothing about what the player's
+     machine will conclude. Task 4 measured that a cut-down probe is optimised
+     differently and answers differently, so the assembly lives in one place —
+     Surface.treeProbeGLSL — and both callers use it. All that differs between
+     the two is how the uniforms are fed: raw WebGL2 here, a RawShaderMaterial
+     on the game's own renderer there.
 
-  /* The functions AND the uniforms, from the same compiled source.
-     The marker is the first line of FIELD_UNIFORMS, not `const float VSCALE`.
-     fieldcheck slices from VSCALE and hand-declares the uniforms it needs,
-     which is why it broke the day uSeaDrop was added — VSCALE is at
-     Surface.js:420 and the field uniforms are at 306-346, so that slice starts
-     *after* them. Starting at `uniform float uSeed;` picks up every uniform the
-     chunks below declare and still excludes everything three prepends (its own
-     matrices, precision qualifiers and the position/normal/uv attributes).
-     The in/out/attribute declarations at the bottom of the region are stripped:
-     iA and iB become plain globals filled by texelFetch, and the vertex stage's
-     varyings would collide with our own output. */
-  const fs0 = vsrc.indexOf('uniform float uSeed;');
-  const fs1 = vsrc.indexOf('void main(');
-  if (fs0 < 0 || fs1 < 0) return { err: 'could not find the chunk region' };
-  const chunk = vsrc.slice(fs0, fs1)
-    .split('\n').filter((L) => !/^\s*(in|out|attribute|varying)\s/.test(L)).join('\n');
+     The `#version` line is prepended by each caller rather than carried in the
+     sources, because three prepends exactly that string and nothing else to a
+     RawShaderMaterial declared GLSL3 — so both compiles see identical text. */
+  let SRC;
+  try {
+    SRC = surfMod.treeProbeGLSL(mesh.material.vertexShader);
+  } catch (e) {
+    return { err: `treeProbeGLSL: ${e && e.message}` };
+  }
 
   const cv = document.createElement('canvas');
   cv.width = 64; cv.height = 64;
@@ -264,39 +255,8 @@ const s1 = await page.evaluate(async (POSES) => {
   if (!gl) return { err: 'no webgl2' };
   if (!gl.getExtension('EXT_color_buffer_float')) return { err: 'no float rt' };
 
-  const VS = `#version 300 es
-  in vec2 aPos;
-  void main(){ gl_Position = vec4(aPos, 0.0, 1.0); }`;
-
-  const FS = `#version 300 es
-  precision highp float;
-  ${mod.NOISE.replace(/^#ifndef LS_NOISE|#define LS_NOISE|#endif$/gm, '')}
-  uniform mat4 viewMatrix, projectionMatrix;
-  ${chunk}
-  uniform sampler2D uIA, uIB;
-  uniform int uN;
-  vec4 iA, iB;
-  out vec4 oCol;
-  void main(){
-    int idx = int(gl_FragCoord.y)*64 + int(gl_FragCoord.x);
-    if(idx >= uN){ oCol = vec4(-1.0); return; }
-    ivec2 tc = ivec2(idx % 64, idx / 64);
-    iA = texelFetch(uIA, tc, 0);
-    iB = texelFetch(uIB, tc, 0);
-    float sShift;
-    vec2 gp = tileTo(iA.xy, uTileP, uCamPos, viewMatrix, sShift);
-    float s = iA.z + sShift;
-    float dh = length(vec2(gp.x - uCamPos.x, gp.y - uCamPos.z));
-    ${body}
-    float accept = grow > 0.004 ? 1.0 : 0.0;
-    /* H is not in the slice — it is computed below the grow test and below
-       \`float bi = position.z;\`, so reaching it would drag the attribute back
-       in. Three lines, duplicated, and check 1 below fails loudly if this copy
-       and the JS one ever disagree. */
-    float q1 = hash11(s*1.37), q3 = hash11(s*4.73);
-    float H = iB.y*(0.62 + 0.55*q1)*(0.55 + 0.45*grow);
-    oCol = vec4(accept, grow, gy, H);
-  }`;
+  const VS = `#version 300 es${SRC.vert}`;
+  const FS = `#version 300 es${SRC.frag}`;
 
   function sh(type, src) {
     const s = gl.createShader(type);
@@ -313,12 +273,16 @@ const s1 = await page.evaluate(async (POSES) => {
     if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
   } catch (e) { return { err: String(e).slice(0, 2000) }; }
 
+  /* Three components and the name `position`, because the shared vertex source
+     is also what three draws the probe quad with, and three takes a
+     non-indexed draw's vertex count off geometry.attributes.position. */
   const quad = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, quad);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-  const loc = gl.getAttribLocation(prog, 'aPos');
+  gl.bufferData(gl.ARRAY_BUFFER,
+    new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), gl.STATIC_DRAW);
+  const loc = gl.getAttribLocation(prog, 'position');
   gl.enableVertexAttribArray(loc);
-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+  gl.vertexAttribPointer(loc, 3, gl.FLOAT, false, 0, 0);
 
   const mkTex = (unit, data) => {
     const t = gl.createTexture();
@@ -505,6 +469,42 @@ for (const r of s1.results) {
     `${r.mismatches} disagreements · furthest ${r.worstMismatchDistance.toExponential(2)} from 0.004`
     + ` · tallest ${r.tallestMismatch} m`);
 }
+
+// ---------------------------------------- stage 3: the guard that ships
+/* The runtime self-check has to reach the same verdict this whole tool does,
+   on the machine the tool is running on — otherwise it is either dead weight
+   or it is about to disable a working feature for every player.
+
+   Numbered 3 and placed second, which needs saying. Every stage below this one
+   goes through `treesNear`, and `treesNear` is exactly what the guard switches
+   off — so on a machine where the guard fires, stage 2 finds an empty index
+   and stage 2b exits the process before a stage 3 at the bottom of the file
+   would ever run. That is the one run where this check has something to say,
+   so it runs before them. It depends on nothing they produce: the verdict was
+   reached at landing, by Game.js, and cached. */
+const s3 = await page.evaluate(async () => {
+  const g = window.__game;
+  const S = g.surface;
+  if (typeof S.verifyTreeAgreement !== 'function') {
+    return { err: 'Surface.verifyTreeAgreement does not exist' };
+  }
+  const v = S.verifyTreeAgreement(g.renderer);
+  const near = S.treesNear(0, 0, 25);
+  return {
+    ok: v && v.ok, worst: v && v.worst, reason: v && v.reason,
+    cached: S._treeAgreement === v,
+    /* And it must not have disabled anything on a machine that agrees. Not an
+       assertion that trees exist at the origin — that is a property of the
+       world — only that the guard is not the reason if they do not. */
+    disabled: (v && v.ok) === false && near.length === 0,
+  };
+});
+
+if (s3.err) { console.error('stage 3:', s3.err); await browser.close(); process.exit(1); }
+check('the shipped guard agrees with the checker', s3.ok,
+  `worst ${Number(s3.worst).toExponential(2)} · ${s3.reason}`
+  + (s3.disabled ? ' · treesNear is returning nothing' : ''));
+check('the guard caches its verdict rather than re-probing', s3.cached);
 
 // -------------------------------------------- stage 2: the near-field index
 const s2 = await page.evaluate(async (POSES) => {

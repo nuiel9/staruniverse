@@ -1469,6 +1469,14 @@ export class Game {
          frame for the rest of the landing. See Surface.bake — it is two point
          draws over the grid's own vertex buffer. */
       surface.bake(this.renderer);
+      /* And ask this machine whether it agrees with us about the trees, while
+         there is still a renderer in hand and nothing on screen yet. The CPU
+         copy of the tree acceptance test matches the GPU only because it is
+         written against what one shader compiler does to hash11, which the
+         language does not guarantee — so the comparison runs here, once per
+         landing, and takes tree collision away rather than trusting it if this
+         device answers differently. See Surface.verifyTreeAgreement. */
+      surface.verifyTreeAgreement(this.renderer);
       await this._nextFrame();
       if (this.transition !== T) { surface.dispose(); return; }
       this._buildGround(b, surface);
@@ -1504,6 +1512,8 @@ export class Game {
   _buildGroundNow(b) {
     const surface = new Surface(b.spec, this.quality);
     surface.bake(this.renderer);
+    // The same device check the staged path runs — see the note there.
+    surface.verifyTreeAgreement(this.renderer);
     this._buildGround(b, surface);
     this._stageGround();
     this._finishGround();
