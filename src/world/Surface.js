@@ -1885,17 +1885,30 @@ function jTreeAccept(S, i, camX, camZ, fwdX, fwdZ) {
  * region in floraVert, and it is the same module constant the material was
  * built from, so this is not a second copy of it.
  *
- * Neither source carries `#version 300 es`: three prepends exactly that line
- * and nothing else to a RawShaderMaterial declared `glslVersion: GLSL3`, and
- * the checker's raw WebGL2 path prepends the same string itself, so the two
- * compile byte-identical text.
+ * Neither source carries the preamble three will put in front of it, and
+ * `prefix` is what that preamble is. An earlier version of this comment said
+ * three prepends `#version 300 es` "and nothing else" to a RawShaderMaterial,
+ * which is not true and is the wrong kind of claim to have on a mechanism whose
+ * whole justification is that it measures rather than predicts: r185's raw path
+ * (WebGLProgram.js, the `isRawShaderMaterial` branch) prepends the version line
+ * and then `#define SHADER_TYPE <material.type>` and
+ * `#define SHADER_NAME <material.name>`, plus any custom defines, of which the
+ * probe declares none. Those two macros are inert here — nothing in the slice
+ * or in NOISE goes by either name — but "inert" is a thing someone has to
+ * re-establish, whereas identical text is not. So the checker prepends the
+ * version line and this same `prefix`, and the two paths compile the same
+ * bytes. TREE_PROBE_NAME is the material name that makes the second macro
+ * predictable; without setting it the name would be the empty string, which
+ * still emits the line and is a worse thing to have to remember.
  *
  * @param {string} vsrc  a flora material's vertexShader source (TREE_VERT)
- * @returns {{vert:string, frag:string}}
+ * @returns {{vert:string, frag:string, prefix:string}}
  * @throws if either marker has moved — silence there would mean probing
  *   something other than the acceptance test, which is the one failure this
  *   whole mechanism cannot afford.
  */
+export const TREE_PROBE_NAME = 'treeAgreementProbe';
+
 export function treeProbeGLSL(vsrc) {
   const a = vsrc.indexOf('vec4 dat = uDatum;');
   const b = vsrc.indexOf('if(grow <= 0.004)');
@@ -1947,7 +1960,12 @@ export function treeProbeGLSL(vsrc) {
     oCol = vec4(accept, grow, gy, H);
   }`;
 
-  return { vert, frag };
+  /* Exactly what three's raw path builds and joins with a newline, in its
+     order — see the comment above. It ends in a newline because three's does:
+     `prefixVertex += '\n'` once the list is non-empty. */
+  const prefix = `#define SHADER_TYPE RawShaderMaterial\n#define SHADER_NAME ${TREE_PROBE_NAME}\n`;
+
+  return { vert, frag, prefix };
 }
 
 /* Exported so the two implementations can actually be diffed rather than
@@ -7457,7 +7475,10 @@ export class Surface {
 
   /**
    * Evaluate the live material's own acceptance slice over the whole instance
-   * table, on the game's renderer, and diff `grow` against the CPU twin.
+   * table, on the game's renderer, and diff it against the CPU twin — `grow`,
+   * which decides whether a tree exists at all, and `H`, which is where the
+   * other two folded hashes show up and which sets the trunk radius the
+   * collision uses. Both gates are argued at the bottom of the method.
    *
    * The shader is `treeProbeGLSL`'s — the identical text treecheck stage 1
    * compiles, for the reason written at length there. It is a
@@ -7498,7 +7519,15 @@ export class Surface {
        masked off by uN in the shader. RGBAFormat/FloatType/Nearest because
        these are four raw float32s per instance and not a picture — any
        filtering or format conversion here would be a quiet corruption of the
-       exact bits the whole comparison is about. */
+       exact bits the whole comparison is about.
+
+       Said out loud rather than left to the count, because both the padding
+       and the did-it-draw check below depend on it: a band that outgrew the
+       texture would be silently truncated at 4096 and would have no spare
+       texel left to prove the draw happened. */
+    if (T.n > 64 * 64 - 1) {
+      throw new Error(`the trees band (${T.n}) no longer fits one 64x64 probe texture`);
+    }
     const mkTex = (a) => {
       const pad = new Float32Array(64 * 64 * 4);
       pad.set(a.subarray(0, Math.min(a.length, pad.length)));
@@ -7528,6 +7557,10 @@ export class Surface {
        the probe needs the stashed pose in it, so it gets its own object. */
     const mat = new THREE.RawShaderMaterial({
       glslVersion: THREE.GLSL3,
+      /* Named, because three writes the name into a `#define SHADER_NAME` line
+         in front of both stages and the checker has to reproduce that line
+         exactly — see treeProbeGLSL's `prefix`. */
+      name: TREE_PROBE_NAME,
       vertexShader: src.vert,
       fragmentShader: src.frag,
       uniforms: Object.assign({}, mesh.material.uniforms, {
@@ -7578,10 +7611,40 @@ export class Surface {
       rt.dispose(); texA.dispose(); texB.dispose(); geo.dispose(); mat.dispose();
     }
 
-    let worst = 0;
+    /* Did the draw actually happen? Nothing above this line would notice if it
+       had not. A device without a renderable float target, or one where three
+       logs a shader compile failure and carries on rather than throwing, leaves
+       the cleared buffer in `px` — which reads as `grow = 0` for every instance
+       and would be *reported* as the device disagreeing about which candidates
+       are trees. That verdict is the safe direction by luck rather than by
+       construction, and worse, the console line and any bug report built on it
+       would name the wrong cause.
+
+       The probe already writes its own proof: `oCol = vec4(-1.0)` for every
+       texel past uN, and with 693 instances in 4096 texels there are thousands
+       of them. Nothing that failed to draw can produce a -1, so one texel is
+       enough to tell a rendered frame from a cleared one. The last one is used
+       because the band is guaranteed shorter than the texture. */
+    if (px[(64 * 64 - 1) * 4] !== -1) {
+      throw new Error('the probe did not draw — no float render target, or the '
+        + 'slice failed to compile');
+    }
+
+    let worst = 0, worstH = 0;
     for (let i = 0; i < T.n; i++) {
       const js = jTreeAccept(this, i, camX, camZ, fwdX, fwdZ);
       worst = Math.max(worst, Math.abs(js.grow - px[i * 4 + 1]));
+      /* Stature as well as existence, because `grow` alone does not cover the
+         fold. H and the trunk radius come off hash11(s*1.37) and hash11(s*4.73)
+         — the same folding question with different constants — and trR is what
+         treesNear hands the collision as the radius. A driver that folded
+         9.13*0.1031 the way this machine does and 1.37*0.1031 some other way
+         would sail through a grow-only diff and then give the rover trunks of
+         the wrong size. That is a bounded failure rather than an invisible wall
+         (the tree is drawn, the radius is out by decimetres) which is why it is
+         a second gate and not this one, but the number is already in the buffer
+         and leaving it unread was a blind spot in the unsafe direction. */
+      worstH = Math.max(worstH, Math.abs(js.H - px[i * 4 + 3]));
     }
 
     /* Half the 0.046 margin, the same gate treecheck measures against — the
@@ -7605,9 +7668,43 @@ export class Surface {
        and only for an instance that is both at the far corner of the cell and
        growing. */
     const GATE = 0.023;
-    return worst <= GATE
-      ? { ok: true, worst, reason: 'device agrees' }
-      : { ok: false, worst, reason: 'device disagrees about which candidates are trees' };
+    /* Half a metre, and it is deliberately not treecheck's ten millimetres.
+       That gate is measured on a developer's machine against a twin known to be
+       right, where 10 mm is tight enough to catch a *differently* folded q1 —
+       the naive transliteration is out by 2.9e-3 in q1, which is 29 mm of
+       stature at this band's 18 m ceiling. This one has a different job and two
+       hard bounds to sit between.
+
+       Below it: H is a function of grow as well as of q1, at about 9.5 m per
+       unit of grow, so the dropped fade term bounded at 0.0045 above carries up
+       to 43 mm of stature with it. A gate at 10 mm would fire on that alone, on
+       a device that agrees about everything, and take collision away for no
+       reason.
+
+       Above it: the failure this is for is a *wrapped* hash, not a shifted one.
+       q1 then disagrees across its whole range, and H moves by
+       iB.y*0.55*Δq1*(0.55 + 0.45*grow) — at the shortest tree the band can
+       produce, 6 m, that is already 1.8 m, and the number taken here is the
+       worst over the whole band, where a quarter of the instances are wrong at
+       once. Measured rather than argued: 1.37*0.1031 perturbed by a single ulp
+       puts this at 3.48 m while `grow` stays at 3.1e-4, which is the blind spot
+       this term exists to close and the proof that a grow-only diff would have
+       shipped straight past it.
+
+       So half a metre sits about a hundred times above what an agreeing device
+       measures here (3 mm), twelve times above the largest disagreement that is
+       still not a fault, and seven times below the smallest one that is. */
+    const GATE_H = 0.5;
+    if (worst > GATE) {
+      return { ok: false, worst, reason: 'device disagrees about which candidates are trees' };
+    }
+    if (worstH > GATE_H) {
+      return {
+        ok: false, worst,
+        reason: `device disagrees about tree stature by ${worstH.toFixed(2)} m`,
+      };
+    }
+    return { ok: true, worst, reason: 'device agrees' };
   }
 
   /**
@@ -7643,10 +7740,20 @@ export class Surface {
   treesNear(x, z, r) {
     const T = this._trees;
     if (!T) return [];
-    /* Unverified means off. The check runs once and caches; a world whose
-       device disagrees has no tree collision at all rather than collision the
-       player cannot see the reason for. */
-    if (this._treeAgreement && !this._treeAgreement.ok) return [];
+    /* Unverified means off, and that is the whole condition rather than half of
+       it. This line used to read `this._treeAgreement && !this._treeAgreement.ok`,
+       which let a surface whose agreement had never been *asked about* collide
+       freely — the exact case verifyTreeAgreement's own doc calls disagreement,
+       written the opposite way round. A Surface is constructed in exactly two
+       places, both in Game.js — `_prepareGround` and `_buildGroundNow` — and
+       both verify immediately after `bake`, before `_buildGround` publishes the
+       surface as `T.surface` and `_stageGround` as `game.surface`. There is no
+       path to a surface a caller could reach that has not been asked, so this
+       half of the condition should never fire; if some later path forgets, the
+       consequence is a rover that drives through trees on a surface nobody
+       checked, which is the failure this whole mechanism is built to prefer.
+       The check runs once and caches. */
+    if (!this._treeAgreement || !this._treeAgreement.ok) return [];
     const camX = this._camXZ.x, camZ = this._camXZ.y;
     const fwdX = this._camFwdXZ.x, fwdZ = this._camFwdXZ.y;
     const period = T.tile;

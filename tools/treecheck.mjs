@@ -239,9 +239,13 @@ const s1 = await page.evaluate(async (POSES) => {
      the two is how the uniforms are fed: raw WebGL2 here, a RawShaderMaterial
      on the game's own renderer there.
 
-     The `#version` line is prepended by each caller rather than carried in the
-     sources, because three prepends exactly that string and nothing else to a
-     RawShaderMaterial declared GLSL3 — so both compiles see identical text. */
+     The preamble is prepended by each caller rather than carried in the
+     sources, and it is three's preamble both times: the version line, then the
+     SHADER_TYPE/SHADER_NAME defines a RawShaderMaterial gets whether or not
+     anyone wants them. treeProbeGLSL hands back that prefix so this side can
+     reproduce it verbatim — the two macros are inert, but a probe that
+     compiled *nearly* the same text would be back to arguing that a difference
+     does not matter, which is the argument this whole file exists to refuse. */
   let SRC;
   try {
     SRC = surfMod.treeProbeGLSL(mesh.material.vertexShader);
@@ -255,8 +259,8 @@ const s1 = await page.evaluate(async (POSES) => {
   if (!gl) return { err: 'no webgl2' };
   if (!gl.getExtension('EXT_color_buffer_float')) return { err: 'no float rt' };
 
-  const VS = `#version 300 es${SRC.vert}`;
-  const FS = `#version 300 es${SRC.frag}`;
+  const VS = `#version 300 es\n${SRC.prefix}${SRC.vert}`;
+  const FS = `#version 300 es\n${SRC.prefix}${SRC.frag}`;
 
   function sh(type, src) {
     const s = gl.createShader(type);
