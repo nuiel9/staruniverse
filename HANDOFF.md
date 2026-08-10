@@ -71,6 +71,28 @@ same reasoning runs one level up: `Surface.verifyTreeAgreement` asks this
 machine's compiler the question once per landing, and `treesNear` returns
 nothing at all for the whole world if the answer is no.
 
+That guard is not belt-and-braces. The JS only agrees with the shader because
+it is written against what this machine's compiler *does* to an inlined
+`fract` hash — folds its leading multiply into the caller's constants and fuses
+the result — and written the way the GLSL reads instead, `grow` came out wrong
+by the hash's whole range on 785 of 2079 samples. That is a compiler's habit,
+not a language guarantee, so it is asked rather than assumed.
+
+Three things it does not cover, none of them known to be wrong and all cheap to
+close if you want to:
+
+- **One world.** Everything measured is the first vegetated terran in this
+  galaxy. `tools/treecheck.mjs` already takes the world type as its first
+  argument, so `node tools/treecheck.mjs desert` is a run, not a build.
+- **`tileTo`'s seed shift** is written as two separate roundings and measures
+  bit-exact — but only over the tile indices three poses reach, about 4 against
+  a world that tops out near 15. Same folding question, unguarded. It would
+  fail loudly rather than silently.
+- **The stature check reads `q1` and not `q3`,** so a driver that folded one
+  constant this machine's way and the other differently would ship trunk radii
+  up to a fifth out. The probe's output vector is full; see the comment on
+  `GATE_H` for why that was accepted rather than repacked.
+
 ### Open, in the order I would take them
 
 **1. Sites are placed without checking the route.** `Sites.at()` picks a
