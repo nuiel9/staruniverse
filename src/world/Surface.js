@@ -6302,6 +6302,15 @@ export class Surface {
        Filled by the woody band below when the world has one; null otherwise,
        and every consumer checks. See treesNear. */
     this._trees = null;
+    /* The acceptance test is twelve height-field evaluations per candidate, so
+       the answer is memoised per (instance, tile index) — it is deterministic
+       per copy, and the tile index changes once every 420 m of driving. Two
+       generations are kept: the current tile's answers and the previous
+       tile's, so crossing a boundary does not throw away everything at once
+       and then re-derive it. Anything older is dropped whole. */
+    this._treeMemo = null;
+    this._treeMemoPrev = null;
+    this._treeMemoAt = 0;          // the camera cell these were computed in
     /* The camera the *drawn* frame used, stashed at the moment its uniforms
        are written. tileTo wraps every tiled instance into the cell nearest a
        point 0.32 periods down the view axis, so which trees exist at all
@@ -7288,6 +7297,96 @@ export class Surface {
     const nx = -(ya - yc) * 0.5, nz = -(yb - yd) * 0.5;
     const l = Math.hypot(nx, e, nz) || 1;
     return { x: nx / l, y: e / l, z: nz / l };
+  }
+
+  /**
+   * The trees a thing at (x, z) could run into, within r metres.
+   *
+   * Three passes, cheapest first, because the acceptance test is twelve
+   * height-field evaluations and there are 1050 candidates: wrap every
+   * instance into the copy the camera is standing in (one floor and one
+   * multiply), reject on distance, and only then ask whether the survivors are
+   * trees at all. At one tree per ~168 m² a 25 m disc holds a dozen candidates
+   * before acceptance, so the expensive pass runs a dozen times, not a
+   * thousand — and memoised, most of those dozen are already answered.
+   *
+   * The threshold is J_GROW_MIN, not the shader's 0.004. See its comment: the
+   * two copies disagree near a hard binary and this is which way the
+   * disagreement is allowed to hurt.
+   *
+   * Asks about the camera pair the last drawn frame used, which on the ground
+   * is one frame old — Rover.update runs before updateCamera and updateSurface.
+   * At a hard yaw that is about 3.5 m of movement in the cell centre against
+   * some forty metres of margin before a tree could change copies. See the
+   * design note; treecheck stage 2 measures the margin that is actually left.
+   *
+   * @param {number} x
+   * @param {number} z
+   * @param {number} r  metres
+   * @returns {Array<{i:number, x:number, z:number, r:number, H:number, gy:number}>}
+   *   trunk centres and trunk radii. Empty when the world has no trees band.
+   */
+  treesNear(x, z, r) {
+    const T = this._trees;
+    if (!T) return [];
+    const camX = this._camXZ.x, camZ = this._camXZ.y;
+    const fwdX = this._camFwdXZ.x, fwdZ = this._camFwdXZ.y;
+    const period = T.tile;
+
+    /* Which cell the camera itself is in, which is what ages the memo. Not the
+       per-instance tile index — that varies by one across the band, because
+       each instance wraps about its own base position. */
+    const fl = Math.hypot(fwdX, fwdZ);
+    const ux = fl > 1e-4 ? fwdX / fl : 0, uz = fl > 1e-4 ? fwdZ / fl : 1;
+    const cx = camX + ux * period * 0.32, cz = camZ + uz * period * 0.32;
+    const epoch = Math.floor(cx / period + 0.5) * 8191 + Math.floor(cz / period + 0.5);
+    if (!this._treeMemo || epoch !== this._treeMemoAt) {
+      this._treeMemoPrev = this._treeMemo;
+      this._treeMemo = new Map();
+      this._treeMemoAt = epoch;
+    }
+    const cur = this._treeMemo, prev = this._treeMemoPrev;
+
+    const out = [];
+    const r2 = r * r;
+    const iA = T.iA;
+    for (let i = 0; i < T.n; i++) {
+      const k = i * 4;
+      jTileTo(iA[k], iA[k + 1], period, camX, camZ, fwdX, fwdZ, _Wt);
+      const dx = _Wt[0] - x, dz = _Wt[1] - z;
+      if (dx * dx + dz * dz > r2) continue;
+
+      /* Keyed on the instance and its own tile index, because the same
+         candidate is a different tree in every copy — the tile index is folded
+         back into its seed. Numeric rather than a composed string so the hot
+         path allocates nothing. */
+      const key = i * 4096 + ((_Wt[3] & 63) << 6) + (_Wt[4] & 63);
+      /* A miss is `undefined`; a cached rejection is `null`. Keeping the two
+         apart is most of the point — the great majority of candidates are not
+         trees, and re-deriving that twelve samples at a time every frame is
+         the cost this cache exists to avoid. */
+      let e = cur.get(key);
+      if (e === undefined) {
+        e = prev ? prev.get(key) : undefined;
+        if (e === undefined) {
+          const a = jTreeAccept(this, i, camX, camZ, fwdX, fwdZ);
+          e = a.grow >= J_GROW_MIN
+            ? { i, x: a.x, z: a.z, r: a.trR, H: a.H, gy: a.gy }
+            : null;
+        }
+        cur.set(key, e);
+      }
+      if (e) out.push(e);
+    }
+    return out;
+  }
+
+  /** How many acceptance answers are currently cached. For treecheck, which
+   *  asserts that steady driving pays for a handful of new trees rather than
+   *  the whole band every frame. */
+  _treeMemoSize() {
+    return (this._treeMemo ? this._treeMemo.size : 0)
+      + (this._treeMemoPrev ? this._treeMemoPrev.size : 0);
   }
 
   dispose() {

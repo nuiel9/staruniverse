@@ -506,6 +506,95 @@ for (const r of s1.results) {
     + ` · tallest ${r.tallestMismatch} m`);
 }
 
+// -------------------------------------------- stage 2: the near-field index
+const s2 = await page.evaluate(async (POSES) => {
+  const g = window.__game;
+  const S = g.surface;
+  const surfMod = await import('/src/world/Surface.js');
+  const WJ = surfMod.__woodyJS;
+  if (typeof S.treesNear !== 'function') return { err: 'Surface.treesNear does not exist' };
+  const T = S._trees;
+  if (!T) return { err: 'this world has no trees band' };
+
+  const R = 25;
+  const out = [];
+  for (const pose of POSES) {
+    const [px, pz] = pose.p;
+    let [fx, fz] = pose.f;
+    const fl = Math.hypot(fx, fz) || 1; fx /= fl; fz /= fl;
+    /* Drive the stash directly. treesNear reads the pair the frame was drawn
+       with and nothing else, which is the property being tested — so the test
+       sets that pair rather than trying to pose a real camera. */
+    S._camXZ.set(px, pz);
+    S._camFwdXZ.set(fx, fz);
+
+    /* The rover sits ahead of the chase camera, which is 9.5 m behind it. Query
+       from there, which is where Rover.update will. */
+    const rx = px + fx * 9.5, rz = pz + fz * 9.5;
+
+    S._treeMemo = null;                     // cold, so the count below is real
+    const near = S.treesNear(rx, rz, R);
+    const cold = S._treeMemoSize ? S._treeMemoSize() : -1;
+    const again = S.treesNear(rx, rz, R);
+
+    // ground truth: run the acceptance over every instance for this pose
+    const truth = [];
+    for (let i = 0; i < T.n; i++) {
+      const a = WJ.accept(S, i, px, pz, fx, fz);
+      /* WJ.accept (jTreeAccept) answers about an instance without being told
+         its own index, so its return value has no `i` — tag it on here. The
+         complete/sound checks below key off `.i`, and without this every
+         truth entry compares as `undefined`, which fails both checks even
+         when the index is correct: the counts already agreeing while every
+         membership test fails is exactly that signature. */
+      if (a.grow >= WJ.GROW_MIN && Math.hypot(a.x - rx, a.z - rz) <= R) truth.push({ ...a, i });
+    }
+
+    /* c is where tileTo centres the cell. Every tree the index returns has to
+       be inside half a period of it per axis, or it is about to swap copies
+       under the rover — which is the one way a tree can move while you are
+       looking at it. */
+    const cx = px + fx * T.tile * 0.32, cz = pz + fz * T.tile * 0.32;
+    let worstAxis = 0;
+    for (const t of near) {
+      worstAxis = Math.max(worstAxis, Math.abs(t.x - cx), Math.abs(t.z - cz));
+    }
+
+    out.push({
+      pose: [px, pz],
+      count: near.length,
+      truth: truth.length,
+      /* Same query twice must give the same answer — the memo is a cache, not
+         a state machine. */
+      stable: JSON.stringify(near) === JSON.stringify(again),
+      complete: truth.every((t) => near.some((q) => q.i === t.i)),
+      sound: near.every((q) => truth.some((t) => t.i === q.i)),
+      radiiPositive: near.every((q) => q.r > 0 && q.r < 2),
+      worstAxis: +worstAxis.toFixed(1),
+      halfPeriod: T.tile / 2,
+      cold,
+    });
+  }
+  return { out, n: T.n };
+}, POSES);
+
+if (s2.err) { console.error('stage 2:', s2.err); await browser.close(); process.exit(1); }
+
+for (const r of s2.out) {
+  const at = `at (${r.pose[0]}, ${r.pose[1]})`;
+  check(`the index finds every collidable tree ${at}`, r.complete,
+    `${r.count} returned · ${r.truth} expected`);
+  check(`the index invents none ${at}`, r.sound && r.radiiPositive);
+  check(`the index is stable across calls ${at}`, r.stable);
+  /* The bound the whole camera-coupling argument rests on: a tree the rover can
+     touch must be well inside half a period of the cell centre, because past
+     that it belongs to a different copy and is a different tree. */
+  check(`no tree in range is near a copy boundary ${at}`,
+    r.worstAxis < r.halfPeriod - 30,
+    `furthest ${r.worstAxis} m of a ${r.halfPeriod} m half-period`
+    + ` · ${(r.halfPeriod - r.worstAxis).toFixed(0)} m of margin`);
+}
+
 const bad = checks.filter(([, ok]) => !ok).length;
 console.log(`\n${checks.length - bad}/${checks.length} ok`);
 await browser.close();
