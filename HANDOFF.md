@@ -134,6 +134,28 @@ site's floor — the floor there is the seam-bearing rule, not the lattice's
 radius. Treat this as the ground getting friendlier on average and the worst
 case getting shorter, not as a promise that every site is fair.
 
+Four loose ends, none known to be wrong and all cheap to close:
+
+- **The thresholds were tuned on one system, not the galaxy.** `WALL_TRIGGER`
+  and the acceptance budget both come off a 35-site distribution measured in
+  the home system, because the checker boots there and never jumps. Fourteen
+  systems exist. The design is distributional and explicitly not a guarantee,
+  so this is defensible — but the numbers are a sample, not a census.
+- **A deposit bearing of exactly 360° would disagree with itself.**
+  `Prospecting` rolls `round(rnd()*360)`, so 360 is reachable, and an eased
+  seam normalises it to 0 while the deposit keeps 360. Geometrically the same
+  place, textually a survey that contradicts the chart. Under one seam in a
+  galaxy; a one-line guard when someone is next in there.
+- **The tie-break is not monotonic.** Inside half a route step the ranking may
+  take a nominally longer wall for a faster drive, and `bestW` then moves with
+  it, so the winner depends on iteration order. Order is fixed, so it is
+  reproducible; quantisation bounds the drift to centimetres. Worth knowing
+  before anyone changes the loop.
+- **`_rolled` rides into the UI.** Each site keeps the position the seed rolled
+  so the checker can prove sites got better, and `manifest()` spreads it into
+  the rows the Codex and the chart consume. Nothing reads it there. Drop it
+  once the distribution is trusted.
+
 **The cost, re-measured after the wiring, not before it.** The design's §5 set
 a gate — if querying every solid body in a system for its sites costs more
 than about 100 ms, stop and bring the number back — and its own done-criterion
