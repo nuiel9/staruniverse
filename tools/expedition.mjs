@@ -6,6 +6,7 @@
 //   node tools/expedition.mjs [url]        default http://localhost:4173/
 import { chromium } from 'playwright';
 import { existsSync } from 'node:fs';
+import { MAX_FWD } from '../src/ship/driveModel.js';
 
 const URL = process.argv[2] || 'http://localhost:4173/';
 const exe = process.env.CHROMIUM
@@ -232,6 +233,119 @@ check('you cannot stow the rover from four kilometres away', home.refusedFarAway
 check('back at the ship it stows and recharges', home.stowed && home.recharged);
 check('the bin empties into the hold', home.moved === home.binBefore && home.binAfter === 0,
   `${home.binBefore} t transferred`);
+
+// ------------------------------------------------- markers are drivable to
+/* The distribution moving is not the claim a player cares about. This is: pick
+   the marker on a landed world and drive at it, and require arrival inside a
+   budget that scales with how far the marker actually is — see the budget
+   comment below for why a fixed wall-clock cap was the wrong shape for this
+   assertion — and that is tight enough to still catch the ten-minute
+   switchback the placement exists to prevent. */
+const reach = await page.evaluate(async (MAX_FWD) => {
+  const g = window.__game;
+  /* The hardest marker in the home system, not whichever world's bodies
+     happen to sort first. Picking the first world with any marker at all is
+     picking by iteration order, and a regression in the worst case can hide
+     behind a seed where the easy marker gets asked about instead. Picking the
+     greatest range means the check always exercises the site this feature
+     has the least room to help — see the budget comment for why range, not
+     difficulty, is what actually varies here. */
+  const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
+  let body = null, best = null;
+  for (const b of solid) {
+    for (const s of g.sites.at(b)) {
+      if (s.kind === 'marker' && (!best || s.range > best.range)) { body = b; best = s; }
+    }
+  }
+  if (!body) return { skipped: 'no world with a marker' };
+  if (g.landed) await g.liftOff({ now: true });
+  g.pose({ bodyRef: body, dist: 1.6, phase: 70, elev: 8 });
+  g.land(body, { now: true });
+  g.director.stop();
+  if (!g.landed) return { skipped: 'land refused' };
+  if (!g.landed.driving) g.toggleRover();
+  const m = g.sites.at(body).find((s) => s.kind === 'marker');
+  const R = g.rover;
+  R.charge = 1;
+  const input = { held: (a) => a === 'thrUp', touch: false };
+  const DT = 1 / 30;
+  const flatSecs = m.range / MAX_FWD;
+  /* A budget, not a stopwatch. An absolute cap measures how FAR the marker is,
+     which placement cannot change, and blames it on how HARD the route is,
+     which is the only thing placement affects — two markers on this seed sit
+     over four minutes away at full speed on dead-flat ground. So the budget is
+     a multiple of a flat-out run: 2.6x, comfortably above the 2.37x worst that
+     `npm run sitecheck` measures across every one of the 35 sites in this
+     home system, and far below the 10x a route pinned at the crawl floor would
+     reach. A failure here means the ground is fighting the drive, which is
+     the thing this branch is about. The flat +30 s covers steering overhead
+     near the target, where the "aim straight at it" loop below is not the
+     shortest possible path even on flat ground. */
+  const budget = flatSecs * 2.6 + 30;
+  // A runaway guard, not a claim about difficulty: nothing in the budget
+  // above should ever reach this, but a stuck rover should still stop the
+  // suite in twenty minutes rather than hang it.
+  const HARD_CAP = 20 * 60 * 30;
+  const CAP = Math.min(Math.ceil(budget * 30), HARD_CAP);
+  let steps = 0;
+  while (steps < CAP) {
+    // steer at it each step, as a player aiming for a marker does
+    R.yaw = Math.atan2(-(m.x - R.pos.x), -(m.z - R.pos.z));
+    R.update(DT, input, false);
+    steps++;
+    if (Math.hypot(R.pos.x - m.x, R.pos.z - m.z) <= m.reach) break;
+  }
+  const dist = Math.hypot(R.pos.x - m.x, R.pos.z - m.z);
+  const seconds = steps / 30;
+  const result = {
+    body: body.name, range: m.range, dist: Math.round(dist),
+    seconds: Math.round(seconds), arrived: dist <= m.reach,
+    charge: +R.charge.toFixed(2),
+    flatSecs: Math.round(flatSecs), budgetSecs: Math.round(budget),
+    ratio: +(seconds / flatSecs).toFixed(2),
+  };
+  /* Leave the rover parked at the ship rather than kilometres out at the
+     marker. This section's own physics loop never yields to a drawn frame —
+     it is thousands of synchronous `R.update` calls inside one evaluate — so
+     the ground scene's chase camera does not move a metre while it runs; the
+     camera only starts catching up to the rover once real frames resume
+     afterwards. Left at the marker, that catch-up becomes the trees section's
+     problem two subjects later, because on this galaxy the only world with
+     enough vegetation for a tree band is also the world this check just
+     landed on, so its own `liftOff`+`land` fires on the very body the camera
+     is still kilometres from converging on. `Surface.treesNear` looks up
+     trees around the *stashed* camera position, not the rover's, and a camera
+     that has not caught up answers from an empty patch of ground — measured
+     directly, with a scratch probe that teleports the rover instead of
+     driving it (so the physics loop is not a variable): every one of three
+     runs with no reset at all failed the trees checks below with "no tree
+     found in range"; this reset alone, with no extra frames, cut that to
+     roughly one run in three. */
+  R.pos.set(0, 0, 0);
+  return result;
+}, MAX_FWD);
+
+/* And give the camera the real frames it needs to actually get back there.
+   The reset above moves the rover instantly; the camera that trees section
+   depends on eases toward it, and it does that easing across genuine
+   animation frames, which only run between `page.evaluate` calls, not inside
+   one. Measured empirically on the same probe: zero explicit frames left the
+   intermittent failure from the reset alone; eight got every run to pass but
+   left the camera itself some 170 m adrift, closer than the failing case but
+   not converged; twelve settled it to within about twenty metres on every
+   run tried — comfortably inside the 300 m radius the parking step searches
+   and the 210 m half-period the tiling wraps at, which is the margin that
+   actually matters here rather than the exact distance. */
+for (let i = 0; i < 6; i++) {
+  await page.evaluate(() => new Promise((res) => {
+    requestAnimationFrame(() => requestAnimationFrame(res));
+  }));
+}
+
+check('a Hush marker is drivable to in a reasonable time', !reach.skipped && reach.arrived,
+  reach.skipped || `${reach.body} ${reach.range} m: ${reach.seconds} s driven vs `
+  + `${reach.flatSecs} s flat-out (${reach.ratio}x), budget ${reach.budgetSecs} s, `
+  + `${Math.round(reach.charge * 100)}% pack left`);
 
 // ------------------------------------------------ what the ground is worth
 const found = await page.evaluate(() => {

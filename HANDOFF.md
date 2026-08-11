@@ -93,29 +93,110 @@ close if you want to:
   up to a fifth out. The probe's output vector is full; see the comment on
   `GATE_H` for why that was accepted rather than repacked.
 
+**Sites are placed with the route in mind.** A marker used to be dropped at
+a bearing and a range with nothing asking whether the ground in between was
+climbable — a site could sit behind a face steep enough that reaching it meant
+ten minutes of switchbacks. `Sites.at()` now scores a small lattice of nearby
+bearings and range factors around the position the seed rolled, using the same
+drive model the rover itself runs on, and keeps whichever candidate has the
+shortest continuous stretch below a quarter of top speed — the wall in the
+way, not the length of the trip. A whole-route total was tried first and
+rejected: 500 m of 48° face inside an otherwise flat 5 km route dilutes to an
+unremarkable 1.9×, which is exactly the kind of site the original bug report
+was about and exactly what a total-time metric cannot see.
+
+Proven two ways. `npm run sitecheck` measures 35 sites over 12 worlds before
+and after easing and shows the worst wall shrinking (276 m → 249 m) with no
+site made worse; `npm run expedition` goes further and actually drives a
+rover, under its own steering, at the marker with the greatest range in the
+home system rather than whichever one sorts first. That check's budget is not
+a fixed wall-clock cap — an early version used one, and it was wrong: two
+markers on this seed sit over four minutes from their ship at full speed on
+flat ground, which a fixed cap would fail on distance alone regardless of how
+good the route is. The budget is a multiple of a flat-out run instead (2.6x,
+against sitecheck's measured worst of 2.37x across the home system), so the
+check is honest about what placement can and cannot fix: it cannot make a
+marker closer, only make the ground between the ship and it less of a fight.
+On this seed the hardest marker drives at 1.01x flat-out, well inside budget.
+
+The effect is not uniform, and the reason is structural rather than a bug.
+Markers and wrecks are free to change bearing as well as range, and their
+walls fall hard — markers' worst wall went 251 m → 100 m, mean 110 m → 30 m.
+Seams cannot turn at all: a seam's bearing belongs to the deposit it surveys,
+so easing can only slide it in or out along the ray the deposit already
+picked, and the worst seam wall only comes down 276 m → 249 m. **What this
+deliberately does not do:** it is not a guarantee — nothing is rejected for
+having a bad route, so a world of mountains is still a world of mountains and
+a sufficiently unlucky roll can still land near a wall the lattice's own reach
+cannot avoid. The search never widens past the lattice the brief fixed either,
+even though a wider one was measured and would not have changed the worst
+site's floor — the floor there is the seam-bearing rule, not the lattice's
+radius. Treat this as the ground getting friendlier on average and the worst
+case getting shorter, not as a promise that every site is fair.
+
+Four loose ends, none known to be wrong and all cheap to close:
+
+- **The thresholds were tuned on one system, not the galaxy.** `WALL_TRIGGER`
+  and the acceptance budget both come off a 35-site distribution measured in
+  the home system, because the checker boots there and never jumps. Fourteen
+  systems exist. The design is distributional and explicitly not a guarantee,
+  so this is defensible — but the numbers are a sample, not a census.
+- **A deposit bearing of exactly 360° would disagree with itself.**
+  `Prospecting` rolls `round(rnd()*360)`, so 360 is reachable, and an eased
+  seam normalises it to 0 while the deposit keeps 360. Geometrically the same
+  place, textually a survey that contradicts the chart. Under one seam in a
+  galaxy; a one-line guard when someone is next in there.
+- **The tie-break is not monotonic.** Inside half a route step the ranking may
+  take a nominally longer wall for a faster drive, and `bestW` then moves with
+  it, so the winner depends on iteration order. Order is fixed, so it is
+  reproducible; quantisation bounds the drift to centimetres. Worth knowing
+  before anyone changes the loop.
+- **`_rolled` rides into the UI.** Each site keeps the position the seed rolled
+  so the checker can prove sites got better, and `manifest()` spreads it into
+  the rows the Codex and the chart consume. Nothing reads it there. Drop it
+  once the distribution is trusted.
+
+**The cost, re-measured after the wiring, not before it.** The design's §5 set
+a gate — if querying every solid body in a system for its sites costs more
+than about 100 ms, stop and bring the number back — and its own done-criterion
+was that the measured cost get written down rather than assumed. The number
+that was first written down was a baseline taken before `Sites.at()` actually
+consumed the field, so it measured nothing the spec asked about. Re-measured
+after: a cold query of every solid body in a system (12 worlds, 35 sites)
+costs **172.5 / 175.0 / 186.2 ms** — of which ~93 ms is `pickSite`'s lattice
+search and ~80 ms is the route walks it scores. `groundField` alone is
+7.4–8.1 ms per body. Per body, cold, end to end: 8.2–25.6 ms; warm, cached,
+it's 0 ms. Read literally, the whole-system figure breaches the 100 ms gate by
+nearly 2x.
+
+That is the wrong number to gate on, because nothing in the game asks it. The
+gate assumes a survey queries every body in a system at once; nothing does.
+`Sites.at()`'s only non-`nearest` caller in `src/` is `Game.js`, and it asks
+for one body — the one just landed on — and the Codex reads one selected body
+at a time the same way. So the shape the spec guessed at (whole-system, every
+call) never happens; the shape production actually pays is one cold query per
+body, the first time that body's sites are asked for, cached after. That is
+an **8–26 ms hitch, once per world per session** — one dropped frame the first
+time you land somewhere or open its Codex page, not a stall that scales with
+how many bodies a system has. Restated in the shape that matters: the gate is
+clear, by a wide margin, for the query pattern that exists; it is not clear
+for a query pattern the game never issues.
+
 ### Open, in the order I would take them
 
-**1. Sites are placed without checking the route.** `Sites.at()` picks a
-bearing and a range and puts a marker there. Nothing guarantees a drivable
-path exists — a marker can sit behind a face too steep to climb. The rover can
-now always crawl (see below), so nothing is strictly unreachable, but a site
-that takes ten minutes of switchbacks is a bad site. Worth sampling a few
-candidate offsets at placement time and preferring the one with the gentler
-approach.
-
-**2. `mystery.mjs` has a stale assertion.** It checks "all five readings
+**1. `mystery.mjs` has a stale assertion.** It checks "all five readings
 reachable" and passes, but there are six now and it counts *found* rather than
 total. It is a weaker claim than its name suggests. `REVELATION_COUNT` is
 exported from `src/game/Mystery.js` for exactly this.
 
-**3. Cloud Run has never actually run.** `Dockerfile`, `nginx/` and
+**2. Cloud Run has never actually run.** `Dockerfile`, `nginx/` and
 `cloudbuild.yaml` are written and the YAML parses, but this container had no
 Docker, so no image was ever built. The first `gcloud builds submit` is the
 real test. README has the full walkthrough including the IAM step that bites
 people. Locally you can at least do `docker build -t staruniverse . && docker
 run --rm -p 8080:8080 staruniverse`.
 
-**4. Thai has never been seen rendered.** No Thai font in the container, so
+**3. Thai has never been seen rendered.** No Thai font in the container, so
 every screenshot here would have been tofu. The strings are all in
 `src/ui/i18n.js` (interface) and `src/ui/story.th.js` (fiction), 155 of the
 latter, and `npm run lang` proves coverage — but coverage is not quality.
