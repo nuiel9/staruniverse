@@ -210,6 +210,16 @@ export class Sites {
        half a metre of each other, and would split them arbitrarily. */
     const WALL_TRIGGER = 75;
 
+    /* Half a route step. `wall` can only ever be a multiple of the sampling
+       step, so a difference smaller than half of one is not a shorter wall, it
+       is float noise in where the samples happened to land — and chasing it
+       moved a seam six hundred metres further out to shave twenty-six
+       millimetres. Inside the band the drive time decides, which is what the
+       tie-break was always for. It also matters for determinism across
+       engines: the comparison runs through Math.sin and the drive curve, and a
+       sub-ulp difference in either must not be able to relocate a site. */
+    const WALL_EPS = ROUTE_STEP / 2;
+
     /* Applied after a site is otherwise built, because a seam's bearing is not
        known until its deposit has been consulted. Returns the site it was
        given, moved or not. */
@@ -242,7 +252,8 @@ export class Sites {
              both clear the ridge should differ on how long the drive is, but a
              shorter drive through a longer wall is the wrong answer — the wall
              is what gets reported as a broken vehicle. */
-          if (c.wall < bestW || (c.wall === bestW && c.secs < bestS)) {
+          if (c.wall < bestW - WALL_EPS
+              || (Math.abs(c.wall - bestW) <= WALL_EPS && c.secs < bestS)) {
             bestW = c.wall; bestS = c.secs; bestB = bear; bestR = rng;
           }
         }

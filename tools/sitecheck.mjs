@@ -186,6 +186,7 @@ const after = await page.evaluate(async () => {
         wall: now.wall, secs: now.secs,
         wasWall: was ? was.wall : null, wasSecs: was ? was.secs : null,
         range: s.range, bearing: s.bearing,
+        moved: !!s._rolled && (s._rolled.bearing !== s.bearing || s._rolled.range !== s.range),
         seamKeptBearing: s.kind !== 'seam' || (s.dep && s.bearing === s.dep.bearing),
       });
     }
@@ -198,13 +199,46 @@ const after = await page.evaluate(async () => {
   const paired = after.rows.filter((r) => r.wasWall !== null);
   const q = (xs, p) => { const s = xs.slice().sort((a, b) => a - b);
     return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : 0; };
-  const worsened = paired.filter((r) => r.wall > r.wasWall + 0.5);
-  const helped = paired.filter((r) => r.wall < r.wasWall - 0.5);
-  console.log(`\n  worst stretch  p90 ${q(paired.map((r) => r.wasWall), 0.9).toFixed(0)} m`
+  /* Half a route step, the same resolution the ranking itself uses — see
+     WALL_EPS in Sites.js. `wall` can only be a multiple of the sampling step,
+     and the step is len/n rather than exactly 25 m, so two positions crossing
+     the same number of crawl samples report walls differing by centimetres.
+     The ranking treats that band as a tie and lets the drive time decide, which
+     means a site may legitimately land on a nominally larger `wall` while
+     crossing the same wall on a shorter drive. Testing that at half a metre
+     would be making exactly the mistake the epsilon was added to stop making.
+     Above half a step it is a real regression and still a ranking bug: the
+     rolled position is in the lattice, so nothing can lose to it by a whole
+     sample. */
+  const WALL_EPS = 25 / 2;                        // half of Sites.js's ROUTE_STEP
+  const worsened = paired.filter((r) => r.wall > r.wasWall + WALL_EPS);
+  const nudged = paired.filter((r) => r.wall > r.wasWall + 0.5);
+  const helped = paired.filter((r) => r.wall < r.wasWall - WALL_EPS);
+  /* Where WALL_TRIGGER came from, kept reproducible from the committed tree.
+     Stage 1 above scores the sites `at()` returns, and those are eased now, so
+     the distribution the trigger was read off can only be recovered here — from
+     the rolled positions stage 2 still carries. The thing to look for in the
+     sorted list is the empty band: a run of sites with no crawl at all, five
+     with a single sample of it, then nothing until four samples. 75 m is the
+     middle of that gap, which is the one place a route step's worth of float
+     jitter cannot reach. */
+  const wasW = paired.map((r) => r.wasWall);
+  const sortedWas = wasW.slice().sort((a, b) => a - b);
+  console.log(`\n  before easing  median ${q(wasW, 0.5).toFixed(0)} m  p75 ${q(wasW, 0.75).toFixed(0)} m`
+    + `  p90 ${q(wasW, 0.9).toFixed(0)} m  worst ${q(wasW, 1).toFixed(0)} m`
+    + `  ·  ${wasW.filter((w) => w > 75).length}/${wasW.length} over the 75 m trigger`);
+  console.log(`  sorted, m      ${sortedWas.map((w) => w.toFixed(0)).join(' ')}`);
+  console.log(`  worst stretch  p90 ${q(paired.map((r) => r.wasWall), 0.9).toFixed(0)} m`
     + ` -> ${q(paired.map((r) => r.wall), 0.9).toFixed(0)} m`);
   console.log(`  worst site     ${q(paired.map((r) => r.wasWall), 1).toFixed(0)} m`
     + ` -> ${q(paired.map((r) => r.wall), 1).toFixed(0)} m`);
-  console.log(`  moved          ${helped.length}/${paired.length} sites improved`);
+  /* Both numbers, because they are different claims. A site moves when any
+     candidate beat the rolled one, and inside the tie band that means a shorter
+     drive across the same wall; it counts as improved only when the wall itself
+     lost a whole sample. Printing only the second made the first invisible, and
+     it was pointless movement hiding in the gap that got caught in review. */
+  console.log(`  moved          ${paired.filter((r) => r.moved).length}/${paired.length} sites,`
+    + ` ${helped.length} of them to a wall at least one sample shorter`);
 
   /* The claim is about the tail, because the tail is the whole point — the
      lattice cannot help a site that never had a wall, so demanding every site
@@ -214,7 +248,10 @@ const after = await page.evaluate(async () => {
   /* And nothing got worse: the rolled position is itself in the lattice, so
      picking the best can never lose to it. A regression is a ranking bug. */
   check('no site got a longer wall than the position it was rolled at', worsened.length === 0,
-    worsened.length ? `${worsened.length} worse, e.g. ${worsened[0].body} ${worsened[0].kind}` : 'none');
+    worsened.length ? `${worsened.length} worse, e.g. ${worsened[0].body} ${worsened[0].kind}`
+      : `none · ${nudged.length} inside the ${WALL_EPS} m tie band`
+        + nudged.map((r) => ` (${r.body} ${r.kind} ${r.wasWall.toFixed(2)} -> ${r.wall.toFixed(2)} m,`
+          + ` ${r.wasSecs.toFixed(0)} -> ${r.secs.toFixed(0)} s)`).join(''));
   check('seams kept their deposit bearing', after.rows.every((r) => r.seamKeptBearing));
   check('every site stayed inside the range band',
     after.rows.every((r) => r.range >= 700 && r.range <= 6200),
