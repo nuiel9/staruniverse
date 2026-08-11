@@ -205,6 +205,20 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
   font-size:9.5px;letter-spacing:.18em;color:rgba(186,214,230,.78)}
 #hints kbd{font:inherit;font-size:9.5px;letter-spacing:.1em;color:rgba(158,234,255,.96)}
 
+/* The steep warning, out where the driver is looking.
+   Same amber and same sentence as the chart's own line — one copy of the
+   string, keyed `gm.steep`, so the two cannot drift apart. A child of
+   #narrStack rather than absolutely placed: see the note beside it in the
+   markup, and the one above #prompt, for why a fixed offset here is a guess
+   that loses to a subtitle of unpredictable height. Empty collapses out of the
+   column, so a flat plain costs nothing and moves nothing. */
+#driveWarn{padding:5px 13px;background:rgba(6,13,20,.72);
+  border:1px solid rgba(232,164,76,.30);
+  clip-path:polygon(0 0,calc(100% - 5px) 0,100% 5px,100% 100%,5px 100%,0 calc(100% - 5px));
+  font-size:9.5px;letter-spacing:.18em;color:#e8a44c;text-align:center;white-space:nowrap}
+#driveWarn:empty{display:none}
+html[lang="th"] #driveWarn{letter-spacing:0;text-transform:none}
+
 /* fold banner */
 #foldOverlay{position:absolute;inset:0;display:grid;place-items:center;align-content:center;gap:12px;
   opacity:0;transition:opacity .4s;

@@ -32,6 +32,7 @@ export class HUD {
       promptLabel: document.getElementById('promptLabel'),
       promptHint: document.getElementById('promptHint'),
       hints: document.getElementById('hints'),
+      driveWarn: document.getElementById('driveWarn'),
       fold: document.getElementById('foldOverlay'),
       foldSub: document.getElementById('foldSub'),
       perf: document.getElementById('perf'),
@@ -59,7 +60,11 @@ export class HUD {
        invalidate it or the old strings would sit there until the context
        happened to change. */
     mountToggle(document.getElementById('hudLang'));
-    onLangChange(() => { this._hintKey = null; });
+    /* Both caches, not just the hints. Anything on this HUD that remembers what
+       it last wrote has to forget it when the language changes, or it keeps
+       showing the old one until its underlying state happens to move — and a
+       steep warning stays on screen for as long as the hill does. */
+    onLangChange(() => { this._hintKey = null; this._steep = null; });
   }
 
   show() { this.root.classList.remove('hidden'); requestAnimationFrame(() => this.root.classList.add('on')); }
@@ -139,6 +144,24 @@ export class HUD {
         this.el.promptLabel.textContent = st.label;
         this.el.promptHint.textContent = st.hint || '';
       }
+    }
+
+    /* ---- why the drive is fighting you
+       The chart has said this since the crawl floor went in, and it says it
+       well — but only while the chart is open. A player driving with it closed
+       met a vehicle that dropped to MAX_FWD*CRAWL_FLOOR, about 2.2 m/s, and
+       nothing anywhere told them why; over a few seconds on a hillside that
+       reads as a rover that has stopped, and it was reported as one.
+
+       Same threshold as the chart's line (gradeLoad > 0.75) and the same
+       string, so the two can never say different things about the same slope.
+       Written only when the state changes: this runs every frame and a DOM
+       write per frame for a value that changes every few seconds is waste. */
+    const steep = !!(g.landed && g.landed.driving && !uiOpen
+      && g.rover.gradeLoad > 0.75);
+    if (steep !== this._steep) {
+      this._steep = steep;
+      this.el.driveWarn.textContent = steep ? t('gm.steep') : '';
     }
 
     // ---- contextual control hints

@@ -94,6 +94,22 @@
          collapses out of the column and the subtitle sits exactly where it did
          before, at the 4% that was chosen to clear the main display. -->
     <div id="narrStack">
+      <!-- Why the drive is fighting you, where you are actually looking.
+           The surface chart has said STEEP since the crawl floor went in, but
+           only while the chart is open — so a player driving with it closed met
+           a vehicle that slowed to walking pace with no reason given, which is
+           exactly the "you are stuck with no explanation" the floor exists to
+           prevent. It was reported as a rover that had stopped; it had not.
+
+           It lives in this stack for the same reason the prompt does, and the
+           first attempt got it wrong in the way the note above predicts: pinned
+           absolutely at a guessed offset above the key row, it landed under the
+           subtitle, whose height depends on how many lines the dialogue runs
+           to. In the column it tracks that height instead. It also has to be
+           outside #hints, which is display:none on touch — a player on a phone
+           needs this more than a desktop one, not less. -->
+      <div id="driveWarn"></div>
+
       <!-- interaction prompt -->
       <div id="prompt" class="hidden">
         <b id="promptKey">E</b><span id="promptLabel"></span><em id="promptHint"></em>
