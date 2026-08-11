@@ -108,10 +108,16 @@ was about and exactly what a total-time metric cannot see.
 Proven two ways. `npm run sitecheck` measures 35 sites over 12 worlds before
 and after easing and shows the worst wall shrinking (276 m → 249 m) with no
 site made worse; `npm run expedition` goes further and actually drives a
-rover at a Hush marker under its own steering, requiring it to arrive within a
-four-minute budget. On this seed it takes 218 s of that 240 s cap — inside it,
-but with less room than the median site would suggest, which is a sign the
-worst tail is still worth narrowing rather than evidence the cap is wrong.
+rover, under its own steering, at the marker with the greatest range in the
+galaxy rather than whichever one sorts first. That check's budget is not a
+fixed wall-clock cap — an early version used one, and it was wrong: two
+markers on this seed sit over four minutes from their ship at full speed on
+flat ground, which a fixed cap would fail on distance alone regardless of how
+good the route is. The budget is a multiple of a flat-out run instead (2.6x,
+against sitecheck's measured worst of 2.3x across the whole galaxy), so the
+check is honest about what placement can and cannot fix: it cannot make a
+marker closer, only make the ground between the ship and it less of a fight.
+On this seed the hardest marker drives at 1.01x flat-out, well inside budget.
 
 The effect is not uniform, and the reason is structural rather than a bug.
 Markers and wrecks are free to change bearing as well as range, and their
