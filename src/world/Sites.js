@@ -1,7 +1,7 @@
 import { mulberry32 } from './generate.js';
 import { LOGS, OWN_LOG } from '../game/lore.js';
 import { groundField } from './Surface.js';
-import { driveSpeedAt } from '../ship/driveModel.js';
+import { driveSpeedAt, MAX_FWD } from '../ship/driveModel.js';
 
 /** How the route is sampled. 25 m steps at the rover's own grade LOD.
  *
@@ -13,34 +13,68 @@ import { driveSpeedAt } from '../ship/driveModel.js';
 const ROUTE_STEP = 25;
 const ROUTE_LOD = 14;
 
+/* What counts as ground the drive has given up on.
+ *
+ * A quarter of full speed. Working back through the curve, a bite of 0.25 is a
+ * climb of about 0.48 — some twenty-five degrees — which is a face you steer
+ * around rather than up. Below this the vehicle is visibly crawling, and a
+ * player watching it crawl is the entire reason this feature exists: the report
+ * that started it said the rover had stopped, and it had not, it was doing
+ * 2.2 m/s up a forty-eight degree slope.
+ *
+ * Note this is a speed and not a grade, so it follows the drive model wherever
+ * that goes rather than having to be re-derived if the curve is retuned. */
+const WALL_SPEED = MAX_FWD * 0.25;
+
 /**
- * How long the drive from (x0, z0) to (x1, z1) would take, in seconds.
+ * What the drive from (x0, z0) to (x1, z1) costs, two ways.
+ *
+ * `secs` is the whole trip. `wall` is the longest **continuous** stretch, in
+ * metres, that the drive has effectively given up on — and that second number
+ * is the one placement ranks on, because it is the one a player experiences.
+ * Total time dilutes a wall: five hundred metres of forty-eight degree face
+ * inside an otherwise flat five kilometres comes out at 1.9x a flat-out run,
+ * which is unremarkable, while the five hundred metres in the middle of it is
+ * the thing that gets reported as a broken vehicle. Measured over 35 sites
+ * before this was written; see tools/sitecheck.mjs.
+ *
+ * Contiguous rather than total, because two separate fifty-metre pinches are a
+ * drive with some character in it and one four-hundred-metre pinch is a wall.
  *
  * The straight line, because that is the line a player instinctively takes and
- * the one that produced the complaint this exists to answer. Nothing here finds
- * a path or suggests one; it measures how much the ground would argue.
+ * the one that produced the complaint. Nothing here finds a path or suggests
+ * one; it measures how much the ground would argue.
  *
  * Only climbing costs, exactly as the drive does — which is what makes a site
  * on the near side of a ridge score better than the same site on the far side.
  *
  * @param {{heightAt:(x:number,z:number,lod?:number)=>number}} field
- * @returns {number} seconds
+ * @returns {{secs:number, wall:number}} seconds, and metres of the worst stretch
  */
-export function routeTime(field, x0, z0, x1, z1) {
+export function routeCost(field, x0, z0, x1, z1) {
   const dx = x1 - x0, dz = z1 - z0;
   const len = Math.hypot(dx, dz);
-  if (len < 1) return 0;
+  if (len < 1) return { secs: 0, wall: 0 };
   const n = Math.max(1, Math.round(len / ROUTE_STEP));
   const sx = dx / n, sz = dz / n, step = len / n;
-  let t = 0;
+  let secs = 0, wall = 0, run = 0;
   let h0 = field.heightAt(x0, z0, ROUTE_LOD);
   for (let i = 1; i <= n; i++) {
     const x = x0 + sx * i, z = z0 + sz * i;
     const h1 = field.heightAt(x, z, ROUTE_LOD);
-    t += step / driveSpeedAt((h1 - h0) / step);
+    const v = driveSpeedAt((h1 - h0) / step);
+    secs += step / v;
+    if (v <= WALL_SPEED) { run += step; if (run > wall) wall = run; } else run = 0;
     h0 = h1;
   }
-  return t;
+  return { secs, wall };
+}
+
+/** The trip time alone. Kept because the checker's distribution is expressed in
+ *  it and because "how long would this take" is a question worth being able to
+ *  ask on its own. One walk underneath, so the two can never disagree. */
+export function routeTime(field, x0, z0, x1, z1) {
+  return routeCost(field, x0, z0, x1, z1).secs;
 }
 
 /* ============================================================================
@@ -144,6 +178,84 @@ export class Sites {
       };
     };
 
+    /* The lattice: bearing nudges and range factors applied to the position the
+       seed rolled. Both spans are deliberately small. A site that has wandered
+       sixty degrees and two kilometres is not the seeded site with a gentler
+       approach, it is a different site, and the layout stops meaning anything.
+       This is here to step over a ridge, not to go looking for a plain.
+
+       And they are a CONSTANT lattice, not more rolls. _wreckCountOf
+       reproduces this function's draw sequence exactly — "Burn exactly the
+       rolls at() burns" — so one extra rnd() here moves the survivor to a
+       different world. Nothing below touches rnd(). */
+    const BEARINGS = [0, -10, 10, -20, 20];
+    const FACTORS = [1.0, 0.88, 1.12];
+
+    /* Metres of continuous crawling above which a site is worth moving.
+       MEASURED, not chosen: 75 m is the middle of the only empty band in the
+       distribution the checker printed before any of this moved anything. Of
+       35 sites over 12 worlds, 13 had no stretch below a quarter speed at all
+       and five more had exactly one 25 m sample of it — a single step of a
+       hundred-and-something-step route, which is grit rather than a wall. Then
+       nothing until 100 m, after which seventeen sites run in an unbroken ramp
+       up to 276 m with no gap anywhere in it wider than 50 m.
+
+       So the distribution has one real seam in it and it is at 25..100, and
+       every trigger in that band selects the same seventeen sites. 75 sits in
+       the middle of the band, which is the most robust place to stand: route
+       samples are len/n rather than exactly 25 m, so the blips land at 24.88 to
+       24.99 and the tail starts at 100.14, and a trigger at either edge would
+       be decided by float jitter. A percentile would have been the worse
+       reading here — p75 lands at 149.7, inside a cluster of five sites within
+       half a metre of each other, and would split them arbitrarily. */
+    const WALL_TRIGGER = 75;
+
+    /* Applied after a site is otherwise built, because a seam's bearing is not
+       known until its deposit has been consulted. Returns the site it was
+       given, moved or not. */
+    const ease = (s) => {
+      const f = this._fieldFor(body);
+      if (!f) return s;
+      const base = routeCost(f, 0, 0, s.x, s.z);
+      s._rolled = { x: s.x, z: s.z, bearing: s.bearing, range: s.range };
+      /* Scored once, and searched only when the rolled position has a wall in
+         it. Half the sites measured never did — the complaint was about a tail,
+         not a median — and scoring fifteen candidates for a site that was
+         already fine would cost fifteen times as much to change nothing. */
+      if (base.wall <= WALL_TRIGGER) return s;
+
+      /* A seam may move its range but never its bearing: the deposit owns that
+         and the survey text quotes it — see the note where seams are built. */
+      const bears = s.kind === 'seam' ? [0] : BEARINGS;
+      let bestW = base.wall, bestS = base.secs, bestB = s.bearing, bestR = s.range;
+      for (const db of bears) {
+        for (const fr of FACTORS) {
+          const rng = s.range * fr;
+          /* Dropped rather than clamped: clamping piles candidates onto the
+             boundary, where the ground is no better and the site is now a lie
+             about how far out it was rolled. */
+          if (rng < RANGE_MIN || rng > RANGE_MAX) continue;
+          const bear = s.bearing + db;
+          const a = bear * Math.PI / 180;
+          const c = routeCost(f, 0, 0, Math.sin(a) * rng, Math.cos(a) * rng);
+          /* Ranked on the wall, with time as the tie-break. Two candidates that
+             both clear the ridge should differ on how long the drive is, but a
+             shorter drive through a longer wall is the wrong answer — the wall
+             is what gets reported as a broken vehicle. */
+          if (c.wall < bestW || (c.wall === bestW && c.secs < bestS)) {
+            bestW = c.wall; bestS = c.secs; bestB = bear; bestR = rng;
+          }
+        }
+      }
+      if (bestB === s.bearing && Math.round(bestR) === s.range) return s;
+      const a = bestB * Math.PI / 180;
+      s.bearing = ((Math.round(bestB) % 360) + 360) % 360;
+      s.range = Math.round(bestR);
+      s.x = Math.sin(a) * bestR;
+      s.z = Math.cos(a) * bestR;
+      return s;
+    };
+
     // ---- seams: the deposits, finally put where they always said they were
     const deps = this.game.prospect ? this.game.prospect.deposits(body) : [];
     deps.forEach((dep, i) => {
@@ -157,7 +269,7 @@ export class Sites {
       s.dep = dep;
       s.name = dep.id.toUpperCase();
       s.id = `seam:${i}`;
-      out.push(s);
+      out.push(ease(s));
     });
 
     // ---- wrecks of the ninety-four
@@ -175,7 +287,7 @@ export class Sites {
       s.salvage = { id: ['machinery', 'medicine', 'alloys'][Math.floor(rnd() * 3)],
         tonnes: 1 + Math.floor(rnd() * 3) };
       s.id = `wreck:${i}`;
-      out.push(s);
+      out.push(ease(s));
     }
 
     // ---- Hush markers
@@ -185,7 +297,7 @@ export class Sites {
       const s = place('marker', i);
       s.name = `MARKER ${String.fromCharCode(65 + i)}`;
       s.id = `marker:${i}`;
-      out.push(s);
+      out.push(ease(s));
     }
 
     // ---- and, once in a galaxy, somebody still alive
@@ -193,7 +305,7 @@ export class Sites {
       const s = place('survivor', 0);
       s.name = SURVIVOR_NAMES[Math.floor(rnd() * SURVIVOR_NAMES.length)];
       s.id = 'survivor:0';
-      out.push(s);
+      out.push(ease(s));
     }
 
     body._sites = out;
@@ -238,6 +350,19 @@ export class Sites {
     const n = rnd() < 0.42 ? 1 + (rnd() < 0.22 ? 1 : 0) : 0;
     body._wreckN = n;
     return n;
+  }
+
+  /** The height field for a world, built once and kept.
+   *
+   *  pickSite is a two-stage grid search — measured at about 8 ms — so this must
+   *  not be rebuilt per site, or four sites a world would pay for it four times.
+   *  Hung off the body beside `_sites` and `_wreckN`, which are cached the same
+   *  way and for the same reason. Returns null for anything with no spec, so
+   *  callers can ignore the difference between "no field" and "no sites". */
+  _fieldFor(body) {
+    if (!body || !body.spec) return null;
+    if (!body._field) body._field = groundField(body.spec);
+    return body._field;
   }
 
   /* --------------------------------------------------------- interactions */

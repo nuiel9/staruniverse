@@ -100,9 +100,10 @@ const dist = await page.evaluate(async () => {
   for (const body of solid) {
     const f = surfMod.groundField(body.spec);
     for (const s of g.sites.at(body)) {
+      const c = sitesMod.routeCost(f, 0, 0, s.x, s.z);
       rows.push({
         body: body.name, kind: s.kind, range: s.range,
-        secs: sitesMod.routeTime(f, 0, 0, s.x, s.z),
+        secs: c.secs, wall: c.wall,
       });
     }
   }
@@ -124,6 +125,12 @@ const dist = await page.evaluate(async () => {
   for (const w of worst) {
     console.log(`    ${w.body} ${w.kind} ${w.range} m -> ${w.secs.toFixed(0)} s`);
   }
+  const walls = dist.rows.map((r) => r.wall).sort((a, b) => a - b);
+  const wq = (p) => walls.length ? walls[Math.min(walls.length - 1, Math.floor(walls.length * p))] : 0;
+  console.log(`  worst stretch   median ${wq(0.5).toFixed(0)} m  p75 ${wq(0.75).toFixed(0)} m`
+    + `  p90 ${wq(0.9).toFixed(0)} m  worst ${wq(1).toFixed(0)} m`);
+  const walled = dist.rows.slice().sort((a, b) => b.wall - a.wall).slice(0, 5);
+  for (const w of walled) console.log(`    ${w.body} ${w.kind} ${w.range} m -> ${w.wall.toFixed(0)} m of wall`);
   check('every site scores a finite, positive drive time', dist.rows.length > 0
     && dist.rows.every((r) => r.secs > 0 && Number.isFinite(r.secs)),
     `${dist.rows.length} sites`);
@@ -132,6 +139,137 @@ const dist = await page.evaluate(async () => {
   check('drive times sit between flat out and the crawl floor',
     rq(0) >= 0.99 && rq(1) <= 10.01, `${rq(0).toFixed(2)}x to ${rq(1).toFixed(2)}x`);
 }
+
+/* Only climbing costs. The two checks above pass on a score that ignores
+   terrain completely, so this is the one that has teeth: run a real route
+   both ways. Downhill must be strictly cheaper than uphill over the same
+   ground, and the flat-out time is the floor neither can beat. A sign error,
+   a missing max(0, ...), or a terrain-blind stub all fail here. */
+const dir = await page.evaluate(async () => {
+  const g = window.__game;
+  const surfMod = await import('/src/world/Surface.js');
+  const sitesMod = await import('/src/world/Sites.js');
+  const body = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas)[0];
+  const f = surfMod.groundField(body.spec);
+  /* Search for a leg with real relief on it, so the comparison is not being
+     made across flat ground where both directions legitimately tie. */
+  let best = null;
+  for (let a = 0; a < 32 && !best; a++) {
+    const th = a * Math.PI / 16, R = 3000;
+    const x = Math.cos(th) * R, z = Math.sin(th) * R;
+    const up = sitesMod.routeCost(f, 0, 0, x, z);
+    const down = sitesMod.routeCost(f, x, z, 0, 0);
+    if (Math.abs(up.secs - down.secs) > 1) best = { up: up.secs, down: down.secs, flat: R / 22 };
+  }
+  return best;
+});
+check('the score is directional — climbing costs and descending does not',
+  !!dir && dir.up !== dir.down && Math.min(dir.up, dir.down) >= dir.flat - 0.01,
+  dir ? `up ${dir.up.toFixed(0)} s vs down ${dir.down.toFixed(0)} s, flat out ${dir.flat.toFixed(0)} s`
+    : 'no leg with relief found');
+
+// --------------------------------- stage 2: it got gentler, and stayed itself
+const after = await page.evaluate(async () => {
+  const g = window.__game;
+  const surfMod = await import('/src/world/Surface.js');
+  const sitesMod = await import('/src/world/Sites.js');
+  const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
+  const rows = [];
+  let survivor = null;
+  for (const body of solid) {
+    const f = surfMod.groundField(body.spec);
+    for (const s of g.sites.at(body)) {
+      const now = sitesMod.routeCost(f, 0, 0, s.x, s.z);
+      const was = s._rolled ? sitesMod.routeCost(f, 0, 0, s._rolled.x, s._rolled.z) : null;
+      rows.push({
+        body: body.name, kind: s.kind, id: s.id,
+        wall: now.wall, secs: now.secs,
+        wasWall: was ? was.wall : null, wasSecs: was ? was.secs : null,
+        range: s.range, bearing: s.bearing,
+        seamKeptBearing: s.kind !== 'seam' || (s.dep && s.bearing === s.dep.bearing),
+      });
+    }
+    if (g.sites.at(body).some((s) => s.kind === 'survivor')) survivor = body.name;
+  }
+  return { rows, survivor };
+});
+
+{
+  const paired = after.rows.filter((r) => r.wasWall !== null);
+  const q = (xs, p) => { const s = xs.slice().sort((a, b) => a - b);
+    return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : 0; };
+  const worsened = paired.filter((r) => r.wall > r.wasWall + 0.5);
+  const helped = paired.filter((r) => r.wall < r.wasWall - 0.5);
+  console.log(`\n  worst stretch  p90 ${q(paired.map((r) => r.wasWall), 0.9).toFixed(0)} m`
+    + ` -> ${q(paired.map((r) => r.wall), 0.9).toFixed(0)} m`);
+  console.log(`  worst site     ${q(paired.map((r) => r.wasWall), 1).toFixed(0)} m`
+    + ` -> ${q(paired.map((r) => r.wall), 1).toFixed(0)} m`);
+  console.log(`  moved          ${helped.length}/${paired.length} sites improved`);
+
+  /* The claim is about the tail, because the tail is the whole point — the
+     lattice cannot help a site that never had a wall, so demanding every site
+     improve would be wrong. The worst site is the sharpest single number. */
+  check('the worst wall got shorter', q(paired.map((r) => r.wall), 1) < q(paired.map((r) => r.wasWall), 1),
+    `${q(paired.map((r) => r.wasWall), 1).toFixed(0)} m -> ${q(paired.map((r) => r.wall), 1).toFixed(0)} m`);
+  /* And nothing got worse: the rolled position is itself in the lattice, so
+     picking the best can never lose to it. A regression is a ranking bug. */
+  check('no site got a longer wall than the position it was rolled at', worsened.length === 0,
+    worsened.length ? `${worsened.length} worse, e.g. ${worsened[0].body} ${worsened[0].kind}` : 'none');
+  check('seams kept their deposit bearing', after.rows.every((r) => r.seamKeptBearing));
+  check('every site stayed inside the range band',
+    after.rows.every((r) => r.range >= 700 && r.range <= 6200),
+    `${Math.min(...after.rows.map((r) => r.range))}..${Math.max(...after.rows.map((r) => r.range))} m`);
+}
+
+/* Determinism: the same seed still produces the same sites, in the same order,
+   with the same ids — and the survivor is still on the same world. This is what
+   would break if a single extra rnd() found its way into place(). */
+const stable = await page.evaluate(async () => {
+  const g = window.__game;
+  const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
+  const snap = () => solid.map((b) => g.sites.at(b)
+    .map((s) => `${s.id}@${s.x | 0},${s.z | 0}`).join('|')).join('#');
+  const a = snap();
+  for (const b of solid) { delete b._sites; delete b._wreckN; delete b._field; }
+  const b2 = snap();
+  return { same: a === b2 };
+});
+check('the same seed rebuilds the same sites in the same places', stable.same);
+
+/* This task's brief asked for "the survivor is still somewhere", and that check
+   cannot pass in this harness for a reason that has nothing to do with
+   placement. `_isSurvivorHost` picks one system out of the galaxy seed and
+   deliberately never picks the home one — the whole point is that they are a
+   long way out — while the checker boots into the home system and never leaves
+   it. The thirty-five sites it can see are twenty-five seams, five wrecks and
+   five markers, and that was true before any of this was written, so a presence
+   test here would be permanently red and would stay red however well placement
+   behaved.
+
+   So this is the same invariant, reached from the other end, and it has sharper
+   teeth than presence would. `_wreckCountOf` exists to reproduce `at()`'s draw
+   sequence without building the site list, and it is what decides which world
+   hosts the survivor. If one extra rnd() found its way into place() or ease(),
+   `at()`'s sequence would shift, the two counts would disagree, and the
+   survivor would move to a different world — which is the failure the brief
+   wanted watched. Caught directly here, on every world, rather than inferred
+   from one that this system does not contain. */
+const wreckSync = await page.evaluate(() => {
+  const g = window.__game;
+  const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
+  const bad = [];
+  for (const b of solid) {
+    delete b._wreckN;                       // the cache, not the derivation
+    const predicted = g.sites._wreckCountOf(b);
+    const actual = g.sites.at(b).filter((s) => s.kind === 'wreck').length;
+    if (predicted !== actual) bad.push(`${b.name} says ${predicted}, has ${actual}`);
+  }
+  return { bad, worlds: solid.length };
+});
+check('the survivor picker still reads the same rolls the sites were built from',
+  wreckSync.bad.length === 0,
+  wreckSync.bad.length ? wreckSync.bad.join('; ')
+    : `${wreckSync.worlds} worlds agree · survivor hosted here: ${after.survivor || 'no, this is the home system'}`);
 
 const bad = checks.filter(([, ok]) => !ok).length;
 console.log(`\n${checks.length - bad}/${checks.length} ok`);
