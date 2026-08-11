@@ -109,12 +109,12 @@ Proven two ways. `npm run sitecheck` measures 35 sites over 12 worlds before
 and after easing and shows the worst wall shrinking (276 m → 249 m) with no
 site made worse; `npm run expedition` goes further and actually drives a
 rover, under its own steering, at the marker with the greatest range in the
-galaxy rather than whichever one sorts first. That check's budget is not a
-fixed wall-clock cap — an early version used one, and it was wrong: two
+home system rather than whichever one sorts first. That check's budget is not
+a fixed wall-clock cap — an early version used one, and it was wrong: two
 markers on this seed sit over four minutes from their ship at full speed on
 flat ground, which a fixed cap would fail on distance alone regardless of how
 good the route is. The budget is a multiple of a flat-out run instead (2.6x,
-against sitecheck's measured worst of 2.3x across the whole galaxy), so the
+against sitecheck's measured worst of 2.37x across the home system), so the
 check is honest about what placement can and cannot fix: it cannot make a
 marker closer, only make the ground between the ship and it less of a fight.
 On this seed the hardest marker drives at 1.01x flat-out, well inside budget.
@@ -133,6 +133,32 @@ even though a wider one was measured and would not have changed the worst
 site's floor — the floor there is the seam-bearing rule, not the lattice's
 radius. Treat this as the ground getting friendlier on average and the worst
 case getting shorter, not as a promise that every site is fair.
+
+**The cost, re-measured after the wiring, not before it.** The design's §5 set
+a gate — if querying every solid body in a system for its sites costs more
+than about 100 ms, stop and bring the number back — and its own done-criterion
+was that the measured cost get written down rather than assumed. The number
+that was first written down was a baseline taken before `Sites.at()` actually
+consumed the field, so it measured nothing the spec asked about. Re-measured
+after: a cold query of every solid body in a system (12 worlds, 35 sites)
+costs **172.5 / 175.0 / 186.2 ms** — of which ~93 ms is `pickSite`'s lattice
+search and ~80 ms is the route walks it scores. `groundField` alone is
+7.4–8.1 ms per body. Per body, cold, end to end: 8.2–25.6 ms; warm, cached,
+it's 0 ms. Read literally, the whole-system figure breaches the 100 ms gate by
+nearly 2x.
+
+That is the wrong number to gate on, because nothing in the game asks it. The
+gate assumes a survey queries every body in a system at once; nothing does.
+`Sites.at()`'s only non-`nearest` caller in `src/` is `Game.js`, and it asks
+for one body — the one just landed on — and the Codex reads one selected body
+at a time the same way. So the shape the spec guessed at (whole-system, every
+call) never happens; the shape production actually pays is one cold query per
+body, the first time that body's sites are asked for, cached after. That is
+an **8–26 ms hitch, once per world per session** — one dropped frame the first
+time you land somewhere or open its Codex page, not a stall that scales with
+how many bodies a system has. Restated in the shape that matters: the gate is
+clear, by a wide margin, for the query pattern that exists; it is not clear
+for a query pattern the game never issues.
 
 ### Open, in the order I would take them
 

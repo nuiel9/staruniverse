@@ -10,7 +10,7 @@ import { driveSpeedAt, MAX_FWD } from '../ship/driveModel.js';
  *  than landform — the trap that made the rover itself crawl on flat ground
  *  until its grade baseline was lengthened, measured as 261 m of a 3.5 km run.
  *  A route scored at two metres would find a mountain in every gravel bed. */
-const ROUTE_STEP = 25;
+export const ROUTE_STEP = 25;
 const ROUTE_LOD = 14;
 
 /* What counts as ground the drive has given up on.
@@ -68,13 +68,6 @@ export function routeCost(field, x0, z0, x1, z1) {
     h0 = h1;
   }
   return { secs, wall };
-}
-
-/** The trip time alone. Kept because the checker's distribution is expressed in
- *  it and because "how long would this take" is a question worth being able to
- *  ask on its own. One walk underneath, so the two can never disagree. */
-export function routeTime(field, x0, z0, x1, z1) {
-  return routeCost(field, x0, z0, x1, z1).secs;
 }
 
 /* ============================================================================

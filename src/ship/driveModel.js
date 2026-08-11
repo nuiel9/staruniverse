@@ -32,17 +32,46 @@ function smoothstep(x, a, b) {
 }
 
 /**
- * Metres per second the drive can hold on a given grade.
+ * The unfloored curve underneath driveBiteAt — 1 on the flat, falling to 0 by
+ * GRADE_STALL rather than resting at CRAWL_FLOOR. Exists for readouts that
+ * need to tell "the drive is crawling at the floor" apart from "the drive has
+ * given up entirely", which driveBiteAt's floor makes look the same. Everyone
+ * who only wants the drivable fraction wants driveBiteAt, not this.
  *
- * Only climbing costs: a descent is free, which is both true and the thing that
- * makes reading the landscape worth doing. `climb` is therefore rise over run
- * with the sign already resolved by the caller — a route scorer passes
- * max(0, dy/dx), and the rover passes its grade times the sign of its throttle.
+ * Only climbing costs: a descent is free, which is both true and the thing
+ * that makes reading the landscape worth doing. `climb` may be signed — a
+ * descent, or a route scorer's raw `(h1 - h0) / step` — the negative half is
+ * resolved to zero here rather than by the caller.
  *
- * @param {number} climb  rise over run, non-negative
+ * @param {number} climb  rise over run; only positive values cost anything
+ * @returns {number} 0..1, unfloored
+ */
+export function driveBiteRawAt(climb) {
+  return 1 - smoothstep(Math.max(0, climb), GRADE_FREE, GRADE_STALL);
+}
+
+/**
+ * How much of the drive survives a grade: 1 on the flat, falling to
+ * CRAWL_FLOOR's floor on the steepest ground. Everything that cares how ground
+ * resists a vehicle goes through here — the rover for its acceleration and its
+ * speed cap, the site scorer for how long a route would take — so there is one
+ * curve rather than two that agree until someone tunes one of them.
+ *
+ * @param {number} climb  rise over run; only positive values cost anything
+ * @returns {number} 0..1, never below CRAWL_FLOOR
+ */
+export function driveBiteAt(climb) {
+  return Math.max(CRAWL_FLOOR, driveBiteRawAt(climb));
+}
+
+/**
+ * Metres per second the drive can hold on a given grade. A thin wrapper over
+ * driveBiteAt — kept as its own export because "how fast" is the question
+ * most callers actually have.
+ *
+ * @param {number} climb  rise over run; only positive values cost anything
  * @returns {number} m/s, never below MAX_FWD * CRAWL_FLOOR
  */
 export function driveSpeedAt(climb) {
-  const bite = 1 - smoothstep(Math.max(0, climb), GRADE_FREE, GRADE_STALL);
-  return MAX_FWD * Math.max(CRAWL_FLOOR, bite);
+  return MAX_FWD * driveBiteAt(climb);
 }

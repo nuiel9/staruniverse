@@ -6,6 +6,7 @@
 //   node tools/expedition.mjs [url]        default http://localhost:4173/
 import { chromium } from 'playwright';
 import { existsSync } from 'node:fs';
+import { MAX_FWD } from '../src/ship/driveModel.js';
 
 const URL = process.argv[2] || 'http://localhost:4173/';
 const exe = process.env.CHROMIUM
@@ -240,12 +241,12 @@ check('the bin empties into the hold', home.moved === home.binBefore && home.bin
    comment below for why a fixed wall-clock cap was the wrong shape for this
    assertion — and that is tight enough to still catch the ten-minute
    switchback the placement exists to prevent. */
-const reach = await page.evaluate(async () => {
+const reach = await page.evaluate(async (MAX_FWD) => {
   const g = window.__game;
-  /* The hardest marker in the galaxy, not whichever world's bodies happen to
-     sort first. Picking the first world with any marker at all is picking by
-     iteration order, and a regression in the worst case can hide behind a
-     seed where the easy marker gets asked about instead. Picking the
+  /* The hardest marker in the home system, not whichever world's bodies
+     happen to sort first. Picking the first world with any marker at all is
+     picking by iteration order, and a regression in the worst case can hide
+     behind a seed where the easy marker gets asked about instead. Picking the
      greatest range means the check always exercises the site this feature
      has the least room to help — see the budget comment for why range, not
      difficulty, is what actually varies here. */
@@ -268,7 +269,6 @@ const reach = await page.evaluate(async () => {
   R.charge = 1;
   const input = { held: (a) => a === 'thrUp', touch: false };
   const DT = 1 / 30;
-  const MAX_FWD = 22;                        // the rover's flat-ground top speed
   const flatSecs = m.range / MAX_FWD;
   /* A budget, not a stopwatch. An absolute cap measures how FAR the marker is,
      which placement cannot change, and blames it on how HARD the route is,
@@ -276,7 +276,7 @@ const reach = await page.evaluate(async () => {
      over four minutes away at full speed on dead-flat ground. So the budget is
      a multiple of a flat-out run: 2.6x, comfortably above the 2.37x worst that
      `npm run sitecheck` measures across every one of the 35 sites in this
-     galaxy, and far below the 10x a route pinned at the crawl floor would
+     home system, and far below the 10x a route pinned at the crawl floor would
      reach. A failure here means the ground is fighting the drive, which is
      the thing this branch is about. The flat +30 s covers steering overhead
      near the target, where the "aim straight at it" loop below is not the
@@ -323,7 +323,7 @@ const reach = await page.evaluate(async () => {
      roughly one run in three. */
   R.pos.set(0, 0, 0);
   return result;
-});
+}, MAX_FWD);
 
 /* And give the camera the real frames it needs to actually get back there.
    The reset above moves the rover instantly; the camera that trees section

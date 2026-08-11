@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRADE_FREE, GRADE_STALL, CRAWL_FLOOR, MAX_FWD } from './driveModel.js';
+import { driveBiteAt, driveBiteRawAt, MAX_FWD } from './driveModel.js';
 
 /* ============================================================================
    The rover.
@@ -227,7 +227,7 @@ export class Rover {
     /* Only *climbing* costs you. A descent is free, which is both true and
        the thing that makes reading the landscape worth doing. */
     const climb = Math.max(0, this._grade * Math.sign(throttle || 1));
-    const bite = 1 - THREE.MathUtils.smoothstep(climb, GRADE_FREE, GRADE_STALL);
+    const bite = driveBiteRawAt(climb);
     // For the readout: 0 is clear going, 1 is as steep as the drive can take.
     this.gradeLoad = 1 - bite;
 
@@ -240,7 +240,7 @@ export class Rover {
        game can still be crawled, slowly and at a punishing charge cost. The
        route around remains the better answer without "go around" and "you are
        stuck" being the same experience. */
-    const authority = Math.max(CRAWL_FLOOR, bite);
+    const authority = driveBiteAt(climb);
     const wantAccel = throttle > 0 ? ACCEL * authority
       : throttle < 0 ? -ACCEL * 0.6 * authority : 0;
     if (wantAccel === 0) {
@@ -254,7 +254,7 @@ export class Rover {
     if (throttle < 0 && this.speed > 0) this.speed -= BRAKE * dt;
     if (throttle > 0 && this.speed < 0) this.speed += BRAKE * dt;
 
-    const capF = MAX_FWD * Math.max(CRAWL_FLOOR, bite);
+    const capF = MAX_FWD * driveBiteAt(climb);
     this.speed = THREE.MathUtils.clamp(this.speed, -MAX_REV, capF);
 
     // ---- steering. A stationary rover does not pivot on the spot, and

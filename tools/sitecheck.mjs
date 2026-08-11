@@ -14,7 +14,7 @@
  *   npm run sitecheck      in another
  */
 import { chromium } from 'playwright';
-import { bootGame } from './boot.mjs';
+import { ROUTE_STEP } from '../src/world/Sites.js';
 
 const URL = process.argv[2] || 'http://localhost:5173/';
 const browser = await chromium.launch({
@@ -210,7 +210,7 @@ const after = await page.evaluate(async () => {
      Above half a step it is a real regression and still a ranking bug: the
      rolled position is in the lattice, so nothing can lose to it by a whole
      sample. */
-  const WALL_EPS = 25 / 2;                        // half of Sites.js's ROUTE_STEP
+  const WALL_EPS = ROUTE_STEP / 2;
   const worsened = paired.filter((r) => r.wall > r.wasWall + WALL_EPS);
   const nudged = paired.filter((r) => r.wall > r.wasWall + 0.5);
   const helped = paired.filter((r) => r.wall < r.wasWall - WALL_EPS);
