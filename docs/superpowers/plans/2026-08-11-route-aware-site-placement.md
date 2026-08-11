@@ -583,17 +583,195 @@ begins is a number to be read off a distribution rather than guessed at."
 
 ---
 
-### Task 4: The lattice, and the determinism it must not break
+### Task 4: The wall measure, the lattice, and the determinism it must not break
+
+**This task was rewritten after Task 3 measured the problem and found the plan's
+original metric was aiming at the wrong thing.** Read this preamble; it is the
+reason the task looks different from the rest of the plan.
+
+Task 3 scored 35 sites over 12 worlds by total drive time against a flat-out
+run. The result: median 1.36×, p90 2.05×, worst 2.64×, against a theoretical
+ceiling of 10×. One site in 35 above 2.2×. By that measure the tail this feature
+exists to cut barely exists.
+
+But a whole-route ratio **dilutes a wall**. A 500 m stretch at 48° inside an
+otherwise flat 5 km route scores about 1.90× — comfortably ordinary — and that
+is almost exactly the situation that produced the bug report: 300 m of easy
+ground, then a face the rover crawled up at 2.2 m/s while the player concluded
+it had stopped. Both the implementer and the reviewer computed that number
+independently and agreed.
+
+So total time measures *"is this trip slow"* when the complaint was *"there is a
+wall in the way"*. A site can score perfectly average and still contain the thing
+that gets reported as a broken rover. Markers — the site kind that motivated all
+of this — top out at 1.86× in the sample, meaning the original design would never
+have fired for them at all.
+
+The metric therefore changes: **rank on the longest continuous stretch the drive
+has given up on, not on the total.**
 
 **Files:**
-- Modify: `src/world/Sites.js` — `place()` and the cached field
-- Modify: `tools/sitecheck.mjs` — append stage 2
+- Modify: `src/world/Sites.js` — `routeCost`, the field cache, and `place()`
+- Modify: `tools/sitecheck.mjs` — extend stage 1's print, add a directional check, append stage 2
 
 **Interfaces:**
-- Consumes: `routeTime` (Task 3); `groundField` (Task 1).
-- Produces: nothing further. `Sites.at()`'s returned shape is unchanged apart from `x`, `z`, `bearing` and `range` values.
+- Consumes: `groundField` (Task 1); `driveSpeedAt`, `MAX_FWD`, `CRAWL_FLOOR` (Task 2); `routeTime` (Task 3).
+- Produces:
+  - `routeCost(field, x0, z0, x1, z1) -> { secs: number, wall: number }` — seconds, and metres of the longest continuous stretch below `WALL_SPEED`.
+  - `routeTime(...)` keeps its existing signature and returns `routeCost(...).secs`, so Task 3's stage 1 keeps working unchanged.
 
-- [ ] **Step 1: Append stage 2 to `tools/sitecheck.mjs`**
+- [ ] **Step 1: Extend the score to measure the wall**
+
+In `src/world/Sites.js`, beside `ROUTE_STEP` and `ROUTE_LOD`:
+
+```js
+/* What counts as ground the drive has given up on.
+ *
+ * A quarter of full speed. Working back through the curve, a bite of 0.25 is a
+ * climb of about 0.48 — some twenty-five degrees — which is a face you steer
+ * around rather than up. Below this the vehicle is visibly crawling, and a
+ * player watching it crawl is the entire reason this feature exists: the report
+ * that started it said the rover had stopped, and it had not, it was doing
+ * 2.2 m/s up a forty-eight degree slope.
+ *
+ * Note this is a speed and not a grade, so it follows the drive model wherever
+ * that goes rather than having to be re-derived if the curve is retuned. */
+const WALL_SPEED = MAX_FWD * 0.25;
+```
+
+Replace `routeTime` with `routeCost`, and keep `routeTime` as a wrapper:
+
+```js
+/**
+ * What the drive from (x0, z0) to (x1, z1) costs, two ways.
+ *
+ * `secs` is the whole trip. `wall` is the longest **continuous** stretch, in
+ * metres, that the drive has effectively given up on — and that second number
+ * is the one placement ranks on, because it is the one a player experiences.
+ * Total time dilutes a wall: five hundred metres of forty-eight degree face
+ * inside an otherwise flat five kilometres comes out at 1.9x a flat-out run,
+ * which is unremarkable, while the five hundred metres in the middle of it is
+ * the thing that gets reported as a broken vehicle. Measured over 35 sites
+ * before this was written; see tools/sitecheck.mjs.
+ *
+ * Contiguous rather than total, because two separate fifty-metre pinches are a
+ * drive with some character in it and one four-hundred-metre pinch is a wall.
+ *
+ * The straight line, because that is the line a player instinctively takes and
+ * the one that produced the complaint. Nothing here finds a path or suggests
+ * one; it measures how much the ground would argue.
+ *
+ * Only climbing costs, exactly as the drive does — which is what makes a site
+ * on the near side of a ridge score better than the same site on the far side.
+ *
+ * @param {{heightAt:(x:number,z:number,lod?:number)=>number}} field
+ * @returns {{secs:number, wall:number}} seconds, and metres of the worst stretch
+ */
+export function routeCost(field, x0, z0, x1, z1) {
+  const dx = x1 - x0, dz = z1 - z0;
+  const len = Math.hypot(dx, dz);
+  if (len < 1) return { secs: 0, wall: 0 };
+  const n = Math.max(1, Math.round(len / ROUTE_STEP));
+  const sx = dx / n, sz = dz / n, step = len / n;
+  let secs = 0, wall = 0, run = 0;
+  let h0 = field.heightAt(x0, z0, ROUTE_LOD);
+  for (let i = 1; i <= n; i++) {
+    const x = x0 + sx * i, z = z0 + sz * i;
+    const h1 = field.heightAt(x, z, ROUTE_LOD);
+    const v = driveSpeedAt((h1 - h0) / step);
+    secs += step / v;
+    if (v <= WALL_SPEED) { run += step; if (run > wall) wall = run; } else run = 0;
+    h0 = h1;
+  }
+  return { secs, wall };
+}
+
+/** The trip time alone. Kept because the checker's distribution is expressed in
+ *  it and because "how long would this take" is a question worth being able to
+ *  ask on its own. One walk underneath, so the two can never disagree. */
+export function routeTime(field, x0, z0, x1, z1) {
+  return routeCost(field, x0, z0, x1, z1).secs;
+}
+```
+
+Import `MAX_FWD` alongside `driveSpeedAt`:
+
+```js
+import { driveSpeedAt, MAX_FWD } from '../ship/driveModel.js';
+```
+
+- [ ] **Step 2: Make stage 1 print the wall distribution, and give it a check that can fail**
+
+Task 3's stage 1 prints seconds and ratios. Extend the `rows` it builds to carry `wall` (use `routeCost` instead of `routeTime` there) and print its quantiles beside the others:
+
+```js
+  const walls = dist.rows.map((r) => r.wall).sort((a, b) => a - b);
+  const wq = (p) => walls.length ? walls[Math.min(walls.length - 1, Math.floor(walls.length * p))] : 0;
+  console.log(`  worst stretch   median ${wq(0.5).toFixed(0)} m  p75 ${wq(0.75).toFixed(0)} m`
+    + `  p90 ${wq(0.9).toFixed(0)} m  worst ${wq(1).toFixed(0)} m`);
+  const walled = dist.rows.slice().sort((a, b) => b.wall - a.wall).slice(0, 5);
+  for (const w of walled) console.log(`    ${w.body} ${w.kind} ${w.range} m -> ${w.wall.toFixed(0)} m of wall`);
+```
+
+Then add the check Task 3's review asked for. Its two existing assertions cannot
+fail on a broken score — a `routeTime` that ignored terrain entirely and returned
+`range / 22` would produce ratios of exactly 1.00 and pass both, and so would a
+sign bug that charged for descent. This one cannot be satisfied without the field
+actually entering the answer, and it pins the invariant that matters most:
+
+```js
+/* Only climbing costs. The two checks above pass on a score that ignores
+   terrain completely, so this is the one that has teeth: run a real route
+   both ways. Downhill must be strictly cheaper than uphill over the same
+   ground, and the flat-out time is the floor neither can beat. A sign error,
+   a missing max(0, ...), or a terrain-blind stub all fail here. */
+const dir = await page.evaluate(async () => {
+  const g = window.__game;
+  const surfMod = await import('/src/world/Surface.js');
+  const sitesMod = await import('/src/world/Sites.js');
+  const body = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas)[0];
+  const f = surfMod.groundField(body.spec);
+  /* Search for a leg with real relief on it, so the comparison is not being
+     made across flat ground where both directions legitimately tie. */
+  let best = null;
+  for (let a = 0; a < 32 && !best; a++) {
+    const th = a * Math.PI / 16, R = 3000;
+    const x = Math.cos(th) * R, z = Math.sin(th) * R;
+    const up = sitesMod.routeCost(f, 0, 0, x, z);
+    const down = sitesMod.routeCost(f, x, z, 0, 0);
+    if (Math.abs(up.secs - down.secs) > 1) best = { up: up.secs, down: down.secs, flat: R / 22 };
+  }
+  return best;
+});
+check('the score is directional — climbing costs and descending does not',
+  !!dir && dir.up !== dir.down && Math.min(dir.up, dir.down) >= dir.flat - 0.01,
+  dir ? `up ${dir.up.toFixed(0)} s vs down ${dir.down.toFixed(0)} s, flat out ${dir.flat.toFixed(0)} s`
+    : 'no leg with relief found');
+```
+
+- [ ] **Step 3: Run it and read the wall distribution**
+
+```bash
+npm run dev
+```
+
+```bash
+npm run sitecheck
+```
+
+Expected: 9/9 ok, and a printed wall distribution.
+
+**Now choose the trigger, the same way Task 3 chose its threshold: off the data,
+not off this plan.** `WALL_TRIGGER` is the metres of continuous crawling above
+which a site is worth moving. Read the distribution and pick the point where the
+tail begins — the p75 or p90 are the natural candidates, and the five worst sites
+are printed so you can see whether there is a visible break. Write the number you
+chose and the reasoning into your report. **If the distribution shows almost no
+site with a wall worth the name, say so plainly** — that is a real finding about
+the world generator, not a failure, and the project owner has asked to be told
+rather than have it papered over.
+
+- [ ] **Step 4: Append stage 2 — it got gentler, and stayed itself**
 
 Insert before the final tally block:
 
@@ -605,48 +783,45 @@ const after = await page.evaluate(async () => {
   const sitesMod = await import('/src/world/Sites.js');
   const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
   const rows = [];
-  const ids = [];
   let survivor = null;
   for (const body of solid) {
     const f = surfMod.groundField(body.spec);
     for (const s of g.sites.at(body)) {
-      /* The rolled position is recoverable: it is the lattice's own centre, and
-         place() records it so this comparison is possible at all. */
+      const now = sitesMod.routeCost(f, 0, 0, s.x, s.z);
+      const was = s._rolled ? sitesMod.routeCost(f, 0, 0, s._rolled.x, s._rolled.z) : null;
       rows.push({
         body: body.name, kind: s.kind, id: s.id,
-        secs: sitesMod.routeTime(f, 0, 0, s.x, s.z),
-        was: s._rolled ? sitesMod.routeTime(f, 0, 0, s._rolled.x, s._rolled.z) : null,
-        moved: s._rolled ? Math.hypot(s.x - s._rolled.x, s.z - s._rolled.z) : 0,
+        wall: now.wall, secs: now.secs,
+        wasWall: was ? was.wall : null, wasSecs: was ? was.secs : null,
         range: s.range, bearing: s.bearing,
         seamKeptBearing: s.kind !== 'seam' || (s.dep && s.bearing === s.dep.bearing),
       });
-      ids.push(`${body.name}/${s.id}`);
     }
     if (g.sites.at(body).some((s) => s.kind === 'survivor')) survivor = body.name;
   }
-  return { rows, ids, survivor };
+  return { rows, survivor };
 });
 
 {
-  const paired = after.rows.filter((r) => r.was !== null);
-  const improved = paired.filter((r) => r.secs < r.was - 0.5).length;
-  const worsened = paired.filter((r) => r.secs > r.was + 0.5);
-  const med = (xs) => { const s = xs.slice().sort((a, b) => a - b);
-    return s.length ? s[Math.floor(s.length / 2)] : 0; };
-  const p90 = (xs) => { const s = xs.slice().sort((a, b) => a - b);
-    return s.length ? s[Math.floor(s.length * 0.9)] : 0; };
-  console.log(`\n  median  ${med(paired.map((r) => r.was)).toFixed(0)} s -> ${med(paired.map((r) => r.secs)).toFixed(0)} s`);
-  console.log(`  p90     ${p90(paired.map((r) => r.was)).toFixed(0)} s -> ${p90(paired.map((r) => r.secs)).toFixed(0)} s`);
-  console.log(`  moved   ${improved}/${paired.length} sites improved`);
+  const paired = after.rows.filter((r) => r.wasWall !== null);
+  const q = (xs, p) => { const s = xs.slice().sort((a, b) => a - b);
+    return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : 0; };
+  const worsened = paired.filter((r) => r.wall > r.wasWall + 0.5);
+  const helped = paired.filter((r) => r.wall < r.wasWall - 0.5);
+  console.log(`\n  worst stretch  p90 ${q(paired.map((r) => r.wasWall), 0.9).toFixed(0)} m`
+    + ` -> ${q(paired.map((r) => r.wall), 0.9).toFixed(0)} m`);
+  console.log(`  worst site     ${q(paired.map((r) => r.wasWall), 1).toFixed(0)} m`
+    + ` -> ${q(paired.map((r) => r.wall), 1).toFixed(0)} m`);
+  console.log(`  moved          ${helped.length}/${paired.length} sites improved`);
 
-  /* The claim is distributional. The lattice cannot help a site that was
-     already on easy ground, so demanding every site improve would be wrong —
-     but the tail is what this exists for, so the tail has to move. */
-  check('the tail got gentler', p90(paired.map((r) => r.secs)) < p90(paired.map((r) => r.was)),
-    `p90 ${p90(paired.map((r) => r.was)).toFixed(0)} s -> ${p90(paired.map((r) => r.secs)).toFixed(0)} s`);
-  /* And nothing got worse: the rolled position is in the lattice, so picking
-     the cheapest can never lose to it. A regression here is a scoring bug. */
-  check('no site got worse than the position it was rolled at', worsened.length === 0,
+  /* The claim is about the tail, because the tail is the whole point — the
+     lattice cannot help a site that never had a wall, so demanding every site
+     improve would be wrong. The worst site is the sharpest single number. */
+  check('the worst wall got shorter', q(paired.map((r) => r.wall), 1) < q(paired.map((r) => r.wasWall), 1),
+    `${q(paired.map((r) => r.wasWall), 1).toFixed(0)} m -> ${q(paired.map((r) => r.wall), 1).toFixed(0)} m`);
+  /* And nothing got worse: the rolled position is itself in the lattice, so
+     picking the best can never lose to it. A regression is a ranking bug. */
+  check('no site got a longer wall than the position it was rolled at', worsened.length === 0,
     worsened.length ? `${worsened.length} worse, e.g. ${worsened[0].body} ${worsened[0].kind}` : 'none');
   check('seams kept their deposit bearing', after.rows.every((r) => r.seamKeptBearing));
   check('every site stayed inside the range band',
@@ -660,9 +835,10 @@ const after = await page.evaluate(async () => {
 const stable = await page.evaluate(async () => {
   const g = window.__game;
   const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
-  const snap = () => solid.map((b) => g.sites.at(b).map((s) => `${s.id}@${s.x | 0},${s.z | 0}`).join('|')).join('#');
+  const snap = () => solid.map((b) => g.sites.at(b)
+    .map((s) => `${s.id}@${s.x | 0},${s.z | 0}`).join('|')).join('#');
   const a = snap();
-  for (const b of solid) { delete b._sites; delete b._wreckN; }
+  for (const b of solid) { delete b._sites; delete b._wreckN; delete b._field; }
   const b2 = snap();
   return { same: a === b2 };
 });
@@ -670,25 +846,42 @@ check('the same seed rebuilds the same sites in the same places', stable.same);
 check('the survivor is still somewhere', !!after.survivor, after.survivor || 'nowhere');
 ```
 
-- [ ] **Step 2: Run it and watch it fail**
+- [ ] **Step 5: Run it and watch stage 2 fail**
 
 ```bash
 npm run sitecheck
 ```
 
-Expected: the new checks fail — `s._rolled` does not exist yet, so `paired` is empty and `the tail got gentler` compares 0 to 0.
+Expected: the stage 2 checks fail — `s._rolled` does not exist yet, so `paired` is empty and `the worst wall got shorter` compares 0 to 0.
 
-- [ ] **Step 3: Add the lattice to `place()`**
+- [ ] **Step 6: Add the lattice to `place()`**
 
-In `src/world/Sites.js`, replace the body of `place` with:
+Add the per-body field cache as a method on the `Sites` class:
 
 ```js
-    /* The lattice: bearing nudges and range factors, applied to the position
-       the seed rolled. Both spans are deliberately small. A site that has
-       wandered sixty degrees and two kilometres is not the seeded site with a
-       gentler approach, it is a different site, and the layout stops meaning
-       anything. This is here to step over a ridge, not to go looking for a
-       plain.
+  /** The height field for a world, built once and kept.
+   *
+   *  pickSite is a two-stage grid search — measured at about 8 ms — so this must
+   *  not be rebuilt per site, or four sites a world would pay for it four times.
+   *  Hung off the body beside `_sites` and `_wreckN`, which are cached the same
+   *  way and for the same reason. Returns null for anything with no spec, so
+   *  callers can ignore the difference between "no field" and "no sites". */
+  _fieldFor(body) {
+    if (!body || !body.spec) return null;
+    if (!body._field) body._field = groundField(body.spec);
+    return body._field;
+  }
+```
+
+Then, inside `at()`, add the lattice constants and the `ease` helper beside the
+existing `place`:
+
+```js
+    /* The lattice: bearing nudges and range factors applied to the position the
+       seed rolled. Both spans are deliberately small. A site that has wandered
+       sixty degrees and two kilometres is not the seeded site with a gentler
+       approach, it is a different site, and the layout stops meaning anything.
+       This is here to step over a ridge, not to go looking for a plain.
 
        And they are a CONSTANT lattice, not more rolls. _wreckCountOf
        reproduces this function's draw sequence exactly — "Burn exactly the
@@ -696,56 +889,48 @@ In `src/world/Sites.js`, replace the body of `place` with:
        different world. Nothing below touches rnd(). */
     const BEARINGS = [0, -10, 10, -20, 20];
     const FACTORS = [1.0, 0.88, 1.12];
-    /* Where the tail begins, measured in stage 1 of tools/sitecheck.mjs rather
-       than chosen. Under this, the drive is an ordinary one and the rolled
-       position is kept without scoring a single alternative — which is what
-       keeps this affordable, because most sites were never the problem. */
-    const ORDINARY = 1.55;      // multiples of a flat-out run
 
-    const place = (kind, i) => {
-      const bearing = Math.round(rnd() * 360);
-      const range = Math.round(RANGE_MIN + rnd() * (RANGE_MAX - RANGE_MIN));
-      const mk = (bear, rng) => {
-        const a = bear * Math.PI / 180;
-        return {
-          kind, i, bearing: ((bear % 360) + 360) % 360, range: Math.round(rng),
-          // Bearing 0 is +Z and turns toward +X, which is the sense the compass
-          // and the surface frame already agree on.
-          x: Math.sin(a) * rng,
-          z: Math.cos(a) * rng,
-          reach: REACH[kind],
-        };
-      };
-      return mk(bearing, range);
-    };
+    /* Metres of continuous crawling above which a site is worth moving.
+       MEASURED, not chosen — read off the wall distribution printed by stage 1
+       of tools/sitecheck.mjs. Replace this comment with the number you measured
+       and what in the distribution made you pick it. */
+    const WALL_TRIGGER = /* measured in Step 3 */ 0;
 
-    /* Applied after the site is otherwise built, because a seam's bearing is
-       not known until its deposit has been consulted. Returns the site it was
+    /* Applied after a site is otherwise built, because a seam's bearing is not
+       known until its deposit has been consulted. Returns the site it was
        given, moved or not. */
     const ease = (s) => {
       const f = this._fieldFor(body);
       if (!f) return s;
-      const flat = s.range / MAX_FWD;
-      const base = routeTime(f, 0, 0, s.x, s.z);
+      const base = routeCost(f, 0, 0, s.x, s.z);
       s._rolled = { x: s.x, z: s.z, bearing: s.bearing, range: s.range };
-      if (base <= flat * ORDINARY) return s;
+      /* Scored once, and searched only when the rolled position has a wall in
+         it. Most sites never did — the complaint was about a tail, not a median
+         — and scoring fifteen candidates for a site that was already fine would
+         cost fifteen times as much to change nothing. */
+      if (base.wall <= WALL_TRIGGER) return s;
 
-      /* Only now, and only for the sites that need it. A seam may move its
-         range but never its bearing: the deposit owns that and the survey text
-         quotes it — see the note where seams are built. */
+      /* A seam may move its range but never its bearing: the deposit owns that
+         and the survey text quotes it — see the note where seams are built. */
       const bears = s.kind === 'seam' ? [0] : BEARINGS;
-      let bestT = base, bestB = s.bearing, bestR = s.range;
+      let bestW = base.wall, bestS = base.secs, bestB = s.bearing, bestR = s.range;
       for (const db of bears) {
         for (const fr of FACTORS) {
           const rng = s.range * fr;
-          // Dropped rather than clamped: clamping piles candidates onto the
-          // boundary, where the ground is no better and the site is now a lie
-          // about how far out it was rolled.
+          /* Dropped rather than clamped: clamping piles candidates onto the
+             boundary, where the ground is no better and the site is now a lie
+             about how far out it was rolled. */
           if (rng < RANGE_MIN || rng > RANGE_MAX) continue;
           const bear = s.bearing + db;
           const a = bear * Math.PI / 180;
-          const t = routeTime(f, 0, 0, Math.sin(a) * rng, Math.cos(a) * rng);
-          if (t < bestT) { bestT = t; bestB = bear; bestR = rng; }
+          const c = routeCost(f, 0, 0, Math.sin(a) * rng, Math.cos(a) * rng);
+          /* Ranked on the wall, with time as the tie-break. Two candidates that
+             both clear the ridge should differ on how long the drive is, but a
+             shorter drive through a longer wall is the wrong answer — the wall
+             is what gets reported as a broken vehicle. */
+          if (c.wall < bestW || (c.wall === bestW && c.secs < bestS)) {
+            bestW = c.wall; bestS = c.secs; bestB = bear; bestR = rng;
+          }
         }
       }
       if (bestB === s.bearing && Math.round(bestR) === s.range) return s;
@@ -758,63 +943,55 @@ In `src/world/Sites.js`, replace the body of `place` with:
     };
 ```
 
-Add the import of `MAX_FWD` alongside `driveSpeedAt`:
+Then call `ease(s)` on each site immediately before it is pushed — after
+`s.bearing`, `s.x` and `s.z` have their final rolled values. For seams that is
+after the `dep.bearing` block; for wrecks, markers and the survivor it is
+straight after `place(...)` has been called and the site's other fields set.
 
-```js
-import { driveSpeedAt, MAX_FWD } from '../ship/driveModel.js';
-```
-
-Add the per-body field cache as a method on the class:
-
-```js
-  /** The height field for a world, built once and kept.
-   *
-   *  pickSite is a two-stage grid search, so this must not be rebuilt per site
-   *  — four sites a world would pay for it four times. Hung off the body beside
-   *  `_sites` and `_wreckN`, which are cached the same way and for the same
-   *  reason. Returns null for anything with no spec, so callers can ignore the
-   *  distinction between "no field" and "no sites". */
-  _fieldFor(body) {
-    if (!body || !body.spec) return null;
-    if (!body._field) body._field = groundField(body.spec);
-    return body._field;
-  }
-```
-
-Then call `ease(s)` on each site immediately before it is pushed — after `s.bearing`, `s.x` and `s.z` have their final rolled values. For seams that is after the `dep.bearing` block; for the others, straight after `place(...)`.
-
-- [ ] **Step 4: Run and verify**
+- [ ] **Step 7: Run and verify**
 
 ```bash
 npm run sitecheck
 ```
 
-Expected: all checks ok. Read these two rather than the word `ok`:
+Expected: all checks ok. Read these rather than the word `ok`:
 
-- `the tail got gentler` — the p90 must actually fall. If it moves by a second or two, the lattice is too tight or `ORDINARY` is set too high to fire; widen the lattice (per the spec, widen the lattice rather than loosening the score) and say so in your report.
-- `no site got worse` — must be zero. The rolled position is inside the lattice, so picking the cheapest can never lose to it. A single regression is a scoring bug, not noise.
+- `the worst wall got shorter` — must actually fall, and by a distance worth
+  having. If it moves by a few metres, either the lattice is too tight or
+  `WALL_TRIGGER` is set too high to fire; widen the lattice rather than
+  loosening the ranking, and say so in your report.
+- `no site got a longer wall` — must be zero. The rolled position is inside the
+  lattice, so the best can never lose to it. One regression is a ranking bug.
+- `the same seed rebuilds the same sites` — if this fails, an `rnd()` draw got
+  into `place()` and the survivor has moved.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/world/Sites.js tools/sitecheck.mjs
-git commit -m "Prefer the gentler approach, for the sites that needed one
+git commit -m "Rank sites on the wall in the way, not the length of the trip
 
-Of several equally-seeded positions, the least punishing to drive to is
-the one that gets used. Not a guarantee and not a difficulty cap: sites
-are never rejected and the search never widens, so a world of mountains
-stays a world of mountains and the rover can always crawl.
+Of several equally-seeded positions, the one with the shortest stretch of
+ground the drive has given up on is the one that gets used. Not a
+guarantee and not a difficulty cap: sites are never rejected and the
+search never widens, so a world of mountains stays a world of mountains
+and the rover can always crawl.
 
-The rolled position is scored first and kept if the drive is an ordinary
-one, which is most of them — the complaint was about a tail, not a
-median, and scoring fifteen candidates for a site that was already fine
-would cost fifteen times as much to change nothing.
+The metric is the correction. Scoring the whole trip measured 35 sites at
+a median of 1.36x a flat-out run and a worst of 2.64x, which says there is
+barely a problem — and it says that because a total dilutes a wall. Five
+hundred metres of forty-eight degree face inside an otherwise flat five
+kilometres comes out at 1.9x, unremarkable, while those five hundred
+metres are exactly what got reported as a rover that had stopped. So the
+ranking is the longest continuous stretch below a quarter speed, and the
+trip time is only the tie-break.
 
-Two constraints came from the code rather than from taste. Seams keep
-their deposit's bearing or the survey text and the ground disagree. And
-the candidates are a constant lattice rather than more rolls, because
-_wreckCountOf reproduces this function's draw sequence exactly and one
-extra rnd() here would move the survivor to another world."
+The rolled position is scored first and kept unless it has a wall in it,
+which most do not. Two constraints came from the code rather than from
+taste: seams keep their deposit's bearing or the survey text and the
+ground disagree, and the candidates are a constant lattice rather than
+more rolls, because _wreckCountOf reproduces this function's draw
+sequence exactly and one extra rnd() here would move the survivor."
 ```
 
 ---
@@ -928,6 +1105,7 @@ switchback this was written to prevent."
 
 **Known gaps, stated rather than hidden:**
 
-- **`ORDINARY = 1.55` is a placeholder until Task 3 measures.** Task 3 Step 3 requires the implementer to read the distribution and choose it, and Task 4 must use the number they chose, not the one written here. If the measured p90 differs materially, the constant changes and the comment beside it must say what it was measured from.
+- **The metric changed after Task 3 measured, and Task 4 was rewritten.** The original plan ranked candidates on total drive time. Task 3 scored 35 sites over 12 worlds and found a median of 1.36× a flat-out run and a worst of 2.64× against a 10× ceiling — which reads as "no problem here" — and then found why: a whole-route total **dilutes a wall**. Five hundred metres of 48° face inside an otherwise flat 5 km route scores 1.90×, and those five hundred metres are exactly what produced the bug report. Task 4 now ranks on the longest continuous stretch below a quarter speed, with trip time as the tie-break. Task 4's preamble carries the reasoning; this line exists so nobody reads Tasks 1–3 and assumes the metric they describe is the one that shipped.
+- **`WALL_TRIGGER` is deliberately left unset in Task 4.** Task 4 Step 3 prints the wall distribution and requires the implementer to read the number off it, exactly as Task 3 chose its own threshold. A number guessed here would be the same mistake the metric change just corrected.
 - **`s._rolled` is retained on every site** so stage 2 can compare against the position the seed produced. It is a few bytes per site and it makes the central claim checkable, which is worth more than the tidiness — but it is diagnostic data on a gameplay object, and a reviewer may reasonably want it gated or dropped once the distribution is trusted.
 - **Nothing re-scores after the pad.** `pickSite` moves the landing site, and `groundYFlat` scours a pad around the origin; routes start at (0,0) inside that pad. Over a 700 m minimum range that is under 6% of the route and it is the same for every candidate, so it cannot change which candidate wins.
