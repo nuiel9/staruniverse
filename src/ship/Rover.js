@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GRADE_FREE, GRADE_STALL, CRAWL_FLOOR, MAX_FWD } from './driveModel.js';
 
 /* ============================================================================
    The rover.
@@ -40,17 +41,12 @@ import * as THREE from 'three';
  *  tight enough to be a decision, loose enough not to be a punishment. */
 export const PACK_RANGE = 14000;
 
-const MAX_FWD = 22;            // m/s, about 80 km/h
 const MAX_REV = 7;
 const ACCEL = 11;
 const BRAKE = 18;
 const DRAG = 0.7;
 const YAW_RATE = 1.5;          // rad/s at speed, scaled down when crawling
 
-/* Grades. Below GRADE_FREE the drive does not care; by GRADE_STALL it has
-   nothing left. Measured as rise over run along the direction of travel. */
-const GRADE_FREE = 0.18;       // ~10°
-const GRADE_STALL = 0.62;      // ~32°
 /* Coarse enough to skip the fine detail band. See the note in `update`. */
 const GRADE_LOD = 14;
 
@@ -71,9 +67,6 @@ const GRADE_LOD = 14;
    contact is the mean of a small footprint, which is what a wheel physically
    is. LOD still helps a little and costs nothing, so it stays. */
 const WHEEL_LOD = 8.0;
-
-/** The fraction of drive that survives the steepest ground. Never zero. */
-const CRAWL_FLOOR = 0.10;
 
 const WHEELBASE = 2.9;
 const TRACK = 2.0;
