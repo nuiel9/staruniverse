@@ -47,7 +47,7 @@ Scoring a route before landing needs the height field before landing, and today
 the field only exists inside a constructed `Surface`. It does not have to:
 everything it needs is derivable from the world's `spec`.
 
-Measured, not assumed — the JS field reads exactly five uniforms:
+Measured, not assumed — checked by reading what the JS field actually touches:
 
 | value | source |
 |---|---|
@@ -55,15 +55,24 @@ Measured, not assumed — the JS field reads exactly five uniforms:
 | `uRelief` | `spec.relief` |
 | `uPlanetR` | `spec.radius * 1000` |
 | `uType` | `spec.typeId \| 0` |
-| `uLodK` | `LOD_K1 / GQ` (`Surface.js:6320`) |
+| sea floor | `spec.sea`, `spec.garden` |
 
 plus three derived values the constructor computes today: `_site` (from
 `pickSite`), `_datum` (from `jTerrainRaw` at the site), and `_seaY`.
 
+**`uLodK` is deliberately absent, and that matters.** A first draft of this
+section listed it and gave `groundField` a `quality` argument. It was wrong:
+`uLodK` is read only by `jMeshLod`, which nothing here calls — `jTerrainRaw`
+takes `lod` as an explicit parameter and reads only `uSeed` and `uRelief`. So
+the field is **independent of the graphics quality tier**, and it has to stay
+that way. If placement depended on `uLodK`, a player changing quality settings
+would move every site in the galaxy. Do not pass quality into this function,
+however natural it looks beside the rest of the surface's construction.
+
 So `Surface.js` gains one export:
 
 ```js
-export function groundField(spec, quality)   // -> { site, datum, seaY, heightAt(x, z, lod) }
+export function groundField(spec)   // -> { site, datum, seaY, heightAt(x, z, lod) }
 ```
 
 **And the `Surface` constructor calls it.** This is the load-bearing half of the
@@ -111,11 +120,14 @@ speed = MAX_FWD * max(CRAWL_FLOOR, bite)
 
 Two things about this are deliberate.
 
-**It is sampled at a coarse LOD.** `heightAt` carries a fine band whatever the
-LOD, and over a short baseline that band is rubble rather than landform — the
-same trap that made the rover crawl on flat ground until `GRADE_LOD` was raised
-to 14 (`Rover.js:193-205`). The route is scored at the scale of the hill, with
-a step long enough that grit is not in the answer.
+**It is sampled at a coarse LOD, over a long step.** `heightAt` carries a fine
+band whatever the LOD, and over a short baseline that band is rubble rather than
+landform — the same trap that made the rover crawl on flat ground until
+`GRADE_LOD` was raised to 14 (`Rover.js:193-205`), and the acceptance suite
+measured it as 261 m of a 3.5 km run. Concretely: **step 25 m, `lod` 14**, the
+rover's own grade LOD, over a route of up to 6.2 km — about 250 `heightAt` calls
+per candidate. Both numbers exist to keep grit out of the answer; if the score
+comes out noisy, lengthen the step before touching anything else.
 
 **Only climbing costs.** Descent is free, exactly as the drive model has it.
 That is what makes a site on the near side of a ridge score better than one on
@@ -141,12 +153,47 @@ Inside `place()` (`Sites.js:91`), after the existing bearing and range rolls,
 derive a small fixed lattice of candidates, score each with `routeTime` from the
 origin, and keep the cheapest.
 
+The lattice, stated concretely so it is not re-invented per reader: bearing
+offsets of `0, ±10, ±20` degrees and range factors of `0.88, 1.0, 1.12` — 15
+candidates, of which the rolled position is one. Both spans are deliberately
+small. A site that has wandered 60° and two kilometres is not the site the seed
+placed with a gentler approach, it is a different site, and the seeded layout
+stops meaning anything. The lattice is there to step over a ridge, not to go
+looking for a plain. If §4's before/after report shows the tail barely moving,
+widen the lattice rather than loosening the score — the score is the part that
+must keep matching the rover.
+
 **Candidates are derived, never rolled.** This is a hard constraint, not a
 preference: `_isSurvivorHost` (`Sites.js:187-194`) reproduces `at()`'s roll
 sequence draw for draw — its own comment says *"Burn exactly the rolls `at()`
 burns"* — so a single extra `rnd()` inside `place()` desynchronises it and moves
 the survivor. Offsets are therefore a constant lattice applied to the rolled
 position: bearing nudges and range nudges, no randomness.
+
+### Score once, search only when it is bad
+
+The arithmetic above does not survive contact with §5 if it is run naively.
+Fifteen candidates at ~250 samples each is ~3,700 `heightAt` calls per site, and
+four sites a world is ~15,000 per body — on its own likely past the budget §5
+sets, before `pickSite` has been paid for at all.
+
+It does not need to be run naively, because **most sites are already fine**. The
+complaint is about a tail, not a median. So:
+
+1. Score the rolled position — one route, ~250 samples.
+2. If it comes in under a "this is an ordinary drive" threshold, **keep it and
+   stop**. No lattice, no further sampling.
+3. Only when the rolled position is punishing does the lattice run.
+
+That reduces the common case to a fifteenth of the naive cost while changing
+nothing about the outcome, because a lattice run on an already-good position
+would have kept that position anyway or moved it a negligible amount. It also
+expresses the design's intent more honestly than the naive version did: this
+feature exists to rescue bad rolls, not to optimise good ones.
+
+The threshold is a drive time, and the plan should set it from the measured
+distribution in §4 rather than from taste — somewhere around the point where the
+before/after report shows the tail beginning.
 
 **Seams get range candidates only.** The deposit owns its bearing and the survey
 text quotes it; `Sites.js:109-113` already says so — *"Honour it rather than
