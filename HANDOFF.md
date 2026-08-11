@@ -93,29 +93,56 @@ close if you want to:
   up to a fifth out. The probe's output vector is full; see the comment on
   `GATE_H` for why that was accepted rather than repacked.
 
+**Sites are placed with the route in mind.** A marker used to be dropped at
+a bearing and a range with nothing asking whether the ground in between was
+climbable — a site could sit behind a face steep enough that reaching it meant
+ten minutes of switchbacks. `Sites.at()` now scores a small lattice of nearby
+bearings and range factors around the position the seed rolled, using the same
+drive model the rover itself runs on, and keeps whichever candidate has the
+shortest continuous stretch below a quarter of top speed — the wall in the
+way, not the length of the trip. A whole-route total was tried first and
+rejected: 500 m of 48° face inside an otherwise flat 5 km route dilutes to an
+unremarkable 1.9×, which is exactly the kind of site the original bug report
+was about and exactly what a total-time metric cannot see.
+
+Proven two ways. `npm run sitecheck` measures 35 sites over 12 worlds before
+and after easing and shows the worst wall shrinking (276 m → 249 m) with no
+site made worse; `npm run expedition` goes further and actually drives a
+rover at a Hush marker under its own steering, requiring it to arrive within a
+four-minute budget. On this seed it takes 218 s of that 240 s cap — inside it,
+but with less room than the median site would suggest, which is a sign the
+worst tail is still worth narrowing rather than evidence the cap is wrong.
+
+The effect is not uniform, and the reason is structural rather than a bug.
+Markers and wrecks are free to change bearing as well as range, and their
+walls fall hard — markers' worst wall went 251 m → 100 m, mean 110 m → 30 m.
+Seams cannot turn at all: a seam's bearing belongs to the deposit it surveys,
+so easing can only slide it in or out along the ray the deposit already
+picked, and the worst seam wall only comes down 276 m → 249 m. **What this
+deliberately does not do:** it is not a guarantee — nothing is rejected for
+having a bad route, so a world of mountains is still a world of mountains and
+a sufficiently unlucky roll can still land near a wall the lattice's own reach
+cannot avoid. The search never widens past the lattice the brief fixed either,
+even though a wider one was measured and would not have changed the worst
+site's floor — the floor there is the seam-bearing rule, not the lattice's
+radius. Treat this as the ground getting friendlier on average and the worst
+case getting shorter, not as a promise that every site is fair.
+
 ### Open, in the order I would take them
 
-**1. Sites are placed without checking the route.** `Sites.at()` picks a
-bearing and a range and puts a marker there. Nothing guarantees a drivable
-path exists — a marker can sit behind a face too steep to climb. The rover can
-now always crawl (see below), so nothing is strictly unreachable, but a site
-that takes ten minutes of switchbacks is a bad site. Worth sampling a few
-candidate offsets at placement time and preferring the one with the gentler
-approach.
-
-**2. `mystery.mjs` has a stale assertion.** It checks "all five readings
+**1. `mystery.mjs` has a stale assertion.** It checks "all five readings
 reachable" and passes, but there are six now and it counts *found* rather than
 total. It is a weaker claim than its name suggests. `REVELATION_COUNT` is
 exported from `src/game/Mystery.js` for exactly this.
 
-**3. Cloud Run has never actually run.** `Dockerfile`, `nginx/` and
+**2. Cloud Run has never actually run.** `Dockerfile`, `nginx/` and
 `cloudbuild.yaml` are written and the YAML parses, but this container had no
 Docker, so no image was ever built. The first `gcloud builds submit` is the
 real test. README has the full walkthrough including the IAM step that bites
 people. Locally you can at least do `docker build -t staruniverse . && docker
 run --rm -p 8080:8080 staruniverse`.
 
-**4. Thai has never been seen rendered.** No Thai font in the container, so
+**3. Thai has never been seen rendered.** No Thai font in the container, so
 every screenshot here would have been tofu. The strings are all in
 `src/ui/i18n.js` (interface) and `src/ui/story.th.js` (fiction), 155 of the
 latter, and `npm run lang` proves coverage — but coverage is not quality.
