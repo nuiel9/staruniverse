@@ -1,5 +1,47 @@
 import { mulberry32 } from './generate.js';
 import { LOGS, OWN_LOG } from '../game/lore.js';
+import { groundField } from './Surface.js';
+import { driveSpeedAt } from '../ship/driveModel.js';
+
+/** How the route is sampled. 25 m steps at the rover's own grade LOD.
+ *
+ *  Both numbers exist to keep grit out of the answer. `heightAt` carries a fine
+ *  band whatever the LOD, and over a short baseline that band is rubble rather
+ *  than landform — the trap that made the rover itself crawl on flat ground
+ *  until its grade baseline was lengthened, measured as 261 m of a 3.5 km run.
+ *  A route scored at two metres would find a mountain in every gravel bed. */
+const ROUTE_STEP = 25;
+const ROUTE_LOD = 14;
+
+/**
+ * How long the drive from (x0, z0) to (x1, z1) would take, in seconds.
+ *
+ * The straight line, because that is the line a player instinctively takes and
+ * the one that produced the complaint this exists to answer. Nothing here finds
+ * a path or suggests one; it measures how much the ground would argue.
+ *
+ * Only climbing costs, exactly as the drive does — which is what makes a site
+ * on the near side of a ridge score better than the same site on the far side.
+ *
+ * @param {{heightAt:(x:number,z:number,lod?:number)=>number}} field
+ * @returns {number} seconds
+ */
+export function routeTime(field, x0, z0, x1, z1) {
+  const dx = x1 - x0, dz = z1 - z0;
+  const len = Math.hypot(dx, dz);
+  if (len < 1) return 0;
+  const n = Math.max(1, Math.round(len / ROUTE_STEP));
+  const sx = dx / n, sz = dz / n, step = len / n;
+  let t = 0;
+  let h0 = field.heightAt(x0, z0, ROUTE_LOD);
+  for (let i = 1; i <= n; i++) {
+    const x = x0 + sx * i, z = z0 + sz * i;
+    const h1 = field.heightAt(x, z, ROUTE_LOD);
+    t += step / driveSpeedAt((h1 - h0) / step);
+    h0 = h1;
+  }
+  return t;
+}
 
 /* ============================================================================
    Sites: things that are somewhere.

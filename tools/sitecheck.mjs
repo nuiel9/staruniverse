@@ -86,6 +86,53 @@ for (const r of agree.out) {
     `worst ${r.worstY} m${r.worstAt ? ` at ${r.worstAt[0]},${r.worstAt[1]} lod ${r.worstAt[2]}` : ''}`);
 }
 
+// ------------------------------- stage 1: what the ground actually demands
+/* The distribution, before anything is changed. Two jobs: it is the "before"
+   half of the before/after the spec asks for, and it is where the threshold in
+   Task 4 comes from — the point where the tail begins, measured rather than
+   guessed at. */
+const dist = await page.evaluate(async () => {
+  const g = window.__game;
+  const surfMod = await import('/src/world/Surface.js');
+  const sitesMod = await import('/src/world/Sites.js');
+  const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
+  const rows = [];
+  for (const body of solid) {
+    const f = surfMod.groundField(body.spec);
+    for (const s of g.sites.at(body)) {
+      rows.push({
+        body: body.name, kind: s.kind, range: s.range,
+        secs: sitesMod.routeTime(f, 0, 0, s.x, s.z),
+      });
+    }
+  }
+  return { rows, worlds: solid.length };
+});
+
+{
+  const secs = dist.rows.map((r) => r.secs).sort((a, b) => a - b);
+  const q = (p) => secs.length ? secs[Math.min(secs.length - 1, Math.floor(secs.length * p))] : 0;
+  /* A flat-out run is range / MAX_FWD. The ratio is the honest measure of how
+     much the ground is costing, and it is scale-free, so a 6 km site and a
+     700 m one are comparable. */
+  const ratios = dist.rows.map((r) => r.secs / (r.range / 22)).sort((a, b) => a - b);
+  const rq = (p) => ratios.length ? ratios[Math.min(ratios.length - 1, Math.floor(ratios.length * p))] : 0;
+  console.log(`\n  ${dist.rows.length} sites over ${dist.worlds} worlds`);
+  console.log(`  drive seconds   median ${q(0.5).toFixed(0)}  p90 ${q(0.9).toFixed(0)}  worst ${q(1).toFixed(0)}`);
+  console.log(`  vs flat out     median ${rq(0.5).toFixed(2)}x  p90 ${rq(0.9).toFixed(2)}x  worst ${rq(1).toFixed(2)}x`);
+  const worst = dist.rows.slice().sort((a, b) => b.secs - a.secs).slice(0, 5);
+  for (const w of worst) {
+    console.log(`    ${w.body} ${w.kind} ${w.range} m -> ${w.secs.toFixed(0)} s`);
+  }
+  check('every site scores a finite, positive drive time', dist.rows.length > 0
+    && dist.rows.every((r) => r.secs > 0 && Number.isFinite(r.secs)),
+    `${dist.rows.length} sites`);
+  /* Sanity on the units: nothing can beat flat out, and the crawl floor caps
+     how bad it can get at MAX_FWD/(MAX_FWD*CRAWL_FLOOR) = 10x. */
+  check('drive times sit between flat out and the crawl floor',
+    rq(0) >= 0.99 && rq(1) <= 10.01, `${rq(0).toFixed(2)}x to ${rq(1).toFixed(2)}x`);
+}
+
 const bad = checks.filter(([, ok]) => !ok).length;
 console.log(`\n${checks.length - bad}/${checks.length} ok`);
 await browser.close();
