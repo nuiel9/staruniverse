@@ -1276,7 +1276,11 @@ const _Fp = [0, 0, 0, 0];
 const _Fpz = [0, 0, 0, 0], _Fpy = [0, 0, 0, 0], _Fpx = [0, 0, 0, 0];
 const _Fxs = [0, 0, 0, 0], _Fys = [0, 0, 0, 0], _Fzs = [0, 0, 0, 0];
 const _Fdots = [0, 0, 0, 0];
-const _dat2 = [0, 0];
+/* Surface.heightAt's terrainRaw scratch used to live here too. It moved into
+   groundField's closure when the derivation did, because a field built from a
+   bare spec has no class to hang scratch off and there can now be more than
+   one field alive at a time — a per-field array is the only version of that
+   which is still allocation-free per call. */
 // The gradient table's constants, in the shader's own precision.
 const J_N7 = Math.fround(0.142857142857);
 const J_NSX = Math.fround(J_N7 * 2);
@@ -2003,6 +2007,65 @@ export const __woodyJS = {
   hash11: jHash11, meshLod: jMeshLod, tileTo: jTileTo, accept: jTreeAccept,
   GROW_MIN: J_GROW_MIN,
 };
+
+/* ------------------------------------------------------- the field, alone
+ *
+ * Everything above answers "how high is the ground" given a set of uniforms and
+ * a landing site. Both of those come from the world's spec, so the answer does
+ * not actually need a Surface — and something does need it without one: site
+ * placement scores the drive to a candidate position before the player has
+ * landed, and the Codex lists a world's sites for worlds nobody has visited.
+ *
+ * So the derivation lives here, and **the Surface constructor calls it**. That
+ * is the whole point rather than a tidiness argument. Two copies of "where did
+ * the ship come down" would put sites on one version of a world and drive them
+ * on another, and the two would drift the first time either was touched — which
+ * is the failure this file already carries two checkers for. There is one
+ * derivation; tools/sitecheck.mjs proves the class still uses it.
+ *
+ * Note what is NOT here: uLodK, and any notion of quality. jTerrainRaw takes
+ * its lod as a parameter and reads only uSeed and uRelief; uLodK belongs to
+ * meshLod, which is about how finely the mesh is *drawn*. If this function ever
+ * grew a quality argument, a player changing graphics settings would move every
+ * site in the galaxy.
+ *
+ * @param {object} spec  a world spec — seed, relief, radius, typeId, sea, garden
+ * @returns {{site:number[], datum:number[], seaY:number,
+ *            heightAt:(x:number, z:number, lod?:number)=>number}}
+ */
+export function groundField(spec) {
+  /* The uniform bag pickSite and jTerrainRaw expect, and nothing else in it.
+     Shaped like three's uniforms because that is what those two read. */
+  const U = {
+    uSeed: { value: spec.seed },
+    uRelief: { value: spec.relief },
+    uPlanetR: { value: spec.radius * 1000 },
+    uType: { value: spec.typeId | 0 },
+  };
+  const site = pickSite(U);
+  const datum = [0, 0];
+  jTerrainRaw(site[0], site[1], 0.26, U, datum);
+  const seaY = Math.min((spec.sea - datum[0]) * J_VSCALE, spec.garden ? -26 : -40);
+  const type = U.uType.value | 0;
+  const R2 = 2 * U.uPlanetR.value;
+  const scratch = [0, 0];
+
+  /* The one implementation of heightAt. Surface delegates to this rather than
+     keeping its own, so the class and the bare field cannot answer differently.
+     Metres, +Y up, relative to the landing site, horizon bend included. */
+  const heightAt = (x, z, lod = 1.0) => {
+    jTerrainRaw(x + site[0], z + site[1], lod, U, scratch);
+    const h = scratch[0], fine = scratch[1];
+    const d = Math.sqrt(x * x + z * z);
+    const pad = jSmoothstep(11, 42, d);
+    let y = (h - datum[0]) * J_VSCALE * pad
+          + (fine - datum[1]) * J_VSCALE * (0.34 + 0.66 * pad);
+    if (type === 0 || type === 5) y = Math.max(y, seaY);
+    return y - (x * x + z * z) / R2;
+  };
+
+  return { site, datum, seaY, heightAt, U };
+}
 
 /* ------------------------------------------------------ where you came down
 
@@ -6444,13 +6507,6 @@ export class Surface {
     };
     this.U = U;
 
-    /* The datum, once, on the CPU — and then handed to the GPU.
-
-       groundYFlat subtracts the field's value at the landing site so the site
-       passes exactly through y = 0. Both paths now read the same two numbers
-       from the same place, so they cannot describe different surfaces, and no
-       vertex shader has to spend twenty-two octaves rediscovering a constant. */
-    this._datum = [0, 0];
     /* What the CPU needs to answer "is there a tree here" without a frame.
        Filled by the woody band below when the world has one; null otherwise,
        and every consumer checks. See treesNear. */
@@ -6484,12 +6540,25 @@ export class Surface {
     /* Where on the world this is, chosen rather than assumed — see pickSite.
        Everything downstream reads it out of uDatum.zw, so the mesh, the
        scatter, the marched shadow and the walking player cannot land on four
-       different patches of ground. */
-    this._site = pickSite(U);
-    jTerrainRaw(this._site[0], this._site[1], 0.26, U, this._datum);
-    U.uDatum.value.set(this._datum[0], this._datum[1], this._site[0], this._site[1]);
+       different patches of ground.
+
+       One derivation, shared with anything that needs the ground without a
+       renderer — see groundField. The uniforms it builds are its own; the ones
+       below are this Surface's, and only the four the field reads have to
+       agree, which they do because both come off the same spec. */
+    this._field = groundField(spec);
+    this._site = this._field.site;
+    this._datum = this._field.datum;
     // and the same law on the CPU — see seaLevel in the GLSL above
-    this._seaY = Math.min((spec.sea - this._datum[0]) * J_VSCALE, spec.garden ? -26 : -40);
+    this._seaY = this._field.seaY;
+
+    /* The datum, once, on the CPU — and then handed to the GPU.
+
+       groundYFlat subtracts the field's value at the landing site so the site
+       passes exactly through y = 0. Both paths now read the same two numbers
+       from the same place, so they cannot describe different surfaces, and no
+       vertex shader has to spend twenty-two octaves rediscovering a constant. */
+    U.uDatum.value.set(this._datum[0], this._datum[1], this._site[0], this._site[1]);
 
     const pick = (...names) => {
       const o = {};
@@ -7428,20 +7497,16 @@ export class Surface {
    *   The field contains no band finer than this — pass something near the
    *   size of the thing standing on it. A walking figure wants the default.
    * @returns {number} metres, +Y up, same frame as `Surface.root`.
+   *
+   * The implementation moved out to groundField, which is where the landing
+   * site and the datum this answer is relative to are chosen — see the note
+   * there. This delegates rather than reproducing it because site placement
+   * asks the same question about worlds that have no Surface, and two copies
+   * of one law is exactly the fault this file already carries two checkers
+   * for; tools/sitecheck.mjs holds the two to zero difference.
    */
   heightAt(x, z, lod = 1.0) {
-    const U = this.U;
-    jTerrainRaw(x + this._site[0], z + this._site[1], lod, U, _dat2);
-    const h = _dat2[0], fine = _dat2[1];
-    const d = Math.sqrt(x * x + z * z);
-    // the landing scour, exactly as groundYFlat does it — twenty metres, not a
-    // hundred and ten. See the note there for why the site moved instead.
-    const pad = jSmoothstep(11, 42, d);
-    let y = (h - this._datum[0]) * J_VSCALE * pad
-          + (fine - this._datum[1]) * J_VSCALE * (0.34 + 0.66 * pad);
-    const t = U.uType.value | 0;
-    if (t === 0 || t === 5) y = Math.max(y, this._seaY);
-    return y - (x * x + z * z) / (2 * U.uPlanetR.value);
+    return this._field.heightAt(x, z, lod);
   }
 
   /**

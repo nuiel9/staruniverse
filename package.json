@@ -9,6 +9,7 @@
     "verify": "node tools/verify.mjs",
     "fieldcheck": "node tools/fieldcheck.mjs",
     "treecheck": "node tools/treecheck.mjs",
+    "sitecheck": "node tools/sitecheck.mjs",
     "smoke": "node tools/smoke.mjs",
     "trade": "node tools/trade.mjs",
     "nebula": "node tools/nebula.mjs",
