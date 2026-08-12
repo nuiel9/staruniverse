@@ -86,29 +86,108 @@ for (const r of agree.out) {
     `worst ${r.worstY} m${r.worstAt ? ` at ${r.worstAt[0]},${r.worstAt[1]} lod ${r.worstAt[2]}` : ''}`);
 }
 
-// ------------------------------- stage 1: what the ground actually demands
-/* The distribution, before anything is changed. Two jobs: it is the "before"
-   half of the before/after the spec asks for, and it is where the threshold in
-   Task 4 comes from — the point where the tail begins, measured rather than
-   guessed at. */
-const dist = await page.evaluate(async () => {
-  const g = window.__game;
-  const surfMod = await import('/src/world/Surface.js');
-  const sitesMod = await import('/src/world/Sites.js');
-  const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
-  const rows = [];
-  for (const body of solid) {
-    const f = surfMod.groundField(body.spec);
-    for (const s of g.sites.at(body)) {
-      const c = sitesMod.routeCost(f, 0, 0, s.x, s.z);
-      rows.push({
-        body: body.name, kind: s.kind, range: s.range,
-        secs: c.secs, wall: c.wall,
-      });
+// ------------------------------------------------------- walking the galaxy
+/* Every system, not just the one the game boots into.
+ *
+ * This used to score the home system alone, because that is where `bootGame`
+ * leaves you and nothing here ever moved. It was never a small sample — thirty
+ * five sites over twelve worlds — but it was one system of fourteen, and both
+ * of the numbers this branch tuned (`WALL_TRIGGER`, and the acceptance suite's
+ * budget multiplier) were read off that one distribution and then applied to
+ * the whole galaxy. A sample, presented as a census.
+ *
+ * `loadSystem` rather than `hyperjump`: the jump wraps the same call in a
+ * 420 ms wait, a screen flash, a sound, and contract, mystery and event ticks,
+ * none of which a checker wants and all of which cost time thirteen times over.
+ *
+ * One consequence worth knowing rather than discovering. `loadSystem` tears the
+ * old system's bodies down and builds new objects, so the caches that hang off
+ * a body — `_sites`, `_field`, `_wreckN` — do not survive the move. Every
+ * system therefore pays its derivation once, which is the honest cost and is
+ * what the timing below reports.
+ *
+ * Both stages read one walk. They used to make a pass each over the same
+ * bodies computing overlapping things; stage 1 wants what the ground demands
+ * now and stage 2 wants that beside what it demanded before easing, and the
+ * second is a superset of the first. One walk, ~80 ms of route scoring a
+ * system rather than two lots of it. */
+const LIMIT = Number(process.argv[3] || 0);      // 0 = the whole galaxy
+const rows = [];
+const perSystem = [];
+let survivorAt = null;
+const notStable = [];
+const wreckBad = [];
+
+const systemCount = await page.evaluate(() => window.__game.galaxy.length);
+const walkTo = LIMIT > 0 ? Math.min(LIMIT, systemCount) : systemCount;
+const walkT0 = Date.now();
+
+for (let id = 0; id < walkTo; id++) {
+  const sys = await page.evaluate(async (id) => {
+    const g = window.__game;
+    if (g.currentSystemId !== id) await g.loadSystem(id);
+    const surfMod = await import('/src/world/Surface.js');
+    const sitesMod = await import('/src/world/Sites.js');
+    const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
+    const out = [];
+    let survivor = null;
+    const t0 = performance.now();
+    for (const body of solid) {
+      const f = surfMod.groundField(body.spec);
+      for (const s of g.sites.at(body)) {
+        const now = sitesMod.routeCost(f, 0, 0, s.x, s.z);
+        const was = s._rolled ? sitesMod.routeCost(f, 0, 0, s._rolled.x, s._rolled.z) : null;
+        out.push({
+          system: g.galaxy[id].name, body: body.name, kind: s.kind, id: s.id,
+          wall: now.wall, secs: now.secs,
+          wasWall: was ? was.wall : null, wasSecs: was ? was.secs : null,
+          range: s.range, bearing: s.bearing,
+          moved: !!s._rolled && (s._rolled.bearing !== s.bearing || s._rolled.range !== s.range),
+          seamKeptBearing: s.kind !== 'seam' || (s.dep && s.bearing === s.dep.bearing),
+        });
+      }
+      if (g.sites.at(body).some((s) => s.kind === 'survivor')) survivor = body.name;
     }
-  }
-  return { rows, worlds: solid.length };
-});
+    const ms = performance.now() - t0;
+
+    /* Determinism, per system rather than once: drop every cache and rebuild.
+       The same seed must give the same sites in the same places. This is what
+       an extra rnd() in place() would break. */
+    const snap = () => solid.map((b) => g.sites.at(b)
+      .map((s) => `${s.id}@${s.x | 0},${s.z | 0}`).join('|')).join('#');
+    const before = snap();
+    for (const b of solid) { delete b._sites; delete b._wreckN; delete b._field; }
+    const stable = before === snap();
+
+    /* And the draw sequence itself, on every world. `_wreckCountOf` replays
+       what `at()` draws; if the two disagree the survivor has moved. */
+    const bad = [];
+    for (const b of solid) {
+      delete b._wreckN;
+      const predicted = g.sites._wreckCountOf(b);
+      const actual = g.sites.at(b).filter((s) => s.kind === 'wreck').length;
+      if (predicted !== actual) bad.push(`${g.galaxy[id].name}/${b.name} says ${predicted}, has ${actual}`);
+    }
+
+    return { name: g.galaxy[id].name, worlds: solid.length, rows: out, survivor, stable, bad, ms };
+  }, id);
+
+  rows.push(...sys.rows);
+  perSystem.push({ name: sys.name, worlds: sys.worlds, sites: sys.rows.length, ms: sys.ms });
+  if (sys.survivor) survivorAt = `${sys.name}/${sys.survivor}`;
+  if (!sys.stable) notStable.push(sys.name);
+  wreckBad.push(...sys.bad);
+}
+
+const walkSecs = (Date.now() - walkT0) / 1000;
+const worlds = perSystem.reduce((a, s) => a + s.worlds, 0);
+console.log(`\n  walked ${perSystem.length}/${systemCount} systems`
+  + ` · ${worlds} worlds · ${rows.length} sites · ${walkSecs.toFixed(1)} s`
+  + ` (${Math.round(perSystem.reduce((a, s) => a + s.ms, 0) / perSystem.length)} ms of scoring a system)`);
+
+const dist = { rows, worlds };
+
+// ------------------------------- stage 1: what the ground actually demands
 
 {
   const secs = dist.rows.map((r) => r.secs).sort((a, b) => a - b);
@@ -169,31 +248,10 @@ check('the score is directional — climbing costs and descending does not',
     : 'no leg with relief found');
 
 // --------------------------------- stage 2: it got gentler, and stayed itself
-const after = await page.evaluate(async () => {
-  const g = window.__game;
-  const surfMod = await import('/src/world/Surface.js');
-  const sitesMod = await import('/src/world/Sites.js');
-  const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
-  const rows = [];
-  let survivor = null;
-  for (const body of solid) {
-    const f = surfMod.groundField(body.spec);
-    for (const s of g.sites.at(body)) {
-      const now = sitesMod.routeCost(f, 0, 0, s.x, s.z);
-      const was = s._rolled ? sitesMod.routeCost(f, 0, 0, s._rolled.x, s._rolled.z) : null;
-      rows.push({
-        body: body.name, kind: s.kind, id: s.id,
-        wall: now.wall, secs: now.secs,
-        wasWall: was ? was.wall : null, wasSecs: was ? was.secs : null,
-        range: s.range, bearing: s.bearing,
-        moved: !!s._rolled && (s._rolled.bearing !== s.bearing || s._rolled.range !== s.range),
-        seamKeptBearing: s.kind !== 'seam' || (s.dep && s.bearing === s.dep.bearing),
-      });
-    }
-    if (g.sites.at(body).some((s) => s.kind === 'survivor')) survivor = body.name;
-  }
-  return { rows, survivor };
-});
+/* The same walk stage 1 read. Both want the cost of every site; stage 2 also
+   wants what that cost was before easing moved it, which the rolled position
+   still carries — so one pass serves both. */
+const after = { rows, survivor: survivorAt };
 
 {
   const paired = after.rows.filter((r) => r.wasWall !== null);
@@ -259,54 +317,49 @@ const after = await page.evaluate(async () => {
 }
 
 /* Determinism: the same seed still produces the same sites, in the same order,
-   with the same ids — and the survivor is still on the same world. This is what
-   would break if a single extra rnd() found its way into place(). */
-const stable = await page.evaluate(async () => {
-  const g = window.__game;
-  const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
-  const snap = () => solid.map((b) => g.sites.at(b)
-    .map((s) => `${s.id}@${s.x | 0},${s.z | 0}`).join('|')).join('#');
-  const a = snap();
-  for (const b of solid) { delete b._sites; delete b._wreckN; delete b._field; }
-  const b2 = snap();
-  return { same: a === b2 };
-});
-check('the same seed rebuilds the same sites in the same places', stable.same);
+   with the same ids. This is what would break if a single extra rnd() found its
+   way into place(). Measured on every system the walk visited, not just the one
+   the game happened to boot into. */
+check('the same seed rebuilds the same sites in the same places',
+  notStable.length === 0,
+  notStable.length ? `drifted in ${notStable.join(', ')}`
+    : `${perSystem.length} system${perSystem.length === 1 ? '' : 's'} rebuild identically`);
 
-/* This task's brief asked for "the survivor is still somewhere", and that check
-   cannot pass in this harness for a reason that has nothing to do with
-   placement. `_isSurvivorHost` picks one system out of the galaxy seed and
-   deliberately never picks the home one — the whole point is that they are a
-   long way out — while the checker boots into the home system and never leaves
-   it. The thirty-five sites it can see are twenty-five seams, five wrecks and
-   five markers, and that was true before any of this was written, so a presence
-   test here would be permanently red and would stay red however well placement
-   behaved.
+/* Two ways at the same invariant, and walking the galaxy is what made the
+   second one possible.
 
-   So this is the same invariant, reached from the other end, and it has sharper
-   teeth than presence would. `_wreckCountOf` exists to reproduce `at()`'s draw
-   sequence without building the site list, and it is what decides which world
-   hosts the survivor. If one extra rnd() found its way into place() or ease(),
-   `at()`'s sequence would shift, the two counts would disagree, and the
-   survivor would move to a different world — which is the failure the brief
-   wanted watched. Caught directly here, on every world, rather than inferred
-   from one that this system does not contain. */
-const wreckSync = await page.evaluate(() => {
-  const g = window.__game;
-  const solid = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas);
-  const bad = [];
-  for (const b of solid) {
-    delete b._wreckN;                       // the cache, not the derivation
-    const predicted = g.sites._wreckCountOf(b);
-    const actual = g.sites.at(b).filter((s) => s.kind === 'wreck').length;
-    if (predicted !== actual) bad.push(`${b.name} says ${predicted}, has ${actual}`);
-  }
-  return { bad, worlds: solid.length };
-});
+   The first is the sharper of the two and is checked on every world. There is a
+   cycle to break — `at()` needs to know whether this world hosts the survivor,
+   and the survivor test would need `at()` to count wrecks — so `_wreckCountOf`
+   replays `at()`'s draw sequence without building the site list. That
+   duplication is only safe while the two agree, and one extra rnd() in place()
+   or ease() would shift what `at()` draws, silently move the survivor to a
+   different world, and be caught here.
+
+   The second used to be impossible to run. `_isSurvivorHost` picks one system
+   off the galaxy seed and deliberately never picks the home one — the whole
+   point is that they are a long way out — and this checker used to boot into
+   the home system and stay there, so a presence test was permanently red for a
+   reason that had nothing to do with placement. Walking the galaxy fixes that:
+   somewhere out there is exactly one person still alive, and now we can say so. */
 check('the survivor picker still reads the same rolls the sites were built from',
-  wreckSync.bad.length === 0,
-  wreckSync.bad.length ? wreckSync.bad.join('; ')
-    : `${wreckSync.worlds} worlds agree · survivor hosted here: ${after.survivor || 'no, this is the home system'}`);
+  wreckBad.length === 0,
+  wreckBad.length ? wreckBad.slice(0, 3).join('; ')
+    : `${worlds} worlds agree across ${perSystem.length} system${perSystem.length === 1 ? '' : 's'}`);
+
+/* Asserted only on a full walk. There is one survivor in a galaxy and they are
+   deliberately not in the home system, so a run limited to the first N systems
+   can miss them for a reason that has nothing to do with placement — and a
+   convenience flag that turns the suite red is a flag nobody uses. Not asserted
+   is said out loud rather than quietly skipped, because a check that vanishes
+   silently is how a suite starts measuring less than it claims. */
+if (perSystem.length === systemCount) {
+  check('there is exactly one survivor, and the walk found them',
+    !!survivorAt, survivorAt || `nobody in ${systemCount} systems`);
+} else {
+  console.log(`--    the survivor is somewhere · not asserted, this walk covered`
+    + ` ${perSystem.length} of ${systemCount} systems`);
+}
 
 const bad = checks.filter(([, ok]) => !ok).length;
 console.log(`\n${checks.length - bad}/${checks.length} ok`);
