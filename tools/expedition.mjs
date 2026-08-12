@@ -274,13 +274,20 @@ const reach = await page.evaluate(async (MAX_FWD) => {
      which placement cannot change, and blames it on how HARD the route is,
      which is the only thing placement affects — two markers on this seed sit
      over four minutes away at full speed on dead-flat ground. So the budget is
-     a multiple of a flat-out run: 2.6x, comfortably above the 2.37x worst that
+     a multiple of a flat-out run: 2.6x, above the 2.37x worst that
      `npm run sitecheck` measures across every one of the 35 sites in this
      home system, and far below the 10x a route pinned at the crawl floor would
      reach. A failure here means the ground is fighting the drive, which is
      the thing this branch is about. The flat +30 s covers steering overhead
      near the target, where the "aim straight at it" loop below is not the
-     shortest possible path even on flat ground. */
+     shortest possible path even on flat ground.
+
+     **This budget is calibrated on the home system, and that is the only
+     system this suite ever stands in.** Once sitecheck learned to walk the
+     galaxy it measured a worst of 4.46x over 457 sites — well past 2.6 — so if
+     anything ever teaches this suite to jump, the budget has to be re-derived
+     before it is trusted, not merely re-run. It is not loose here: it is
+     scoped, and the scope is load-bearing. */
   const budget = flatSecs * 2.6 + 30;
   // A runaway guard, not a claim about difficulty: nothing in the budget
   // above should ever reach this, but a stuck rover should still stop the

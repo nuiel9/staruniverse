@@ -114,10 +114,12 @@ a fixed wall-clock cap — an early version used one, and it was wrong: two
 markers on this seed sit over four minutes from their ship at full speed on
 flat ground, which a fixed cap would fail on distance alone regardless of how
 good the route is. The budget is a multiple of a flat-out run instead (2.6x,
-against sitecheck's measured worst of 2.37x across the home system), so the
-check is honest about what placement can and cannot fix: it cannot make a
-marker closer, only make the ground between the ship and it less of a fight.
-On this seed the hardest marker drives at 1.01x flat-out, well inside budget.
+against sitecheck's measured worst of 2.37x across the home system — and
+2.6x is deliberately a home-system number, because this suite never leaves
+home; the galaxy's worst is 4.46x), so the check is honest about what
+placement can and cannot fix: it cannot make a marker closer, only make the
+ground between the ship and it less of a fight. On this seed the hardest
+marker drives at 1.01x flat-out, well inside budget.
 
 The effect is not uniform, and the reason is structural rather than a bug.
 Markers and wrecks are free to change bearing as well as range, and their
@@ -136,11 +138,19 @@ case getting shorter, not as a promise that every site is fair.
 
 Four loose ends, none known to be wrong and all cheap to close:
 
-- **The thresholds were tuned on one system, not the galaxy.** `WALL_TRIGGER`
-  and the acceptance budget both come off a 35-site distribution measured in
-  the home system, because the checker boots there and never jumps. Fourteen
-  systems exist. The design is distributional and explicitly not a guarantee,
-  so this is defensible — but the numbers are a sample, not a census.
+- **The thresholds were tuned on one system, and the checker now walks all
+  fourteen.** `npm run sitecheck` used to score the home system alone, because
+  that is where the game boots and nothing moved it; it walks the galaxy by
+  default now — 457 sites over 152 worlds, about 30 s — and `sitecheck <url> N`
+  limits it to the first N systems when you want it quick. That immediately
+  showed the home system had been a soft sample: the worst drive is **4.46x** a
+  flat-out run galaxy-wide against 2.37x at home, and the worst wall 376 m
+  against 276 m. Both tuned numbers survive, and both are now documented as
+  home-system calibrations where they sit — `WALL_TRIGGER`'s "middle of an
+  empty band" argument is true at home and not galaxy-wide, and the acceptance
+  budget's 2.6x has headroom only because that suite never leaves home. If
+  anything ever teaches `expedition` to jump, re-derive the budget rather than
+  re-running it.
 - **A deposit bearing of exactly 360° would disagree with itself.**
   `Prospecting` rolls `round(rnd()*360)`, so 360 is reachable, and an eased
   seam normalises it to 0 while the deposit keeps 360. Geometrically the same

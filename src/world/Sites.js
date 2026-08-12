@@ -200,7 +200,19 @@ export class Sites {
        24.99 and the tail starts at 100.14, and a trigger at either edge would
        be decided by float jitter. A percentile would have been the worse
        reading here — p75 lands at 149.7, inside a cluster of five sites within
-       half a metre of each other, and would split them arbitrarily. */
+       half a metre of each other, and would split them arbitrarily.
+
+       **That band is a property of the home system, not of the galaxy**, and
+       the paragraph above stood unqualified until the checker learned to walk.
+       Across all fourteen systems — 457 sites over 152 worlds — the gap fills
+       in: there are sites at 50 m and a solid block at 75 m, so there is no
+       empty band to sit in the middle of, and the honest description of 75 is
+       that it is a low trigger which fires for 256 of 457 sites rather than a
+       natural seam. It still selects the right thing, and the argument for it
+       is now the plainer one: 25 m is a single sample of a long route and is
+       grit, 75 m is three consecutive samples and is a hill you would notice.
+       Do not re-derive this from the home system alone; run the checker over
+       the whole galaxy, which is what it does by default now. */
     const WALL_TRIGGER = 75;
 
     /* Half a route step. `wall` can only ever be a multiple of the sampling
