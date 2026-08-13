@@ -117,6 +117,8 @@ const perSystem = [];
 let survivorAt = null;
 const notStable = [];
 const wreckBad = [];
+let orderTested = 0;
+const orderBad = [];
 
 const systemCount = await page.evaluate(() => window.__game.galaxy.length);
 const walkTo = LIMIT > 0 ? Math.min(LIMIT, systemCount) : systemCount;
@@ -150,6 +152,55 @@ for (let id = 0; id < walkTo; id++) {
     }
     const ms = performance.now() - t0;
 
+    /* The ranking is a total order, so the lattice can be walked in any order
+       and land on the same site — tested rather than asserted, because the
+       version before this one did not have the property. A tolerance that
+       accepts a candidate up to half a step worse also moves the bound the next
+       one is compared against, so the winner depended on which candidate came
+       first. A fixed loop made that reproducible, which is not the same as well
+       defined, and stops being true the moment somebody reorders a loop for
+       tidiness.
+
+       Rebuilt here rather than exported, because what is being tested is the
+       ordering rule and a rule shared with the thing under test would agree
+       with it by construction. Three searched sites a system: running the whole
+       lattice twice for every one of them would cost eight times the walk, and
+       a spread across fourteen systems says more than an exhaustive pass over
+       one. */
+    const nOf = (m) => Math.round(m / sitesMod.ROUTE_STEP);
+    const BEAR = [0, -10, 10, -20, 20], FAC = [1.0, 0.88, 1.12];
+    const pick = (f, s, bears, facs) => {
+      const b0 = sitesMod.routeCost(f, 0, 0, s._rolled.x, s._rolled.z);
+      let bn = nOf(b0.wall), bs = b0.secs;
+      let bb = s._rolled.bearing, br = s._rolled.range;
+      for (const db of bears) {
+        for (const fr of facs) {
+          const rng = s._rolled.range * fr;
+          if (rng < 700 || rng > 6200) continue;
+          const bear = s._rolled.bearing + (s.kind === 'seam' ? 0 : db);
+          const a = bear * Math.PI / 180;
+          const c = sitesMod.routeCost(f, 0, 0, Math.sin(a) * rng, Math.cos(a) * rng);
+          const n = nOf(c.wall);
+          if (n < bn || (n === bn && c.secs < bs)) { bn = n; bs = c.secs; bb = bear; br = rng; }
+        }
+      }
+      return `${Math.round(bb)}@${Math.round(br)}`;
+    };
+    let tested = 0;
+    const orderDisagreed = [];
+    for (const body of solid) {
+      if (tested >= 3) break;
+      const f = surfMod.groundField(body.spec);
+      for (const st of g.sites.at(body)) {
+        if (tested >= 3 || !st._rolled) continue;
+        if (sitesMod.routeCost(f, 0, 0, st._rolled.x, st._rolled.z).wall <= 75) continue;
+        tested++;
+        const fwd = pick(f, st, BEAR, FAC);
+        const rev = pick(f, st, BEAR.slice().reverse(), FAC.slice().reverse());
+        if (fwd !== rev) orderDisagreed.push(`${body.name} ${st.kind} ${fwd} vs ${rev}`);
+      }
+    }
+
     /* Determinism, per system rather than once: drop every cache and rebuild.
        The same seed must give the same sites in the same places. This is what
        an extra rnd() in place() would break. */
@@ -169,7 +220,8 @@ for (let id = 0; id < walkTo; id++) {
       if (predicted !== actual) bad.push(`${g.galaxy[id].name}/${b.name} says ${predicted}, has ${actual}`);
     }
 
-    return { name: g.galaxy[id].name, worlds: solid.length, rows: out, survivor, stable, bad, ms };
+    return { name: g.galaxy[id].name, worlds: solid.length, rows: out, survivor, stable, bad, ms,
+      orderTested: tested, orderDisagreed };
   }, id);
 
   rows.push(...sys.rows);
@@ -177,6 +229,8 @@ for (let id = 0; id < walkTo; id++) {
   if (sys.survivor) survivorAt = `${sys.name}/${sys.survivor}`;
   if (!sys.stable) notStable.push(sys.name);
   wreckBad.push(...sys.bad);
+  orderTested += sys.orderTested;
+  orderBad.push(...sys.orderDisagreed);
 }
 
 const walkSecs = (Date.now() - walkT0) / 1000;
@@ -257,21 +311,22 @@ const after = { rows, survivor: survivorAt };
   const paired = after.rows.filter((r) => r.wasWall !== null);
   const q = (xs, p) => { const s = xs.slice().sort((a, b) => a - b);
     return s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : 0; };
-  /* Half a route step, the same resolution the ranking itself uses — see
-     WALL_EPS in Sites.js. `wall` can only be a multiple of the sampling step,
-     and the step is len/n rather than exactly 25 m, so two positions crossing
-     the same number of crawl samples report walls differing by centimetres.
-     The ranking treats that band as a tie and lets the drive time decide, which
-     means a site may legitimately land on a nominally larger `wall` while
-     crossing the same wall on a shorter drive. Testing that at half a metre
-     would be making exactly the mistake the epsilon was added to stop making.
-     Above half a step it is a real regression and still a ranking bug: the
-     rolled position is in the lattice, so nothing can lose to it by a whole
-     sample. */
-  const WALL_EPS = ROUTE_STEP / 2;
-  const worsened = paired.filter((r) => r.wall > r.wasWall + WALL_EPS);
-  const nudged = paired.filter((r) => r.wall > r.wasWall + 0.5);
-  const helped = paired.filter((r) => r.wall < r.wasWall - WALL_EPS);
+  /* Samples, not metres, because that is what the ranking orders on and what
+     a wall actually is: a run of consecutive route samples. The metres are that
+     count times a step of len/n, and the step is near 25 m but not exactly it
+     and not the same for two candidates of different length — so two positions
+     crossing the same number of samples report walls differing by centimetres.
+     Comparing metres here would be re-introducing, in the assertion, the noise
+     the ranking was changed to stop reading as signal.
+
+     Counting instead makes the claim exact rather than tolerated. The rolled
+     position is itself in the lattice, so the winner's count can only be less
+     than or equal to it: no band, no "within", and a single sample of growth is
+     a ranking bug rather than a judgement call. */
+  const nOf = (m) => Math.round(m / ROUTE_STEP);
+  const worsened = paired.filter((r) => nOf(r.wall) > nOf(r.wasWall));
+  const sameCount = paired.filter((r) => nOf(r.wall) === nOf(r.wasWall) && r.wall > r.wasWall + 0.5);
+  const helped = paired.filter((r) => nOf(r.wall) < nOf(r.wasWall));
   /* Where WALL_TRIGGER came from, kept reproducible from the committed tree.
      Stage 1 above scores the sites `at()` returns, and those are eased now, so
      the distribution the trigger was read off can only be recovered here — from
@@ -307,8 +362,9 @@ const after = { rows, survivor: survivorAt };
      picking the best can never lose to it. A regression is a ranking bug. */
   check('no site got a longer wall than the position it was rolled at', worsened.length === 0,
     worsened.length ? `${worsened.length} worse, e.g. ${worsened[0].body} ${worsened[0].kind}`
-      : `none · ${nudged.length} inside the ${WALL_EPS} m tie band`
-        + nudged.map((r) => ` (${r.body} ${r.kind} ${r.wasWall.toFixed(2)} -> ${r.wall.toFixed(2)} m,`
+      + ` ${nOf(worsened[0].wasWall)} -> ${nOf(worsened[0].wall)} samples`
+      : `none · ${sameCount.length} took a shorter drive across the same count`
+        + sameCount.map((r) => ` (${r.body} ${r.kind} ${nOf(r.wall)} samples,`
           + ` ${r.wasSecs.toFixed(0)} -> ${r.secs.toFixed(0)} s)`).join(''));
   check('seams kept their deposit bearing', after.rows.every((r) => r.seamKeptBearing));
   /* Canonical, so a bearing has one name. `round(rnd()*360)` used to return
@@ -335,6 +391,12 @@ check('the same seed rebuilds the same sites in the same places',
   notStable.length === 0,
   notStable.length ? `drifted in ${notStable.join(', ')}`
     : `${perSystem.length} system${perSystem.length === 1 ? '' : 's'} rebuild${perSystem.length === 1 ? 's' : ''} identically`);
+
+check('the ranking gives the same winner whichever way the lattice is walked',
+  orderTested > 0 && orderBad.length === 0,
+  orderBad.length ? orderBad.slice(0, 3).join('; ')
+    : `${orderTested} searched sites across ${perSystem.length} system`
+      + `${perSystem.length === 1 ? '' : 's'} agree forwards and reversed`);
 
 /* Easing may not rewrite a bearing it was not allowed to change — proved by
    handing it one it would have rewritten.

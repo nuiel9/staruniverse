@@ -223,15 +223,47 @@ export class Sites {
        the whole galaxy, which is what it does by default now. */
     const WALL_TRIGGER = 75;
 
-    /* Half a route step. `wall` can only ever be a multiple of the sampling
-       step, so a difference smaller than half of one is not a shorter wall, it
-       is float noise in where the samples happened to land — and chasing it
-       moved a seam six hundred metres further out to shave twenty-six
-       millimetres. Inside the band the drive time decides, which is what the
-       tie-break was always for. It also matters for determinism across
-       engines: the comparison runs through Math.sin and the drive curve, and a
-       sub-ulp difference in either must not be able to relocate a site. */
-    const WALL_EPS = ROUTE_STEP / 2;
+    /* A wall measured in samples rather than in metres, because samples are
+       what it actually is.
+     *
+     * `wall` is a run of consecutive route samples, so its real value is an
+     * integer count and the metres are that count times a step of len/n — a
+     * step that is near 25 m but not exactly, and not exactly the same for two
+     * candidates of different length. Comparing the metres therefore compares
+     * the count plus a few centimetres of noise about where the samples landed,
+     * and chasing that noise once moved a seam six hundred metres further out
+     * to shave twenty-six millimetres off a wall it never actually shortened.
+     *
+     * The first fix for that was a tolerance: treat differences under half a
+     * step as ties. It stopped the noise-chasing and it was not enough, because
+     * accepting a tie also moved the threshold — a candidate could be taken at
+     * up to half a step worse, and the next was then compared against *that*.
+     * The bound could ratchet, the comparison was not transitive, and which
+     * candidate won depended on the order the lattice happened to be walked in.
+     * Reproducible, since the order is fixed, but reproducible is not the same
+     * as well defined.
+     *
+     * So round to the count and order on it. Two integers compare exactly, the
+     * order is total and transitive, nothing ratchets, and the answer does not
+     * depend on iteration order. The rounding recovers the count reliably: the
+     * error is at most k*|step - 25|, and since k is at most n and |step - 25|
+     * is at most 25/2n, that is bounded by half a step whatever the route.
+     *
+     * Worth being straight about what this bought, because it is not a bug
+     * fix in the sense of something a player would have seen. The tolerance
+     * rule was measured against this one afterwards, over every one of the 256
+     * sites in the galaxy the lattice actually searches, forwards and with both
+     * axes reversed: it agreed with itself every time, and the sites it chooses
+     * are the same sites this rule chooses. The defect was real and never fired.
+     * What changed is that the property is now structural rather than lucky —
+     * it holds because the comparison is a total order, not because no arrangement
+     * of candidates in this galaxy happened to expose that it was not one.
+     *
+     * It is also what makes the guarantee statable exactly. The rolled position
+     * is itself in the lattice, so the winner's count can only ever be less
+     * than or equal to the rolled one — no tolerance, no band, no "within".
+     * tools/sitecheck.mjs asserts precisely that. */
+    const wallSamples = (wall) => Math.round(wall / ROUTE_STEP);
 
     /* Applied after a site is otherwise built, because a seam's bearing is not
        known until its deposit has been consulted. Returns the site it was
@@ -250,7 +282,8 @@ export class Sites {
       /* A seam may move its range but never its bearing: the deposit owns that
          and the survey text quotes it — see the note where seams are built. */
       const bears = s.kind === 'seam' ? [0] : BEARINGS;
-      let bestW = base.wall, bestS = base.secs, bestB = s.bearing, bestR = s.range;
+      let bestN = wallSamples(base.wall), bestS = base.secs;
+      let bestB = s.bearing, bestR = s.range;
       for (const db of bears) {
         for (const fr of FACTORS) {
           const rng = s.range * fr;
@@ -264,10 +297,14 @@ export class Sites {
           /* Ranked on the wall, with time as the tie-break. Two candidates that
              both clear the ridge should differ on how long the drive is, but a
              shorter drive through a longer wall is the wrong answer — the wall
-             is what gets reported as a broken vehicle. */
-          if (c.wall < bestW - WALL_EPS
-              || (Math.abs(c.wall - bestW) <= WALL_EPS && c.secs < bestS)) {
-            bestW = c.wall; bestS = c.secs; bestB = bear; bestR = rng;
+             is what gets reported as a broken vehicle.
+
+             Lexicographic on (samples, seconds): a strict total order, so the
+             winner is the same whichever order the lattice is walked in, and
+             the sample count it tracks can only fall. */
+          const n = wallSamples(c.wall);
+          if (n < bestN || (n === bestN && c.secs < bestS)) {
+            bestN = n; bestS = c.secs; bestB = bear; bestR = rng;
           }
         }
       }
