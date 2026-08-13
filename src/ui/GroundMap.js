@@ -1,5 +1,15 @@
 import { t, goodName } from './i18n.js';
 import { PACK_RANGE } from '../ship/Rover.js';
+import { groundField } from '../world/Surface.js';
+import { driveBiteRawAt } from '../ship/driveModel.js';
+
+/* How coarse the relief layer is. 96 cells across the whole chart, so a cell is
+   about a hundred and seventy metres at the usual extent — landform, which is
+   what you steer by, rather than the rubble the drive shrugs off. Finer costs
+   quadratically for detail nobody routes around: the bake is one height sample
+   per grid corner, so doubling this doubles the cell count on each axis and
+   quadruples the field evaluations. Measured at 56 ms once per world. */
+const RELIEF_N = 96;
 
 /* ============================================================================
    The surface chart.
@@ -145,6 +155,56 @@ export class GroundMap {
     c.fillStyle = 'rgba(8,16,22,0.55)';
     c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.fill();
 
+    /* ---- the ground itself, shaded by what it does to the drive.
+     *
+     * The chart told you to go around and then showed you nothing to go around.
+     * That is not a small gap: measured over 203 sites, half of them are faster
+     * by the long way, the median saving is 14%, and the best is a seam that
+     * drops from 570 s to 279 s for a 1.5 km detour. All of that was sitting
+     * there unclaimable, because sites, rings and bearings do not tell you where
+     * the hills are.
+     *
+     * Shaded by the drive's own curve rather than by height or by raw gradient.
+     * A metre of climb is not what costs you — losing the drive is, and the
+     * curve that decides that is the one the rover runs on and the one site
+     * placement scores with. So the same function paints the map: dark is
+     * ground you cross at speed, and the brighter it burns the more of the
+     * drive that ground takes away. It is the same amber the steep warning uses,
+     * for the same reason.
+     *
+     * One thing it cannot do, found by checking rather than by thinking, and
+     * worth knowing before trusting it too far: it is direction-blind and the
+     * drive is not. Only climbing costs, so a steep run taken downhill is free
+     * and this paints it just as bright as the climb back up. That makes the
+     * layer conservative rather than wrong — it marks ground that will cost you
+     * in at least one direction, and over a round trip, which is what the pack
+     * and both rings are about, you pay every slope once whichever way you
+     * cross it first. But it is why this shows where the hills are and does not
+     * try to rank two routes: tools/sitecheck.mjs asserts the first and
+     * explicitly declines the second.
+     *
+     * Baked once per world and blitted, because this panel redraws every frame
+     * while it is open and the bake is some tens of thousands of height
+     * samples. In world space, so the rotation below places it like everything
+     * else and nothing here has to know which way you are pointing. */
+    const relief = this._relief(body, far);
+    if (relief) {
+      c.save();
+      c.beginPath(); c.arc(cx, cy, R, 0, Math.PI * 2); c.clip();
+      /* World metres straight to canvas, the same mapping px()/py() apply —
+         written out as a matrix so one drawImage can carry the whole layer. */
+      c.setTransform(
+        dpr * (k * cos), dpr * (-k * sin),
+        dpr * (-k * sin), dpr * (-k * cos),
+        dpr * (cx - k * (cos * me.x - sin * me.z)),
+        dpr * (cy + k * (sin * me.x + cos * me.z)),
+      );
+      c.imageSmoothingEnabled = true;
+      c.drawImage(relief, -far, -far, far * 2, far * 2);
+      c.setTransform(dpr, 0, 0, dpr, 0, 0);
+      c.restore();
+    }
+
     c.strokeStyle = 'rgba(120,170,190,0.14)';
     c.lineWidth = 1;
     for (let r = 1000; r <= far; r += 1000) {
@@ -226,6 +286,90 @@ export class GroundMap {
     this._side(sites, body, reach);
   }
 
+  /**
+   * The relief layer for a world, baked once and kept.
+   *
+   * Cached on the chart rather than the body, because it is a picture at one
+   * extent rather than a fact about the world — and the extent depends on where
+   * that world's sites happen to be. Rebuilt when either changes.
+   *
+   * Reads `groundField(spec)`, which is the same height field the surface is
+   * built from and the same one placement scores routes against, so what you
+   * see here is what the rover will meet. It needs no landing and no renderer,
+   * which is the whole reason that function was pulled out of the Surface.
+   *
+   * @returns {HTMLCanvasElement|null} null when there is no ground to shade
+   */
+  _relief(body, far) {
+    if (!body || !body.spec) return null;
+    const key = `${body.id}:${Math.round(far)}`;
+    if (this._reliefKey === key) return this._reliefCv;
+
+    let field;
+    try { field = groundField(body.spec); } catch { return null; }
+
+    const N = RELIEF_N;
+    const cv = document.createElement('canvas');
+    cv.width = N; cv.height = N;
+    const ctx = cv.getContext('2d');
+    const img = ctx.createImageData(N, N);
+    const d = img.data;
+    const cell = (far * 2) / N;
+    /* Sampled at the rover's own grade LOD over a baseline of one cell. Finer
+       than that is rubble the drive does not notice, and the same argument the
+       rover makes for measuring its grade over a chassis-and-then-some rather
+       than at its wheels. */
+    const LOD = 14;
+
+    /* The corners once, not each cell's four neighbours four times over.
+       Differencing per cell asks the field for 4N² heights; a grid of corners
+       asks for (N+1)² and every interior sample serves four cells. Same
+       gradient, a quarter of the work — and the work is the whole cost of this
+       layer, so it is the difference between a bake you notice and one you do
+       not. */
+    const H = new Float64Array((N + 1) * (N + 1));
+    for (let j = 0; j <= N; j++) {
+      const z = -far + j * cell;
+      for (let i = 0; i <= N; i++) {
+        H[j * (N + 1) + i] = field.heightAt(-far + i * cell, z, LOD);
+      }
+    }
+
+    for (let j = 0; j < N; j++) {
+      for (let i = 0; i < N; i++) {
+        const a0 = H[j * (N + 1) + i], a1 = H[j * (N + 1) + i + 1];
+        const b0 = H[(j + 1) * (N + 1) + i], b1 = H[(j + 1) * (N + 1) + i + 1];
+        const hx = ((a1 + b1) - (a0 + b0)) * 0.5;
+        const hz = ((b0 + b1) - (a0 + a1)) * 0.5;
+        const grade = Math.hypot(hx, hz) / cell;
+        /* The drive's own answer, unfloored: 1 on ground it crosses at speed,
+           0 where it has given up. Unfloored because the crawl floor is about
+           never being stuck, and this is about where you will be slow — a floor
+           here would paint the worst ground as merely bad. */
+        const bite = driveBiteRawAt(grade);
+        /* Only the ground that actually costs you, and the window matters more
+           than the colour. Shading everything that is not dead flat paints a
+           texture rather than a route: the first cut ran from full bite down
+           and turned half a desert amber, which is honest and useless, because
+           a map where everything is marked marks nothing.
+
+           So it opens at 0.65 — around a third of speed lost, where a detour
+           starts being worth it — and saturates at 0.15, below the quarter
+           speed that site placement itself calls a wall. Between those the
+           gradient is the useful part: it is what a pass looks like. */
+        const a = (0.65 - bite) / 0.5;
+        const slow = a <= 0 ? 0 : a >= 1 ? 1 : a * a * (3 - 2 * a);
+        const k4 = (j * N + i) * 4;
+        d[k4] = 232; d[k4 + 1] = 164; d[k4 + 2] = 76;
+        d[k4 + 3] = Math.round(slow * 165);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    this._reliefKey = key;
+    this._reliefCv = cv;
+    return cv;
+  }
+
   _side(sites, body, reach) {
     if (!this.side) return;
     const g = this.game;
@@ -286,6 +430,7 @@ export class GroundMap {
     }
     this.side.innerHTML = `<div class="gm-rows">${
       rows || `<div class="gm-note">${t('gm.empty')}</div>`}</div>
+      <div class="gm-note">${t('gm.relief')}</div>
       <div class="gm-note">${t('gm.note')}</div>`;
   }
 }

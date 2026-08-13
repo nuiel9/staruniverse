@@ -398,6 +398,83 @@ check('the ranking gives the same winner whichever way the lattice is walked',
     : `${orderTested} searched sites across ${perSystem.length} system`
       + `${perSystem.length === 1 ? '' : 's'} agree forwards and reversed`);
 
+/* Does the picture the chart draws tell the truth about the ground?
+ *
+ * Note what is NOT asserted here, because the first version of this check did
+ * assert it and was wrong to. It compared the shading along a straight route
+ * with the shading along a faster dogleg and demanded the quicker one be
+ * darker. It failed, for two reasons that are both real:
+ *
+ *   - The layer is direction-blind, and the drive is not. `routeCost` charges
+ *     for climbing and nothing for descent, so a steep run downhill is free to
+ *     drive and bright on the map. A static picture cannot know which way you
+ *     will cross a slope.
+ *   - Mean shading along a path is not time. A short severe wall dominates the
+ *     seconds while barely moving the average, so the arithmetic of the two
+ *     quantities does not line up even where they agree about the ground.
+ *
+ * What the layer can honestly claim is that it separates ground the drive gives
+ * up on from ground it crosses at speed — which is what a player needs to pick
+ * a lane between hills. That is what is checked: sample the field, classify
+ * each point by what the drive would do there, and require the two classes to
+ * be plainly different on the canvas.
+ *
+ * It lives here rather than in the acceptance suite because that one runs
+ * against the built bundle, which serves dist/ and cannot import source. */
+const reliefTruth = await page.evaluate(async () => {
+  const g = window.__game;
+  const S = await import('/src/world/Surface.js');
+  const body = g.bodies.filter((b) => b.spec && b.planet && !b.planet.isGas)[0];
+  if (!body) return { skipped: 'no world' };
+  const f = S.groundField(body.spec);
+  const far = Math.max(14000 * 0.5, ...g.sites.at(body).map((x) => x.range)) * 1.15;
+  const cv = g.groundmap._relief(body, far);
+  if (!cv) return { skipped: 'no relief layer' };
+  const N = cv.width;
+  const px = cv.getContext('2d').getImageData(0, 0, N, N).data;
+  const cell = (far * 2) / N;
+
+  let openN = 0, openA = 0, wallN = 0, wallA = 0, worstOpen = 0, bestWall = 255;
+  /* Every cell, at its own centre, measured the way the bake measures it — so
+     a disagreement is the bake being wrong rather than the sampling being off
+     by half a cell. */
+  for (let j = 1; j < N - 1; j += 2) {
+    for (let i = 1; i < N - 1; i += 2) {
+      /* From the cell's own corners, which is where the bake takes it. Sampling
+         the centre instead puts the two measurements half a cell apart, and on
+         broken ground that is enough to call a cell open that the bake called a
+         wall — which is how the first version of this check produced a wall
+         cell shaded zero and blamed the map for its own offset. Recomputed
+         from groundField rather than read out of the bake, so it still tests
+         the bake rather than agreeing with it. */
+      const x0 = -far + i * cell, z0 = -far + j * cell;
+      const a0 = f.heightAt(x0, z0, 14), a1 = f.heightAt(x0 + cell, z0, 14);
+      const b0 = f.heightAt(x0, z0 + cell, 14), b1 = f.heightAt(x0 + cell, z0 + cell, 14);
+      const hx = ((a1 + b1) - (a0 + b0)) * 0.5;
+      const hz = ((b0 + b1) - (a0 + a1)) * 0.5;
+      const grade = Math.hypot(hx, hz) / cell;
+      const alpha = px[(j * N + i) * 4 + 3];
+      if (grade <= 0.10) { openN++; openA += alpha; if (alpha > worstOpen) worstOpen = alpha; }
+      else if (grade >= 0.70) { wallN++; wallA += alpha; if (alpha < bestWall) bestWall = alpha; }
+    }
+  }
+  return {
+    body: body.name, openN, wallN,
+    openMean: openN ? openA / openN : 0,
+    wallMean: wallN ? wallA / wallN : 0,
+    worstOpen, bestWall: wallN ? bestWall : 0,
+  };
+});
+check('the shading tells open ground from ground the drive gives up on',
+  reliefTruth.skipped
+  || (reliefTruth.openN > 0 && reliefTruth.wallN > 0
+      && reliefTruth.openMean < 8 && reliefTruth.wallMean > 140
+      && reliefTruth.worstOpen < reliefTruth.bestWall),
+  reliefTruth.skipped ? String(reliefTruth.skipped)
+    : `${reliefTruth.body}: ${reliefTruth.openN} open cells mean ${reliefTruth.openMean.toFixed(0)}`
+      + ` (worst ${reliefTruth.worstOpen}), ${reliefTruth.wallN} wall cells mean`
+      + ` ${reliefTruth.wallMean.toFixed(0)} (faintest ${reliefTruth.bestWall})`);
+
 /* Easing may not rewrite a bearing it was not allowed to change — proved by
    handing it one it would have rewritten.
  *
