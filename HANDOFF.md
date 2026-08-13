@@ -158,11 +158,15 @@ Four loose ends, none known to be wrong and all cheap to close:
   range. `sitecheck` carries both a guard and a mutation test — the guard is
   preventive, since this galaxy rolls no 360 at all across 301 deposits and 457
   sites, and the mutation is what actually demonstrates the fix.
-- **The tie-break is not monotonic.** Inside half a route step the ranking may
-  take a nominally longer wall for a faster drive, and `bestW` then moves with
-  it, so the winner depends on iteration order. Order is fixed, so it is
-  reproducible; quantisation bounds the drift to centimetres. Worth knowing
-  before anyone changes the loop.
+- ~~The tie-break is not monotonic.~~ **Fixed.** The ranking orders on the
+  integer count of route samples a wall spans, lexicographically with drive
+  time — a total order, so nothing ratchets and the winner does not depend on
+  the order the lattice is walked in. It also makes the guarantee exact: the
+  rolled position is in the lattice, so the winner's count can only be less
+  than or equal to it, and `sitecheck` asserts that with no tolerance. Measured
+  honestly: no site moves. The old rule was compared against this one over all
+  256 searched sites, forwards and reversed, and agreed with itself every time
+  — the defect was structural and never actually fired.
 - **`_rolled` rides into the UI.** Each site keeps the position the seed rolled
   so the checker can prove sites got better, and `manifest()` spreads it into
   the rows the Codex and the chart consume. Nothing reads it there. Drop it
