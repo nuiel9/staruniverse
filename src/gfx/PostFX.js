@@ -902,8 +902,22 @@ void main(){
   // ---- chromatic aberration + radial (speed) blur ---------------------
   // Evenly spaced radial taps turn every star into a dotted line, so the
   // sample positions are jittered per pixel; the grain pass hides the residue.
-  float ca = uCA * (0.25 + r2*2.2);
-  vec2 caOff = ca > 0.00005 ? fromC * ca : vec2(0.0);
+  /* In PIXELS, not in uv, and that is the whole of the fix.
+   *
+   * uCA was a uv fraction, so the separation it produced scaled with the
+   * frame: the same setting that is a hair at 720p is twice that at 1440p and
+   * four times at 4K. Worse, the thing it lands on hardest is a point source —
+   * a star is one or two pixels wide, so any separation at all splits it into a
+   * red dot beside a blue dot instead of tinting an edge, and the same happens
+   * to every one-pixel panel line, handrail and truss rod in the frame. The
+   * corner of a 1600-wide frame was carrying about 1.6 px of split.
+   *
+   * A pixel budget instead, converted to uv through the resolution the pass
+   * already knows. Fringing belongs on high-contrast *edges* at the corner of
+   * the lens, which is what a real lens does; it does not belong on every star
+   * in the sky. */
+  float caPx = uCA * (0.25 + r2 * 2.2);
+  vec2 caOff = caPx > 0.01 ? normalize(fromC + 1e-6) * caPx / uRes : vec2(0.0);
 
   vec3 col;
   if(uRadial > 0.0015){
@@ -1027,7 +1041,6 @@ void main(){
 
   // ---- tonemap --------------------------------------------------------
   col = agx(col);
-  col += uLift * (1.0 - col);
 
   // ---- split tone ------------------------------------------------------
   // The one grade every science-fiction frame of the last twenty years shares:
@@ -1051,6 +1064,22 @@ void main(){
 
   // ---- output ---------------------------------------------------------
   col = linearToSRGB(col);
+
+  /* The black floor, and it belongs HERE rather than before the encode.
+   *
+   * uLift is meant to be "one to two levels off zero" — the faint milk that
+   * stops deep space reading as a dead panel. It was applied in linear, three
+   * stages up, and the sRGB encode then expanded it: 0.004 linear encodes to
+   * 1.055*0.004^(1/2.4) - 0.055 = 0.0507, which is **13/255**. Not one level.
+   * Thirteen, in every frame the game has ever rendered — space was a grey
+   * card, and every judgement about contrast, black crush and bloom on top of
+   * it was being made through a lifted floor.
+   *
+   * In display space the number means what it says: 0.006 is a level and a
+   * half. Applied after the grade and the vignette too, so neither can eat it —
+   * a vignette multiplying the floor away at the corners is the same bug in a
+   * different corner of the frame. */
+  col += uLift * (1.0 - col);
 
   // film grain (in display space, luminance-weighted so darks stay clean)
   float g = hash12(gl_FragCoord.xy + fract(uTime)*vec2(137.0, 71.0)) - 0.5;
@@ -1236,7 +1265,10 @@ export class PostFX {
         uKey: { value: 0.160 }, uExpMin: { value: 0.045 }, uExpMax: { value: 4.0 },
         uRes: { value: new THREE.Vector2() }, uTime: { value: 0 },
         uExposure: { value: 1.0 }, uBloom: { value: 0.085 }, uStreak: { value: 0.013 },
-        uCA: { value: 0.0015 }, uVignette: { value: 0.20 }, uGrain: { value: 0.018 },
+        /* Pixels of red/blue split at the frame corner, not a uv fraction —
+           see the composite pass. Sub-pixel at the centre, a little over half a
+           pixel at the corner: an edge treatment, not a star-splitter. */
+        uCA: { value: 0.55 }, uVignette: { value: 0.20 }, uGrain: { value: 0.018 },
         uRadial: { value: 0 }, uRadialCtr: { value: new THREE.Vector2(0.5, 0.5) },
         /* A floor under the black, and it is not a matter of taste.
            uBlackPoint subtracts 0.0018 in scene-linear before the tone curve
@@ -1282,7 +1314,10 @@ export class PostFX {
            Checked in space too, where the same change reads as more terminator
            and a deeper void: the crescent goes 45/167 to 39/189 and the ice
            moon 36/197 to 28/220. */
-        uSat: { value: 1.00 }, uContrast: { value: 1.13 }, uLift: { value: 0.004 },
+        uSat: { value: 1.00 }, uContrast: { value: 1.13 }, /* Display-space now, so the number is levels: 0.006 is a level and a
+           half off zero. It used to be applied in linear before the sRGB encode,
+           which turned this into 13/255 in every frame. */
+        uLift: { value: 0.006 },
         uBlackPoint: { value: 0.0018 }, uPreContrast: { value: 1.62 },
         uSharpen: { value: 0.12 },
         uHalation: { value: 0.055 },
