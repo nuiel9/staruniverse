@@ -158,7 +158,15 @@ export class Sites {
     const out = [];
 
     const place = (kind, i) => {
-      const bearing = Math.round(rnd() * 360);
+      /* Modulo, because `round(rnd()*360)` returns 0..360 inclusive and 360 is
+         the same direction as 0 wearing a different number. Left alone it puts
+         "bearing 360°" in the Codex, and gives easing a value it would
+         normalise to 0 on its way past — two names for one direction, in a
+         module whose whole point is that a site is somewhere you can be told
+         how to reach. One draw either way, so the seeded sequence is untouched
+         and no site moves; only the ~1-in-721 that rolled the top of the range
+         reads 0 now instead of 360. */
+      const bearing = Math.round(rnd() * 360) % 360;
       const range = Math.round(RANGE_MIN + rnd() * (RANGE_MAX - RANGE_MIN));
       const a = bearing * Math.PI / 180;
       return {
@@ -265,7 +273,22 @@ export class Sites {
       }
       if (bestB === s.bearing && Math.round(bestR) === s.range) return s;
       const a = bestB * Math.PI / 180;
-      s.bearing = ((Math.round(bestB) % 360) + 360) % 360;
+      /* Only written when it actually moved, and that is a correctness rule
+         rather than a saved assignment.
+
+         A seam's bearing belongs to its deposit — the survey text quotes it,
+         and the two disagreeing is the bug this whole branch's seam rule exists
+         to prevent. A seam can still reach this line, because its range may
+         move even though its bearing cannot, and the old code reassigned the
+         bearing unconditionally on the way past. That reassignment normalises,
+         so a deposit carrying 360 came back out as 0 — the same direction, a
+         different string, and a chart contradicting the survey beside it.
+
+         Bearings are canonical at the roll now (see Prospecting and place
+         above), so no deposit should carry 360 in the first place. This is the
+         second lock: even handed a value from outside that range, easing cannot
+         silently rewrite a bearing it was never allowed to change. */
+      if (bestB !== s.bearing) s.bearing = ((Math.round(bestB) % 360) + 360) % 360;
       s.range = Math.round(bestR);
       s.x = Math.sin(a) * bestR;
       s.z = Math.cos(a) * bestR;

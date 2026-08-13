@@ -84,7 +84,12 @@ export class Prospecting {
         // Where on the surface, in the same bearing/range the landing site
         // uses. Purely for the survey text — the drone works whatever is
         // under the ship — but it makes a manifest read like a place.
-        bearing: Math.round(rnd() * 360),
+        /* Modulo, because round(rnd()*360) is 0..360 inclusive and 360 is 0
+           with a different name. A deposit's bearing is quoted in the survey
+           text and copied onto the seam that stands at it, so an uncanonical
+           value here becomes a chart and a manifest that disagree about the
+           same place. Same single draw, so the seeded sequence is unchanged. */
+        bearing: Math.round(rnd() * 360) % 360,
         grade: tonnes > 24 ? 'rich' : tonnes > 12 ? 'workable' : 'thin',
       });
     }
