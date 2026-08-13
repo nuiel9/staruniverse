@@ -148,7 +148,61 @@ const RIM_HOOK = /* glsl */`
     float back = clamp(-dot(uSunV, Vv), 0.0, 1.0);
     // and only along the true silhouette, where the surface turns away
     float graze = clamp(1.0 - abs(dot(normal, uSunV)), 0.0, 1.0);
-    reflectedLight.directSpecular += uSunTint * fres * back * graze * uRimGain * 2.6;
+
+    /* ---- the limb, and only the limb.
+       Those three factors are three ways of asking one question once the key is
+       behind the subject: backlit means the star sits very nearly opposite the
+       view direction, so "this surface has turned away from the camera" and
+       "this surface has turned away from the star" become the same statement.
+       On anything with a radius that is exactly right — all three reach one
+       together inside the last couple of per cent of the limb, and what comes
+       out is the thin bright edge the term exists for.
+
+       On a *flat plate seen edge-on* all three reach one over the whole face at
+       once, and the term stops being an edge. uSunTint runs to 2.2 close to a
+       star, 2.2 * 2.6 is 5.7 of additive specular, and 5.7 spread across every
+       pixel of a blade is not a rim light, it is a white polygon: the docking
+       collar's four guide vanes are flat panels standing radially off the
+       collar so the camera sees them edge-on over most of an approach, and that
+       is what they were rendering as. No tone curve recovers a value of 5.7.
+       AgX puts it on paper white and the blade loses its own silhouette.
+
+       Light wraps a curved limb because there is progressively less matter in
+       its way as the surface turns. Around the flat face of an opaque slab
+       there is no wrap at all; whatever glow that blade is owed belongs to its
+       three-hundred-millimetre bevelled edge, and the bevel still collects it,
+       because the bevel is where the normal turns. So the gain is gated on
+       curvature — how far the interpolated *geometric* normal swings per pixel,
+       which is zero across a planar face by construction and is never small on
+       a limb.
+
+       Tuned against the term's own falloff. On a barrel of projected radius R
+       pixels, fres at power 3.2 puts the rim's half-strength point at 0.98R,
+       where the normal is turning about 5.2/R radians per pixel: 0.10 on a
+       fifty-pixel nacelle, 0.026 on a two-hundred-pixel one, 0.010 on a
+       five-hundred-pixel hull filling the frame, 0.0052 on a thousand-pixel
+       station drum. The ramp top has to clear the *largest* of those radii, not
+       the smallest, because it is the big masses whose limbs turn slowest —
+       0.0030 holds full strength out to about R = 1700 px, which is larger than
+       anything in this game ever projects. It can be set that low safely
+       because the discrimination needs no margin at all: a planar face returns
+       exactly 0.0, bit for bit, since normalize(vNormal) is constant across it.
+       Anything with any radius at all is above the ramp; only flat plate is
+       under it. The floor is 0.30 rather than zero because this term's first
+       job is the one at the top of this file — a backlit hull must not be a
+       hole in the starfield — and a flat backlit face keeping 1.7 is bright
+       without being clipped.
+
+       nonPerturbedNormal is three's own name for the interpolated normal before
+       any relief is folded into it. Taking the derivative of the shaded normal
+       instead would read every plate seam and weld bead as curvature and gate
+       nothing at all. It is also free here: three's own lights_physical_fragment
+       has already taken dFdx and dFdy of it a few lines above for its
+       geometryRoughness term, so the compiler has both live. */
+    vec3 gnx = dFdx(nonPerturbedNormal), gny = dFdy(nonPerturbedNormal);
+    float curve = sqrt(dot(gnx, gnx) + dot(gny, gny));
+    float limb = mix(0.30, 1.0, smoothstep(0.0005, 0.0030, curve));
+    reflectedLight.directSpecular += uSunTint * fres * back * graze * uRimGain * 2.6 * limb;
 
     /* ---- the analytic environment.  See HULL_LIGHT.
        The world nearby is a disc of radiance uShineCol subtending an angular

@@ -60,6 +60,19 @@ const UP = new THREE.Vector3(0, 1, 0);
 const FOLD_RIM = new THREE.Color(0.62, 0.80, 1.0);
 const WHITE = new THREE.Color(1, 1, 1);
 const _ext = new THREE.Vector3();
+/* The colour of "nothing in particular nearby".
+ *
+ * This is the 0x9fc4e0 the exterior fill was constructed with and then never
+ * changed again: the cold scatter of a starfield with no world in it. It is
+ * kept as a named constant because the fill now *blends away from* it toward
+ * whatever the ship is actually flying past, and the blend has to preserve the
+ * level — see the fill-budget block in the exterior update. VOID_FILL_LUMA is
+ * its Rec.709 luminance (0.2126*0.624 + 0.7152*0.769 + 0.0722*0.878), and the
+ * planetshine hue is scaled to it before mixing so that changing the fill's
+ * *colour* cannot change the fill's *brightness*. */
+const VOID_FILL = new THREE.Color(0.624, 0.769, 0.878);
+const VOID_FILL_LUMA = 0.746;
+const _fillCol = new THREE.Color();
 
 /* Read a published practical-light spec off a built structure, or null. The
    validation is not paranoia: several builders already put unrelated things on
@@ -393,9 +406,16 @@ export class Game {
     this.glowLight.layers.set(0);
     this.scene.add(this.glowLight);
 
-    /* Ground bounce, used only when landed. It lives in both scenes so the
-       light count does not change when the ground scene is swapped in — a
-       forward renderer recompiles every material when it does. */
+    /* The nearest large surface that is not the sky. It lives in both scenes
+       so the light count does not change when the ground scene is swapped in —
+       a forward renderer recompiles every material when it does.
+
+       On the ground that surface is the ground, and this is the bounce off it.
+       In space it is whatever set-piece you are docking with, which is the same
+       light doing the same job: see the set-piece block in `_updateWorld`. It
+       used to be written only by the landed path, which meant it kept the last
+       frame of a landing all the way back into orbit — a directional aimed up
+       out of a planet that is now behind you. */
     this.bounceLight = new THREE.DirectionalLight(0xffffff, 0);
     this.bounceLight.layers.set(0);
     this.scene.add(this.bounceLight);
@@ -2578,6 +2598,117 @@ export class Game {
       }
     }
 
+    /* ---- the fill is a share of a budget, not a boot constant -----------
+     *
+     * `fillLight` was built at a fixed 0x9fc4e0 / 0.55 and the exterior path
+     * then only ever *moved* it: its colour and its level have been boot
+     * constants in every space frame the game has rendered. Worse, the landed
+     * rig writes both of them, and nothing puts them back on liftoff, so after
+     * one landing the space fill is whatever the last frame on the ground left
+     * behind. Two separate things are wrong, and together they are most of the
+     * "the ship is lit by the camera, not by the place" complaint.
+     *
+     * Hue first. A fill stands in for everything that is not the key, and out
+     * here that is one thing: the world filling half the sky. A hull two radii
+     * off an ochre desert carried exactly the same cobalt it carries over a
+     * black moon. The planetshine loop above has already decided which world
+     * dominates and what colour it returns, so the fill is mixed toward that
+     * hue in proportion to how much of the shadow side planetshine has taken
+     * over. The hue is scaled to VOID_FILL_LUMA before mixing because
+     * `shineLight.color` is luminance-normalised to 1.0, and mixing toward it
+     * raw would raise the fill's *level* by a third on the way past — which is
+     * the class of accident this whole rig is written in ratios to avoid.
+     *
+     * Level second. The landed rig already learned this one and wrote it down
+     * in the key/fill comment above: a fill with no `illum` term in it inverts
+     * the key-to-fill ratio exactly where it shows most, because far from the
+     * star the key falls and a constant fill does not. The shape is borrowed
+     * from `rimLight` twenty lines below, term for term — the same
+     * min(1.6, 0.55 + illum*0.5) the rim was tuned to, because the two are
+     * standing in for the same thing (starlight arriving from somewhere other
+     * than straight down the key) and there is no reason for them to disagree
+     * about how it varies with the star. Only the leading coefficient is new,
+     * and it is solved rather than chosen: 0.524 * 1.05 = 0.550 at the
+     * reference orbit, which is the number the game has been shipping. A frame
+     * with nothing near it is therefore unchanged by construction; the change
+     * lives entirely in frames that have a world in them, and in frames far
+     * enough out that a fixed fill was outshining a fallen key.
+     *
+     * `shineShare` saturates once planetshine reaches 30% of the key, which is
+     * where the art direction calls it "the dominant source on the shadowed
+     * side". At full share the invented fill is cut by 45% — enough for the
+     * world's own colour to win the shadow face, and small enough that total
+     * shadow-side illumination falls by about a seventh rather than by the
+     * whole stop the landed rig measured when the fill was cut on its own. */
+    const shineShare = THREE.MathUtils.clamp(
+      this.shineLight.intensity / Math.max(sunIntensity * 0.30, 1e-4), 0, 1);
+    _fillCol.copy(this.shineLight.color).multiplyScalar(VOID_FILL_LUMA);
+    this.fillLight.color.copy(VOID_FILL).lerp(_fillCol, shineShare * 0.80);
+    this.fillLight.intensity = 0.524 * Math.min(1.6, 0.55 + illum * 0.5)
+      * (1.0 - 0.45 * shineShare);
+
+    /* ---- the set-piece next to you, and the ground that must not follow ---
+     *
+     * `bounceLight` is the landed ground bounce, and `_stageSpace` re-adds it
+     * to the exterior scene so the light count does not change across the
+     * swap — a forward renderer recompiles every material when it does. But
+     * nothing in the exterior path has ever written to it. Land on an ochre
+     * world, lift off, and the ship keeps a directional aimed straight up out
+     * of a ground that is no longer there, at whatever level the last frame of
+     * the landing set, for the rest of the session. Zeroing it would be
+     * enough to fix that; it is more useful to give it the job the exterior
+     * has no light for at all.
+     *
+     * Out here it is the *other object's* contribution. A station or a
+     * derelict a couple of radii off is a genuine reflector, and the maths is
+     * the planetshine maths above: the solid angle it covers times the lit
+     * fraction of the face you can see. It is much smaller than a world, so it
+     * only reaches a useful level inside about two radii — which is docking
+     * range, which is where it is missing today and where the approach is
+     * spent. The 0.30 is a fill factor: a truss station is mostly holes, so
+     * the disc it subtends is nowhere near filled with hull, and a wheel
+     * habitat judged as a solid Lambertian sphere would return three times too
+     * much. The tint is the star's own, because painted metal and bare
+     * structure are grey — inventing a hue for it is what the planetshine
+     * comment above rejects for worlds, and there is even less excuse here. */
+    {
+      let sp = null, spK = 0;
+      for (const b of this.bodies) {
+        if (b.kind !== 'station' && b.kind !== 'anomaly') continue;
+        const d = b.absPos.distanceTo(ship.absPos);
+        const sinA = b.radius / Math.max(d, b.radius);
+        const cover = sinA * sinA;
+        // Under a tenth of a radian across it is returning less than a
+        // thousandth of the key and is not worth the phase maths.
+        if (cover < 0.0025) continue;
+        const toShip = _v.copy(ship.absPos).sub(b.absPos).normalize();
+        const toSun = _v2.copy(this.star.absPos).sub(b.absPos).normalize();
+        const phase = THREE.MathUtils.clamp(toShip.dot(toSun) * 0.5 + 0.5, 0, 1);
+        const k = cover * phase * phase;
+        if (k > spK) { spK = k; sp = b; }
+      }
+      let spWant = 0;
+      // The floating origin sits on the hull, so a set-piece the ship is
+      // exactly inside would normalise a zero vector and hand three a NaN
+      // light direction, which blanks every material in the scene. It cannot
+      // happen in flight — you dock before you get there — but a posed camera
+      // or a teleport can, and a NaN in a light is not a defect you can see
+      // and diagnose, it is a black frame.
+      if (sp && _v3.copy(sp.absPos).sub(this.origin).lengthSq() > 1e-12) {
+        // Capped at 22% of the key. Planetshine is allowed 55% because a world
+        // genuinely can be the dominant source; a hangar wall cannot, and a
+        // set-piece bright enough to rival the star reads as a second key from
+        // the wrong side — the failure the rim comment below is still carrying
+        // scars from.
+        spWant = Math.min(spK * 8.0 * 0.30 * Math.min(2.5, illum), sunIntensity * 0.22);
+        this.bounceLight.position.copy(_v3).normalize().multiplyScalar(1e4);
+        this.bounceLight.target.position.set(0, 0, 0);
+        this.bounceLight.color.copy(sunColor);
+      }
+      this.bounceLight.intensity += (spWant - this.bounceLight.intensity)
+        * Math.min(1, dt * 3);
+    }
+
     this.updateGlowLight(dt);
 
     /* Rim: the star's light wrapping past the limb.
@@ -3871,7 +4002,21 @@ export class Game {
     const L = this.glowLight;
     let best = null, bestD = Infinity;
     for (const b of this.glowSources()) {
-      const d = b.absPos.distanceTo(this.ship.absPos);
+      /* Nearest to the *frame*, not to the hull.
+       *
+       * This used to measure from `ship.absPos` alone, which is the same point
+       * as the camera in every mode the player has — the chase rig sits about
+       * one hull length back. It is not the same point in `inspect()`, which
+       * parks the camera on a sphere around a chosen subject and leaves the
+       * ship where it was: a station framed from two of its own radii away,
+       * with the hull still parked beside whatever the previous shot posed,
+       * has its own floods switched off, because the only body inside the
+       * reach test is one the camera is nowhere near. That is a station lit by
+       * the star and the fill and by nothing it is actually made of. Taking
+       * the nearer of the two costs one more distance per source, changes
+       * nothing at all in play, and makes the practical follow the picture. */
+      const d = Math.min(b.absPos.distanceTo(this.ship.absPos),
+        b.absPos.distanceTo(this.camAbs));
       if (d < bestD) { bestD = d; best = b; }
     }
     // Beyond four radii the falloff has already taken it to nothing and the
@@ -3888,7 +4033,17 @@ export class Game {
     L.color.copy(spec.color);
     L.distance = reach;
     const want = spec.intensity * spec.radius * spec.radius;
-    L.intensity += (want - L.intensity) * Math.min(1, dt * 3);
+    /* Ramp on, unless there is nothing to ramp from.
+     *
+     * The third-of-a-second ramp exists so that flying between two lit
+     * set-pieces does not pop, and it should stay for that. But arriving out
+     * of the dark — a fold, a jump, a posed camera — there is no previous
+     * value to cross-fade with, and the ramp is then just a third of a second
+     * of the light being wrong. Snapping only when the lamp is effectively off
+     * keeps the anti-pop property intact by construction, because the thing it
+     * is protecting against is a *visible* level being replaced. */
+    if (L.intensity < 1e-3) L.intensity = want;
+    else L.intensity += (want - L.intensity) * Math.min(1, dt * 3);
   }
 
   /** Bodies carrying a published or inferred emissive practical. */
@@ -3899,10 +4054,27 @@ export class Game {
           // Tines are the one anomaly bright enough to matter if the
           // builder has not published a spec. The rest are dead and dark.
           || (b.anomalyType === 'resonator'
-            // Lerped well toward white. A saturated hue at practical strength
-            // stops reading as light and starts reading as a colour filter over
-            // the frame: every material goes the same green and the shading
-            // underneath it disappears.
+            /* Lerped well toward white. A saturated hue at practical strength
+               stops reading as light and starts reading as a colour filter over
+               the frame: every material goes the same green and the shading
+               underneath it disappears.
+
+               Dead path on the shipped Tine, and worth saying so before
+               somebody tunes it looking for a defect that is not here.
+               `buildTine` publishes a spec (Structures.js:1033 — irradiance
+               1.25 at radius 12, calibrated against the key at the nine units a
+               hull actually parks at), `readPractical` finds it, and `||` never
+               reaches this branch. It survives for a Tine variant that forgets
+               to publish one. Its numbers are deliberately *not* the published
+               spec's: `radius` here is the body radius, 3.4, so `intensity` is
+               irradiance at 3.4 units and not at 12, and the two are only
+               comparable after the intensity*radius^2 conversion the contract
+               above describes. Measured at the pose the review set uses —
+               3 body radii, where three's windowed inverse square delivers
+               0.757/9 of the candela — this branch would put 0.118 against a
+               key of 3.4, i.e. three per cent of the star, while the published
+               spec puts 1.73. If a Tine ever renders unlit, the number to look
+               at is the published one. */
             ? { pos: new THREE.Vector3(), color: new THREE.Color(0.42, 1.0, 0.52).lerp(WHITE, 0.5), intensity: 1.4, radius: b.radius }
             : null);
       }

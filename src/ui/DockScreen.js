@@ -170,9 +170,22 @@ export class DockScreen {
       const canBuy = gd.stock > 0 && eco.credits >= price && held < eco.cargoCap;
       const tag = gd.role === 'produces' ? `<i class="dk-tag prod">${t('dock.produces')}</i>`
         : gd.role === 'demands' ? `<i class="dk-tag want">${t('dock.wanted')}</i>` : '';
+      /* The reference the price column never had. "43 cr" is not information
+         to anyone who has not memorised the eight base values; "+79%" is the
+         entire decision, and it is the difference between a board you read and
+         a board you consult a wiki about. c.base is the commodity's standard
+         value from Economy.js, which is exactly what every station's price
+         oscillates around, so the deviation is a true measure of local
+         scarcity rather than a comparison against some remembered station.
+         Within 5% of standard it reads as par and greys out: the tolerance is
+         wide enough that ordinary drift does not paint the whole column, and
+         narrow enough that a genuine surplus or shortage always shows. */
+      const dev = Math.round((price / c.base - 1) * 100);
+      const devCls = Math.abs(dev) <= 5 ? 'par' : dev < 0 ? 'cheap' : 'dear';
       return `<tr class="${gd.role || ''}">
         <td class="dk-name">${goodName(c.id, c.name)}${tag}<em>${goodDesc(c.id, c.desc)}</em></td>
         <td class="dk-num">${price} <i>cr</i></td>
+        <td class="dk-num dk-dev ${devCls}">${dev > 0 ? '+' : ''}${dev}%</td>
         <td class="dk-num">${gd.stock || '—'}</td>
         <td class="dk-num">${have || '—'}</td>
         <td class="dk-act">
@@ -288,6 +301,7 @@ export class DockScreen {
 
     this.main.innerHTML = `<table class="dk-table">
       <thead><tr><th>${t('dock.commodity')}</th><th class="dk-num">${t('dock.price')}</th>
+        <th class="dk-num dk-dev">${t('dock.vsBase')}</th>
         <th class="dk-num">${t('dock.stock')}</th><th class="dk-num">${t('dock.held')}</th><th></th></tr></thead>
       <tbody>${rows}</tbody></table>
       ${chartsBtn}
