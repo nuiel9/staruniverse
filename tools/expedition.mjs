@@ -437,6 +437,64 @@ check('it lists every site on the world', chart.rows === chart.sites,
   `${chart.rows} rows for ${chart.sites} sites`);
 check('and it closes again', chart.closed);
 
+/* The "no return" flag has to answer the journey the player actually makes:
+   here to the site, then the site to the ship. It used to double the distance
+   from the rover, which is the cost of going out and coming back to the patch
+   of ground you are standing on — a trip nobody takes, and one that reads as
+   twice as expensive as the real one whenever you have already driven most of
+   the way there. It was reported from play as a site the chart said could not
+   be reached while the player was steadily approaching it.
+
+   Driven from the game rather than scraped from the DOM, because what is being
+   tested is the arithmetic and the DOM would only prove a string got written. */
+const reachFlag = await page.evaluate(() => {
+  const g = window.__game;
+  if (!g.landed) return { skipped: true };
+  const body = g.landed.body;
+  const R = g.rover;
+  const keep = { x: R.pos.x, z: R.pos.z, charge: R.charge };
+  const sites = g.sites.at(body);
+  const near = sites.slice().sort((a, b) => a.range - b.range)[0];
+  const far = sites.slice().sort((a, b) => b.range - a.range)[0];
+  if (!near || !far) { return { skipped: 'not enough sites' }; }
+
+  const judge = (site, reach) => {
+    const row = g.sites.manifest(body, R.pos.x, R.pos.z).find((s) => s.id === site.id);
+    return { dist: row.dist, range: row.range,
+      now: row.dist + row.range <= reach, old: row.dist * 2 <= reach };
+  };
+
+  /* Pessimistic, and this is the one that was reported from play: drive well
+     past a close-in site, so the site is nearer the ship than it is to you.
+     Doubling your own distance then invents a journey half again as long as
+     the real one and calls the site unreachable while you are approaching it. */
+  R.pos.x = far.x * 0.92; R.pos.z = far.z * 0.92;
+  let d = Math.hypot(near.x - R.pos.x, near.z - R.pos.z);
+  R.charge = ((d + near.range) * 1.15) / 14000;
+  const pess = judge(near, R.metresLeft());
+
+  /* Optimistic, and the more dangerous of the two: stand close to a site that
+     is a long way from the ship. Doubling your own distance then understates
+     the trip home and calls it reachable when it would strand you. */
+  R.pos.x = far.x * 0.85; R.pos.z = far.z * 0.85;
+  d = Math.hypot(far.x - R.pos.x, far.z - R.pos.z);
+  R.charge = (d * 2.2) / 14000;
+  const opt = judge(far, R.metresLeft());
+
+  R.pos.x = keep.x; R.pos.z = keep.z; R.charge = keep.charge;
+  return { pess, opt };
+});
+check('a site you have nearly reached is not called unreachable',
+  reachFlag.skipped || (reachFlag.pess.now && !reachFlag.pess.old),
+  reachFlag.skipped ? String(reachFlag.skipped)
+    : `${Math.round(reachFlag.pess.dist)} m to it + ${Math.round(reachFlag.pess.range)} m home`
+      + ` — the old rule charged ${Math.round(reachFlag.pess.dist * 2)} m and said no`);
+check('and a site that really would strand you still says so',
+  reachFlag.skipped || (!reachFlag.opt.now && reachFlag.opt.old),
+  reachFlag.skipped ? String(reachFlag.skipped)
+    : `${Math.round(reachFlag.opt.dist)} m to it + ${Math.round(reachFlag.opt.range)} m home`
+      + ` — the old rule charged only ${Math.round(reachFlag.opt.dist * 2)} m and said yes`);
+
 // ------------------------------------------------------------- persistence
 const saved = await page.evaluate(() => {
   const g = window.__game;
