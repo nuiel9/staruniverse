@@ -151,11 +151,13 @@ Four loose ends, none known to be wrong and all cheap to close:
   budget's 2.6x has headroom only because that suite never leaves home. If
   anything ever teaches `expedition` to jump, re-derive the budget rather than
   re-running it.
-- **A deposit bearing of exactly 360° would disagree with itself.**
-  `Prospecting` rolls `round(rnd()*360)`, so 360 is reachable, and an eased
-  seam normalises it to 0 while the deposit keeps 360. Geometrically the same
-  place, textually a survey that contradicts the chart. Under one seam in a
-  galaxy; a one-line guard when someone is next in there.
+- ~~A deposit bearing of exactly 360° would disagree with itself.~~ **Fixed.**
+  Both rolls take a modulo, so no bearing is uncanonical to begin with, and
+  easing writes the bearing only when it actually changed, so it cannot rewrite
+  one it was never allowed to touch even if handed a value from outside the
+  range. `sitecheck` carries both a guard and a mutation test — the guard is
+  preventive, since this galaxy rolls no 360 at all across 301 deposits and 457
+  sites, and the mutation is what actually demonstrates the fix.
 - **The tie-break is not monotonic.** Inside half a route step the ranking may
   take a nominally longer wall for a faster drive, and `bestW` then moves with
   it, so the winner depends on iteration order. Order is fixed, so it is

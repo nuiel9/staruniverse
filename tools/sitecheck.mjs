@@ -311,6 +311,17 @@ const after = { rows, survivor: survivorAt };
         + nudged.map((r) => ` (${r.body} ${r.kind} ${r.wasWall.toFixed(2)} -> ${r.wall.toFixed(2)} m,`
           + ` ${r.wasSecs.toFixed(0)} -> ${r.secs.toFixed(0)} s)`).join(''));
   check('seams kept their deposit bearing', after.rows.every((r) => r.seamKeptBearing));
+  /* Canonical, so a bearing has one name. `round(rnd()*360)` used to return
+     0..360 inclusive, and 360 is 0 in a different costume: it prints as
+     "bearing 360°" in the Codex, and easing normalised it to 0 on its way past
+     a seam whose range had moved, leaving the chart contradicting the survey
+     text beside it. This galaxy happens to roll none — 301 deposits and 457
+     sites, all inside 0..359 — so the check below is a guard rather than a
+     demonstration, and the demonstration is the mutation test further down. */
+  const outOfRange = after.rows.filter((r) => !(r.bearing >= 0 && r.bearing <= 359));
+  check('every bearing is canonical, 0..359', outOfRange.length === 0,
+    outOfRange.length ? `${outOfRange.length} outside, e.g. ${outOfRange[0].body} ${outOfRange[0].bearing}`
+      : `${after.rows.length} sites`);
   check('every site stayed inside the range band',
     after.rows.every((r) => r.range >= 700 && r.range <= 6200),
     `${Math.min(...after.rows.map((r) => r.range))}..${Math.max(...after.rows.map((r) => r.range))} m`);
@@ -323,7 +334,69 @@ const after = { rows, survivor: survivorAt };
 check('the same seed rebuilds the same sites in the same places',
   notStable.length === 0,
   notStable.length ? `drifted in ${notStable.join(', ')}`
-    : `${perSystem.length} system${perSystem.length === 1 ? '' : 's'} rebuild identically`);
+    : `${perSystem.length} system${perSystem.length === 1 ? '' : 's'} rebuild${perSystem.length === 1 ? 's' : ''} identically`);
+
+/* Easing may not rewrite a bearing it was not allowed to change — proved by
+   handing it one it would have rewritten.
+ *
+ * The guard above cannot demonstrate this, because no deposit in this galaxy
+ * rolls the value that used to break it. So force one: take a seam whose wall
+ * is over the trigger (easing will run and its range will move, which is the
+ * only way a seam reaches the write-back at all), set its deposit's bearing to
+ * 360, rebuild, and require the site to come back still reading 360 rather than
+ * the 0 the old unconditional normalise produced.
+ *
+ * This is the second lock rather than the first. Bearings are canonical at the
+ * roll now, so 360 should never exist — but "should never exist" is what the
+ * first lock is for, and this one holds even when it does. */
+const b360 = await page.evaluate(async () => {
+  const g = window.__game;
+  for (const b of g.bodies.filter((x) => x.spec && x.planet && !x.planet.isGas)) {
+    /* A seam whose range DEMONSTRABLY moved, not merely one whose wall cleared
+       the trigger. Easing can run and still keep the rolled position, and a
+       seam that kept it never reaches the write-back — so selecting on the
+       trigger alone gave a test that passed without executing the line it
+       exists to test. It did so on this check's first full-galaxy run, and
+       only the detail string said so. */
+    const eased = g.sites.at(b).find((s) => s.kind === 'seam'
+      && s._rolled && s.range !== s._rolled.range);
+    if (!eased) continue;
+    const dep = g.prospect.deposits(b)[eased.i];
+    const was = dep.bearing;
+    /* +360 rather than a flat 360, and the difference is the whole test.
+       Setting 360 outright points the seam due north — a different place, a
+       different route, and easing then makes different decisions, so the
+       write-back may not run at all and the test proves nothing. Adding a full
+       turn to the bearing it already has leaves the direction identical to the
+       last bit that matters, so every decision downstream is unchanged and the
+       only thing different is that the stored number is now uncanonical. That
+       is precisely the input the old unconditional normalise would have
+       quietly rewritten. */
+    dep.bearing = was + 360;
+    delete b._sites; delete b._wreckN;
+    const rebuilt = g.sites.at(b).find((s) => s.id === eased.id);
+    const got = rebuilt ? rebuilt.bearing : null;
+    const moved = rebuilt ? rebuilt.range !== rebuilt._rolled.range : false;
+    const range = rebuilt ? rebuilt.range : null;
+    const wasRange = rebuilt ? rebuilt._rolled.range : null;
+    dep.bearing = was;
+    delete b._sites; delete b._wreckN;
+    g.sites.at(b);                                   // put the world back
+    return { body: b.name, forced: was + 360, got, moved, range, wasRange,
+      kept: got === was + 360 };
+  }
+  return { none: true };
+});
+/* `moved` is asserted, not merely printed. A seam that kept its rolled range
+   never reaches the write-back, so a test on one of those would pass without
+   running the line it is about — and this check found that out the hard way on
+   its own first full-galaxy run. */
+check('easing cannot rewrite a bearing it was not allowed to change',
+  !b360.none && b360.kept && b360.moved,
+  b360.none ? 'no seam with a moved range to test with'
+    : `${b360.body}: deposit forced to ${b360.forced}, site reads ${b360.got}`
+      + (b360.moved ? `, range moved ${b360.wasRange} -> ${b360.range} so the write-back ran`
+        : ', but the write-back never ran — this proves nothing'));
 
 /* Two ways at the same invariant, and walking the galaxy is what made the
    second one possible.
