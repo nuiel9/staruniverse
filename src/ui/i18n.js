@@ -170,6 +170,12 @@ const STRINGS = {
   'gm.steep': ['STEEP — GOING AROUND IS FASTER', 'ชันมาก — อ้อมไปเร็วกว่า'],
   'gm.note': ['inner ring is there and back · outer is one way',
     'วงในคือไปกลับได้ · วงนอกคือไปได้อย่างเดียว'],
+  /* The shading is the only thing on this chart that is about the ground
+     rather than about the trip, so it says what it means in the player's own
+     terms — slow, not steep. Steepness is the cause; losing the drive is what
+     you feel and what you are being asked to route around. */
+  'gm.relief': ['amber is ground that slows the drive · dark is open going',
+    'สีเหลืองอำพันคือพื้นที่ทำให้ช้า · สีเข้มคือทางโล่ง'],
 
   /* ------------------------------------------------ on the ground, in play
      Every line the driving loop prints. These were written in English as the
