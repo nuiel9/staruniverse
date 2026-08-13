@@ -244,9 +244,29 @@ export class GroundMap {
       const label = labelFor(s);
       const note = s.kind === 'seam' && !spent
         ? `${g.prospect.remaining(body, s.dep)} t` : spent ? t('cx.site.done') : '';
-      /* Reachable means there and back, not there. The one-way number is the
-         one that strands people. */
-      const ok = s.dist * 2 <= reach;
+      /* Reachable means there and then *home*, and those are three different
+         numbers once you have driven anywhere.
+       *
+         This read `s.dist * 2`, which is the cost of going to the site and
+         coming back to the patch of ground you are standing on — a journey
+         nobody makes. What the pack has to cover is here to the site, then the
+         site to the ship, and `range` is exactly that second leg because sites
+         are placed in the ship's own frame.
+       *
+         Doubling the distance from the rover is wrong in both directions, and
+         the pessimistic one is what gets reported: drive four kilometres out
+         and a wreck two kilometres further on reads as a twelve-kilometre round
+         trip when it is a six-kilometre one, so the chart calls it unreachable
+         while you are most of the way there. The rings drawn above this list
+         already had it right — they are centred on the ship, for the reason
+         written beside them — and the numbers underneath disagreed with the
+         picture.
+       *
+         Still an underestimate of the charge, because climbing costs more per
+         metre than flat ground does. That is deliberate: the pack is a decision
+         you can get wrong, and a readout that promised otherwise would be
+         making the decision for you. */
+      const ok = s.dist + s.range <= reach;
       return `<div class="gm-row${spent ? ' spent' : ''}">
         <b class="k-${s.kind}">${label}</b>
         <span>${bearingTo(s)}° · ${km(s.dist)}</span>
