@@ -2,7 +2,7 @@ import './ui/style.css';
 import { initLang, mountToggle, t, tx, onLangChange } from './ui/i18n.js';
 import { Game } from './game/Game.js';
 import { INTRO_LINES } from './game/lore.js';
-import { tickClock } from './core/clock.js';
+import { tickClock, after } from './core/clock.js';
 
 const bootEl = document.getElementById('boot');
 const fill = document.getElementById('bootFill');
@@ -107,15 +107,19 @@ function desktopOnly() {
     /* Resolved at fire time, not at schedule time: the language control is on
        the title card, so a player who switches and then hits WAKE would
        otherwise get English for the first fifteen seconds of their game. */
+    /* On the scene clock, not on setTimeout. These are beats in the game, so
+       they should advance with the game: a hidden tab should not burn through
+       the opening narration, and a stepped capture should see the same line on
+       screen every time it is run. It did not — two captures of the spawn view
+       came back with different lines of intro in them. */
     INTRO_LINES.forEach((l, i) => {
-      setTimeout(() => game.hud.narrate(
-        tx(`lore.intro.${i}.text`, l.text), tx(`lore.intro.${i}.who`, l.who)),
-      1200 + i * 5200);
+      after(1.2 + i * 5.2, () => game.hud.narrate(
+        tx(`lore.intro.${i}.text`, l.text), tx(`lore.intro.${i}.who`, l.who)));
     });
-    setTimeout(() => {
+    after(0.9, () => {
       game.hud.log('SCANNER ONLINE', 'ok');
       game.hud.log(`SYSTEM · ${game.system.star.name.toUpperCase()}`);
-    }, 900);
+    });
   };
 
   startBtn.addEventListener('click', begin);

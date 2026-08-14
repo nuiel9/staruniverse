@@ -31,11 +31,33 @@ let t = 0;
 /** Simulated seconds since boot. Advanced once per frame, by the frame's dt. */
 export function clockNow() { return t; }
 
-/** Advance the scene clock. Called from the one place that owns the frame. */
-export function tickClock(dt) { t += dt; }
-
 /** Put the clock somewhere specific — capture tooling pinning an hour. */
 export function setClock(v) { t = v; }
+
+/* Beats scheduled on the scene clock rather than on setTimeout.
+ *
+ * The opening narration was five setTimeouts, which is wrong for the same
+ * reason the animation phases were: they ignore the frame's dt entirely. They
+ * keep firing while the tab is hidden, and under a stepped capture they race
+ * ahead of a world that is only advancing when asked — so which line of the
+ * intro is on screen when the shutter opens depended on how long the browser
+ * took to compile shaders. Two captures of the spawn view came back with
+ * different lines of narration in them, one of them mid-slide. */
+const beats = [];
+
+/** Run fn once, `secs` of simulated time from now. */
+export function after(secs, fn) { beats.push({ at: t + secs, fn }); }
+
+/** Advance the scene clock and fire anything now due. */
+export function tickClock(dt) {
+  t += dt;
+  for (let i = beats.length - 1; i >= 0; i--) {
+    if (beats[i].at > t) continue;
+    const { fn } = beats[i];
+    beats.splice(i, 1);
+    fn();
+  }
+}
 
 /* mulberry32, the same generator generate.js seeds its worlds with, so a
    scatter written against this is reproducible in exactly the way the rest of
