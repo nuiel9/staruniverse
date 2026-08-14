@@ -56,13 +56,13 @@ fs.mkdirSync(OUT, { recursive: true });
    directory. That is the exact poison the header comment above is about, and
    there is no reason for a check to be able to introduce it. */
 if (!ONLY) {
-  execFileSync('node', ['tools/survey.mjs', '--w', '1600', '--h', '900'], { stdio: 'inherit' });
+  execFileSync('node', ['tools/survey.mjs', '--frozen', '--w', '1600', '--h', '900'], { stdio: 'inherit' });
   for (const n of FROM_SURVEY) {
     const src = `shots/${n}.png`;
     if (fs.existsSync(src)) fs.copyFileSync(src, `${OUT}/${n}.png`);
   }
 } else if (FROM_SURVEY.some(want)) {
-  execFileSync('node', ['tools/survey.mjs', '--only', ONLY, '--out', OUT,
+  execFileSync('node', ['tools/survey.mjs', '--only', ONLY, '--out', OUT, '--frozen',
     '--w', '1600', '--h', '900'], { stdio: 'inherit' });
 }
 
@@ -121,7 +121,11 @@ const LANDINGS = [
      const DAY = 2 * Math.PI / 0.012;
      const t0 = g.setSunElevation(0.06);
      const V = g.origin.constructor;
-     const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+     /* Under a frozen capture a bare requestAnimationFrame returns without the
+        world having moved, so the search would measure all eight days through
+        one stale camera. __frame steps the simulation; see tools/frozen.mjs. */
+     const frame = window.__frame
+       || (() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
      let best = null;
      for (let k = 0; k < 8; k++) {
        g.landed.t = t0 + DAY * k;
@@ -174,7 +178,8 @@ for (const [name, js] of LANDINGS) {
        g.land(g.target, {now:true}); g.director.stop();
        ${js}
        g.setLayer('hud',false); return null; })()`,
-    '--shot', `${OUT}/${name}.png`, '--settle', '3200', '--w', '1600', '--h', '900'],
+    '--shot', `${OUT}/${name}.png`, '--settle', '3200', '--frozen',
+    '--w', '1600', '--h', '900'],
   { stdio: 'inherit' });
 }
 

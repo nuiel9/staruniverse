@@ -2,6 +2,7 @@ import './ui/style.css';
 import { initLang, mountToggle, t, tx, onLangChange } from './ui/i18n.js';
 import { Game } from './game/Game.js';
 import { INTRO_LINES } from './game/lore.js';
+import { tickClock } from './core/clock.js';
 
 const bootEl = document.getElementById('boot');
 const fill = document.getElementById('bootFill');
@@ -134,6 +135,12 @@ function desktopOnly() {
 
   function step(dt) {
     try {
+      /* One clock for everything that moves. Panels, rings, lamps and the
+         cabin's own shader time used to read performance.now() directly, which
+         meant they ignored this dt entirely — they ran at wall-clock speed
+         through a stepped capture and kept running while the tab was hidden.
+         See src/core/clock.js. */
+      tickClock(dt);
       if (game.started) game.update(dt);
       else game.updateIdle?.(dt);
       game.engine.time = game.time;
@@ -142,6 +149,11 @@ function desktopOnly() {
       game.engine.render(
         game.interiorRig && game.interiorRig.visible ? game.interiorScene : null,
         game.interiorCam);
+      /* Dynamic resolution is measured off the real framerate, so it is the
+         single most machine-dependent input in the pipeline: the same scene
+         comes out at a different pixel ratio — different sharpness, different
+         aliasing — on a slow machine than a fast one. A stepped capture wants
+         the resolution it was asked for and nothing else. */
       if (!RECORD) game.engine.adapt(dt);
     } catch (e) {
       console.error(e);

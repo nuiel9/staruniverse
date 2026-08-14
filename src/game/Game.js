@@ -45,6 +45,7 @@ import { CANTOS, LOGS, INTRO_LINES, OWN_LOG } from './lore.js';
 import { Directives, UPGRADES } from './directives.js';
 import { Director, SEQUENCES } from './Director.js';
 import { Encounters } from './encounters.js';
+import { seededRandom } from '../core/clock.js';
 
 const ORBIT_TIME = 1;            // orbit rates are already tuned in generate.js
 const TINE_COUNT = 7;
@@ -233,6 +234,9 @@ export class Game {
     this.camRig = new THREE.Quaternion();    // chase-spring state, exterior only
     this.fov = 62;
     this.shake = 0;
+    /* Seat jitter, seeded. It reads as noise either way, and this way two
+       captures of the same frame land the camera in the same place. */
+    this._shakeRnd = seededRandom(4.117);
     // the cloud deck a transition goes through — see beginEntry
     this._cloud = 0;
     this._cloudOut = 0;
@@ -3014,9 +3018,10 @@ export class Game {
       // hull flex and thruster kick, felt through the seat
       if (this.shake > 0.001) {
         const s = this.shake * 0.00016;
-        this.camera.position.x += (Math.random() - 0.5) * s;
-        this.camera.position.y += (Math.random() - 0.5) * s;
-        this.camera.position.z += (Math.random() - 0.5) * s;
+        const R = this._shakeRnd;
+        this.camera.position.x += (R() - 0.5) * s;
+        this.camera.position.y += (R() - 0.5) * s;
+        this.camera.position.z += (R() - 0.5) * s;
       }
       this._setNear(0.00003);
 
@@ -3052,9 +3057,10 @@ export class Game {
         .multiply(_q.setFromAxisAngle(_v.set(1, 0, 0), -m.pitch));
       if (this.shake > 0.001) {
         const s = this.shake * 0.004;
-        this.camera.position.x += (Math.random() - 0.5) * s;
-        this.camera.position.y += (Math.random() - 0.5) * s;
-        this.camera.position.z += (Math.random() - 0.5) * s;
+        const R = this._shakeRnd;
+        this.camera.position.x += (R() - 0.5) * s;
+        this.camera.position.y += (R() - 0.5) * s;
+        this.camera.position.z += (R() - 0.5) * s;
       }
       this._setNear(0.008);
       const spd = ship.foldMode ? 1 : Math.min(1, ship.speed / (ship.maxSpeed * ship.boostMul));

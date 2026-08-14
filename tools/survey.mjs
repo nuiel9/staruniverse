@@ -1,8 +1,14 @@
 // Multi-shot survey: boots once, then walks a list of scripted setups,
 // screenshotting each. Much faster than one browser launch per frame.
-//   node tools/survey.mjs [--w 1600] [--h 900] [--only name]
+//   node tools/survey.mjs [--w 1600] [--h 900] [--only name] [--frozen]
+//
+// --frozen makes the walk reproducible: stepped time instead of wall-clock
+// settles, and no dynamic-resolution controller. See tools/frozen.mjs. Use it
+// for anything that will be compared against another capture — which is the
+// whole point of the review set.
 import { chromium } from 'playwright';
 import { bootGame } from './boot.mjs';
+import { frozenBoot, frozenRun, frozenSettle, installHelpers, recordQuery } from './frozen.mjs';
 import fs from 'node:fs';
 
 const args = process.argv.slice(2);
@@ -10,6 +16,7 @@ const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i
 const W = +opt('w', 1600), H = +opt('h', 900);
 const ONLY = opt('only', null);
 const MOBILE = opt('mobile', '0') === '1';
+const FROZEN = args.includes('--frozen');
 const outDir = opt('out', 'shots');
 fs.mkdirSync(outDir, { recursive: true });
 
@@ -333,9 +340,15 @@ page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') 
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
 
 const Q = opt('q', null);
-await page.goto('http://localhost:5173/' + (Q ? '?q=' + Q : ''), { waitUntil: 'domcontentloaded' });
-await bootGame(page);
-await page.waitForTimeout(1800);
+const qs = FROZEN ? recordQuery(Q) : (Q ? 'q=' + Q : '');
+await page.goto('http://localhost:5173/' + (qs ? '?' + qs : ''), { waitUntil: 'domcontentloaded' });
+/* Booting and settling are the two places wall-clock time used to leak into
+   every frame of the walk, so both go through the frozen harness. */
+const boot = async () => {
+  if (FROZEN) { await frozenBoot(page); await installHelpers(page); }
+  else { await bootGame(page); await page.waitForTimeout(1800); }
+};
+await boot();
 
 const report = [];
 for (const s of SHOTS) {
@@ -347,12 +360,16 @@ for (const s of SHOTS) {
     && document.getElementById('boot').style.display === 'none').catch(() => false);
   if (!live) {
     logs.push(`[shot ${s.name}] page had reloaded — re-booted`);
-    await bootGame(page);
-    await page.waitForTimeout(1800);
+    await boot();
   }
   let skip = null;
+  const src = `(()=>{ ${s.name === 'a-spawn' ? '' : PRE} ${s.js} })()`;
   try {
-    skip = await page.evaluate(`(()=>{ const g = window.__game; ${s.name === 'a-spawn' ? '' : PRE} ${s.js} })()`);
+    /* Frozen mode pumps frames while the set-piece settles, because some of
+       them — t-belt waits on hyperjump — only complete as the simulation is
+       stepped, and nothing steps it on its own. */
+    skip = FROZEN ? await frozenRun(page, src)
+      : await page.evaluate(`(()=>{ const g = window.__game; ${s.name === 'a-spawn' ? '' : PRE} ${s.js} })()`);
   } catch (e) { logs.push(`[shot ${s.name}] ${e.message}`); }
   // A set-piece the current system cannot stage is not a failure — say so and
   // move on, rather than screenshotting whatever the camera happened to be on.
@@ -366,7 +383,9 @@ for (const s of SHOTS) {
     report.push(`${s.name.padEnd(20)} ${skip}`);
     continue;
   }
-  await page.waitForTimeout(s.settle);
+  // Frames, not milliseconds: the same simulated time on any machine.
+  if (FROZEN) await frozenSettle(page, s.settle);
+  else await page.waitForTimeout(s.settle);
   await page.screenshot({ path: `${outDir}/${s.name}.png` });
   const st = await page.evaluate(() => ({
     fps: +window.__game.engine.fps.toFixed(0),

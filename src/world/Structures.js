@@ -3,6 +3,7 @@ import { NOISE, LOGD_V_PARS, LOGD_V, LOGD_F_PARS, LOGD_F } from '../gfx/glsl/noi
 import { mulberry32 } from './generate.js';
 import { CHOIR_HUE, place, slab, weld, palette, dress } from '../gfx/greeble.js';
 import { buildStation } from './Station.js';
+import { clockNow } from '../core/clock.js';
 
 /* ============================================================================
    Things the Hush left behind.
@@ -1547,7 +1548,7 @@ export function buildDerelict(seed, env) {
     const ph0 = rnd() * TWO_PI;
     const q = new THREE.Quaternion();
     mesh.onBeforeRender = () => {
-      q.setFromAxisAngle(axis, ph0 + performance.now() * 0.001 * rate);
+      q.setFromAxisAngle(axis, ph0 + clockNow() * rate);
       // pivot about where the section used to sit, then drift
       seen.copy(C).applyQuaternion(q).negate().add(C).add(D);
       grp.quaternion.copy(q);
@@ -1676,7 +1677,7 @@ export function buildDerelict(seed, env) {
     vent.frustumCulled = false;
     vent.onBeforeRender = (r, s, cam) => {
       vm.uniforms.uCamPos.value.copy(cam.position);
-      vm.uniforms.uTime.value = performance.now() * 0.001;
+      vm.uniforms.uTime.value = clockNow();
     };
     g.add(vent);
   }
@@ -1798,7 +1799,7 @@ export function buildBeacon(seed) {
   const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 10), lampMat);
   lamp.position.y = 0.14;
   lamp.onBeforeRender = () => {
-    const p = 0.5 + 0.5 * Math.sin(performance.now() * 0.0031 + seed);
+    const p = 0.5 + 0.5 * Math.sin(clockNow() * 3.1 + seed);
     lampMat.color.copy(LAMP).multiplyScalar(24 + p * p * 300);
   };
   g.add(lamp);

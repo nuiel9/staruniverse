@@ -3,6 +3,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { HoloScreen, buildScreenModules, CY, AM, DIM } from './HoloScreen.js';
 import { INTERIOR_LAYER } from './interiorMaterials.js';
 import { LOGD_V_PARS, LOGD_V, LOGD_F_PARS, LOGD_F } from '../gfx/glsl/noise.js';
+import { clockNow } from '../core/clock.js';
 
 /* Scratch vectors for the panel's flight maths. Allocated once: drawMain runs
    on a redraw timer and a new Vector3 per readout per frame is garbage the
@@ -929,7 +930,7 @@ function drawMain(g, game, ctx) {
 
   // ---- warnings win over everything
   if (ctx.warn) {
-    const blink = (Math.sin(performance.now() * 0.012) > 0) ? 1 : 0.3;
+    const blink = (Math.sin(clockNow() * 12.0) > 0) ? 1 : 0.3;
     g.fill(4, 4, w - 8, 15, 'rgba(255,80,60,0.45)', blink);
     g.text(ctx.warn, w / 2, 15, { size: 9, color: '#ffd9d2', align: 'center', track: 2.2, alpha: blink });
   }

@@ -4,6 +4,7 @@ import {
 } from '../gfx/greeble.js';
 import { LOGD_V_PARS, LOGD_V, LOGD_F_PARS, LOGD_F } from '../gfx/glsl/noise.js';
 import { mulberry32 } from './generate.js';
+import { clockNow } from '../core/clock.js';
 
 /* ============================================================================
    Orbital infrastructure.
@@ -335,7 +336,7 @@ function makeBeacons(lights) {
     r.getSize(_sz);
     // world units per pixel at unit depth, from the projection actually in use
     mat.uniforms.uPixel.value = 2 / (cam.projectionMatrix.elements[5] * Math.max(1, _sz.y));
-    mat.uniforms.uTime.value = performance.now() * 0.001;
+    mat.uniforms.uTime.value = clockNow();
   };
   return m;
 }
@@ -2892,7 +2893,7 @@ export function buildStation(seed, o = {}) {
     mesh.renderOrder = 3;
     mesh.onBeforeRender = (r, s, cam) => {
       winUniforms.uCamPos.value.copy(cam.position);
-      winUniforms.uTime.value = performance.now() * 0.001;
+      winUniforms.uTime.value = clockNow();
     };
     parent.add(mesh);
     return mesh;
