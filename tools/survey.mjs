@@ -386,7 +386,9 @@ for (const s of SHOTS) {
   // Frames, not milliseconds: the same simulated time on any machine.
   if (FROZEN) await frozenSettle(page, s.settle);
   else await page.waitForTimeout(s.settle);
-  await page.screenshot({ path: `${outDir}/${s.name}.png` });
+  // see probe.mjs: the default thirty seconds is not enough after a settle has
+  // just driven a hundred synchronous renders through a heavy scene
+  await page.screenshot({ path: `${outDir}/${s.name}.png`, timeout: 120000 });
   const st = await page.evaluate(() => ({
     fps: +window.__game.engine.fps.toFixed(0),
     px: +window.__game.engine.pixelRatio.toFixed(2),

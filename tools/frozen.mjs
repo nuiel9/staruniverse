@@ -133,9 +133,27 @@ export async function frozenRun(page, expr, { max = 6000 } = {}) {
   }, { src: expr, max });
 }
 
-/** Advance exactly the frames a millisecond settle used to buy. */
-export async function frozenSettle(page, ms) {
-  await page.evaluate((n) => window.__step(n), framesFor(ms));
+/**
+ * Advance exactly the frames a millisecond settle used to buy.
+ *
+ * In batches, with a yield between them. A settle is around a hundred frames
+ * and each one is a full synchronous render, so driving them in a single
+ * evaluate blocks the browser's main thread for as long as that takes — on a
+ * heavy ground scene, past the point where Playwright gives up on the
+ * screenshot that follows. A dusk capture died exactly that way.
+ *
+ * Yielding here costs no determinism. The one-driver rule in frozenRun is about
+ * a set-piece and the pump stepping at the same time; by the time a settle runs
+ * the set-piece has finished, nothing else is driving, and the frame count is
+ * whatever was asked for either way.
+ */
+export async function frozenSettle(page, ms, { batch = 8 } = {}) {
+  let left = framesFor(ms);
+  while (left > 0) {
+    const n = Math.min(batch, left);
+    await page.evaluate((k) => window.__step(k), n);
+    left -= n;
+  }
 }
 
 /**

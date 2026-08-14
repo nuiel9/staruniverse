@@ -60,7 +60,10 @@ if (FROZEN) {
 }
 if (out !== undefined && out !== null) console.log(JSON.stringify(out, null, 2));
 if (SHOT) {
-  await page.screenshot({ path: SHOT });
+  /* Generous, because the thing being photographed is a scene that has just
+     had a hundred frames driven through it and the compositor may still be
+     catching up. The default thirty seconds killed a dusk capture mid-set. */
+  await page.screenshot({ path: SHOT, timeout: 120000 });
   const st = await page.evaluate(() => ({
     fps: +window.__game.engine.fps.toFixed(0), calls: window.__game.engine.drawCalls,
   }));
