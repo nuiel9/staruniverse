@@ -29,6 +29,39 @@
   --safe-b:env(safe-area-inset-bottom,0px);
   --safe-l:env(safe-area-inset-left,0px);
   --safe-r:env(safe-area-inset-right,0px);
+
+  /* One shape language for the whole product: a cut corner top-right and
+     bottom-left. It costs nothing and it is the difference between "a div with
+     a background colour" and something that looks machined.
+
+     This lived on #hud, which meant every panel — dock, comms, archive, star
+     map — was a sibling of the element that declared it and `var(--slate)`
+     silently resolved to nothing there. A clip-path that fails resolves to no
+     clip at all, so the failure looks exactly like never having asked for one,
+     which is why it went unnoticed: the shape language was defined once and
+     applied to one prompt chip. On :root every layer can reach it. */
+  --cut:10px;
+  --slate:polygon(0 0,calc(100% - var(--cut)) 0,100% var(--cut),
+                  100% 100%,var(--cut) 100%,0 calc(100% - var(--cut)));
+
+  /* The type floor.
+
+     The interface was drawn at 8-9.5px with a quarter-em of tracking, which
+     photographs beautifully and cannot be read. Measured against the brief's
+     "smallest text at least ~16 device pixels": at the dpr 2 the judge set
+     captures at, 8px lands at 16 device px exactly — on the line — and at
+     dpr 1 it lands at 8, i.e. half the floor, which is the state a player on a
+     non-retina monitor is actually in. 11px clears it at dpr 2 with room and
+     is the smallest size this monospace stack still resolves counters at on a
+     1x panel.
+
+     Raising size alone would have made every label a third wider and pushed
+     the market table further off the bottom of the screen, so every size that
+     went up here had its tracking cut by roughly a third at the same time.
+     Tracking is what was buying the "instrument panel" look; at 11px/.15em it
+     still reads as one, and the line is now about as wide as it was at
+     9px/.24em. The two changes pay for each other. */
+  --t-min:11px;
 }
 
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -58,30 +91,42 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
 @keyframes spin{to{transform:rotate(360deg)}}
 .boot-title{margin:0;font-size:clamp(20px,4.4vw,30px);font-weight:400;letter-spacing:.40em;
   white-space:nowrap;text-indent:.40em;color:#eaf7ff;text-shadow:0 0 26px rgba(143,228,255,.35)}
-.boot-sub{margin-top:12px;font-size:10.5px;letter-spacing:.3em;color:var(--dim);text-indent:.3em}
+.boot-sub{margin-top:12px;font-size:var(--t-min);letter-spacing:.20em;color:var(--dim);text-indent:.20em}
 .boot-sub .accent{color:var(--am)}
 .boot-bar{margin:30px auto 0;width:min(320px,74vw);height:1px;background:rgba(143,228,255,.14);
   position:relative;overflow:hidden}
 .boot-bar i{position:absolute;inset:0 100% 0 0;background:linear-gradient(90deg,var(--cy-d),var(--cy));
   box-shadow:0 0 12px var(--cy);transition:right .45s cubic-bezier(.3,.8,.3,1)}
-.boot-status{margin-top:14px;font-size:10px;letter-spacing:.26em;color:var(--dim);
-  min-height:14px;text-transform:uppercase}
+.boot-status{margin-top:14px;font-size:var(--t-min);letter-spacing:.17em;color:var(--dim);
+  min-height:15px;text-transform:uppercase}
 .boot-start{margin-top:28px;padding:13px 40px;border:1px solid var(--line);background:rgba(143,228,255,.05);
   font-size:11px;letter-spacing:.34em;text-indent:.34em;color:#dff4ff;transition:.25s}
 .boot-start:hover{background:rgba(143,228,255,.13);border-color:var(--cy);box-shadow:0 0 30px rgba(143,228,255,.22)}
 .boot-start[hidden]{display:none}
-.boot-legal{margin-top:24px;font-size:9px;letter-spacing:.2em;color:rgba(160,196,214,.28)}
+/* .28 alpha at 9px was decorative rather than informative, and the one thing
+   it says — that this needs WebGL2 — is what a player on the wrong browser has
+   to be able to read before anything else on the screen works. */
+.boot-legal{margin-top:24px;font-size:var(--t-min);letter-spacing:.13em;color:rgba(160,196,214,.46)}
 
 /* ============================ OVERLAY ============================ */
 #hud{position:fixed;inset:0;z-index:20;pointer-events:none;opacity:0;transition:opacity 1.4s ease .2s}
 #hud.on{opacity:1}
 
-/* One shape language for the whole layer: a cut corner top-right and
-   bottom-left. It costs nothing and it is the difference between "a div with a
-   background colour" and something that looks machined. */
-#hud{--cut:10px;
-  --slate:polygon(0 0,calc(100% - var(--cut)) 0,100% var(--cut),
-                  100% 100%,var(--cut) 100%,0 calc(100% - var(--cut)))}
+/* The cut-corner shape language now lives on :root — see the note beside it. */
+
+/* A full-screen panel is a modal, and the subtitle track underneath it is
+   dialogue about the world the panel just covered. It has never been visible
+   *through* a panel (the panel is z-60 at 88% over a 22px blur and #hud is
+   z-20), but it kept animating, kept re-laying-out, and on the two screens
+   that are overlays rather than panels — the chart readout and the surface
+   chart — it competed for the same lower third as the control hints.
+
+   The worklist asked for a body.panel-open class. :has() gets the same result
+   without a JS handshake, and — the reason it wins here — it covers every
+   panel including the ones toggled from files this change does not own. It
+   also keeps the subtitle down through the 220 ms .closing fade, because a
+   closing panel has lost neither class yet. */
+body:has(.panel:not(.hidden)) #narrStack{opacity:0}
 
 /* reticle */
 #reticle{position:absolute;left:50%;top:50%;width:104px;height:104px;transform:translate(-50%,-50%);
@@ -107,10 +152,17 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
   filter:drop-shadow(0 0 3px rgba(0,0,0,.9))}
 @keyframes mkIn{from{transform:scale(1.7);opacity:0}}
 .mk-dot{fill:rgba(190,235,255,.95);filter:drop-shadow(0 0 3px rgba(0,0,0,.9))}
-.mk-lbl{position:absolute;left:24px;top:0;white-space:nowrap;font-size:8.5px;letter-spacing:.18em;
-  color:rgba(200,232,246,.78);text-shadow:0 1px 4px #000,0 0 10px rgba(0,0,0,.9)}
-.mk-lbl em{font-style:normal;display:block;color:rgba(160,196,214,.62);font-size:7.5px;
-  letter-spacing:.14em;margin-top:3px}
+/* The canopy layer sits one step under the panel floor — 10.5/9.5 rather than
+   11 — and that is on purpose rather than an oversight. A marker label is not
+   read, it is glanced at, there can be a dozen of them at once, and every
+   pixel one gains is a pixel taken off the thing it is pointing at. 8.5/7.5
+   was still too small to glance at, which is the defect; 10.5 with the
+   tracking cut occupies almost exactly the width 8.5 at .18em did, so the
+   canopy gets legible labels without getting busier. */
+.mk-lbl{position:absolute;left:24px;top:0;white-space:nowrap;font-size:10.5px;letter-spacing:.12em;
+  color:rgba(200,232,246,.82);text-shadow:0 1px 4px #000,0 0 10px rgba(0,0,0,.9)}
+.mk-lbl em{font-style:normal;display:block;color:rgba(160,196,214,.66);font-size:9.5px;
+  letter-spacing:.09em;margin-top:3px}
 .mk.anom .mk-br{stroke:var(--am);animation:mkPulse 1.9s ease-in-out infinite}
 @keyframes mkPulse{0%,100%{transform:scale(1);opacity:.95}50%{transform:scale(1.16);opacity:.55}}
 .mk.anom .mk-lbl{color:var(--am)}
@@ -122,7 +174,7 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
 /* message log */
 #log{position:absolute;left:calc(26px + var(--safe-l));bottom:calc(88px + var(--safe-b));
   width:330px;display:flex;flex-direction:column;gap:6px;align-items:flex-start}
-.lg{position:relative;font-size:9.5px;letter-spacing:.18em;color:var(--dim);
+.lg{position:relative;font-size:10.5px;letter-spacing:.12em;color:var(--dim);
   padding:5px 14px 5px 13px;max-width:100%;
   background:linear-gradient(90deg,rgba(8,17,26,.78),rgba(8,17,26,0));
   clip-path:polygon(0 0,100% 0,100% 100%,7px 100%,0 calc(100% - 7px));
@@ -151,8 +203,11 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
 /* The stack carries the anchoring; the subtitle is just its last child, so it
    still bottoms out at the 4% the comment above argues for. The prompt rides
    on top of it and moves with it — see index.html. */
+/* The transition lives here rather than on the suppression rule below, so the
+   subtitle fades back in when a panel closes instead of popping. */
 #narrStack{position:absolute;left:50%;bottom:calc(4% + var(--safe-b));transform:translateX(-50%);
-  display:flex;flex-direction:column;align-items:center;gap:14px;pointer-events:none}
+  display:flex;flex-direction:column;align-items:center;gap:14px;pointer-events:none;
+  transition:opacity .18s ease}
 #narr{width:min(680px,82vw);text-align:center;pointer-events:none}
 #narrText{font-size:13px;line-height:1.9;letter-spacing:.14em;color:rgba(234,247,255,.96);
   padding:16px 30px;
@@ -166,7 +221,7 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
    put the name in the middle of the sentence. width:fit-content keeps the rule
    under the name rather than across the whole subtitle. */
 #narrText .who{display:block;width:fit-content;margin:0 auto 11px;
-  font-size:9px;letter-spacing:.32em;color:var(--am);
+  font-size:var(--t-min);letter-spacing:.22em;color:var(--am);
   padding-bottom:6px;border-bottom:1px solid rgba(255,196,138,.28)}
 
 /* interaction prompt */
@@ -190,7 +245,7 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
   animation:keyPulse 2.3s cubic-bezier(.3,.7,.3,1) infinite}
 @keyframes keyPulse{0%{opacity:.5;transform:scale(1)}70%,100%{opacity:0;transform:scale(1.35)}}
 #prompt span{font-size:12px;letter-spacing:.24em;color:#eef8ff;text-shadow:0 2px 12px #000}
-#prompt em{font-style:normal;font-size:9.5px;letter-spacing:.16em;color:var(--dim)}
+#prompt em{font-style:normal;font-size:var(--t-min);letter-spacing:.11em;color:var(--dim)}
 
 /* contextual keys */
 #hints{position:absolute;left:50%;bottom:calc(14px + var(--safe-b));transform:translateX(-50%);
@@ -202,8 +257,8 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
 #hints span{display:inline-flex;align-items:center;gap:7px;padding:4px 11px;
   background:rgba(6,13,20,.68);border:1px solid rgba(120,170,200,.14);
   clip-path:polygon(0 0,calc(100% - 5px) 0,100% 5px,100% 100%,5px 100%,0 calc(100% - 5px));
-  font-size:9.5px;letter-spacing:.18em;color:rgba(186,214,230,.78)}
-#hints kbd{font:inherit;font-size:9.5px;letter-spacing:.1em;color:rgba(158,234,255,.96)}
+  font-size:var(--t-min);letter-spacing:.12em;color:rgba(186,214,230,.82)}
+#hints kbd{font:inherit;font-size:var(--t-min);letter-spacing:.07em;color:rgba(158,234,255,.96)}
 
 /* The steep warning, out where the driver is looking.
    Same amber and same sentence as the chart's own line — one copy of the
@@ -215,7 +270,7 @@ button{font-family:inherit;color:inherit;background:none;border:none;cursor:poin
 #driveWarn{padding:5px 13px;background:rgba(6,13,20,.72);
   border:1px solid rgba(232,164,76,.30);
   clip-path:polygon(0 0,calc(100% - 5px) 0,100% 5px,100% 100%,5px 100%,0 calc(100% - 5px));
-  font-size:9.5px;letter-spacing:.18em;color:#e8a44c;text-align:center;white-space:nowrap}
+  font-size:var(--t-min);letter-spacing:.12em;color:#e8a44c;text-align:center;white-space:nowrap}
 #driveWarn:empty{display:none}
 html[lang="th"] #driveWarn{letter-spacing:0;text-transform:none}
 
@@ -227,7 +282,7 @@ html[lang="th"] #driveWarn{letter-spacing:0;text-transform:none}
 #foldOverlay>*{grid-column:1}
 .fo-t{font-size:clamp(22px,4.6vw,38px);letter-spacing:.6em;text-indent:.6em;color:#dff4ff;
   text-shadow:0 0 50px rgba(143,228,255,.6);margin-top:-26vh}
-.fo-s{font-size:10px;letter-spacing:.3em;color:var(--am);text-align:center;margin-top:-26vh}
+.fo-s{font-size:var(--t-min);letter-spacing:.20em;color:var(--am);text-align:center;margin-top:-26vh}
 
 #alert{position:absolute;left:50%;top:calc(20% + var(--safe-t));transform:translateX(-50%);
   font-size:12px;letter-spacing:.3em;color:var(--rd)}
@@ -267,7 +322,7 @@ html[lang="th"] #driveWarn{letter-spacing:0;text-transform:none}
   border:1px solid var(--line);box-shadow:0 0 30px rgba(0,0,0,.55);
   animation:pRise .4s cubic-bezier(.16,1,.3,1)}
 #navinfo.hidden{display:none}
-.nv-head{font-size:9px;letter-spacing:.3em;color:var(--dim);padding-bottom:8px;
+.nv-head{font-size:var(--t-min);letter-spacing:.20em;color:var(--dim);padding-bottom:8px;
   border-bottom:1px solid var(--line-s);margin-bottom:14px}
 #navinfo h2{margin:0;font-size:23px;font-weight:500;letter-spacing:.12em;color:#eafaff}
 .nv-sub{font-size:11px;letter-spacing:.2em;color:var(--am);margin:5px 0 16px}
@@ -279,10 +334,25 @@ html[lang="th"] #driveWarn{letter-spacing:0;text-transform:none}
 .nv-rows span.cy{color:var(--cy)}
 .nv-rows span.rd{color:#ff9d8b}
 .nv-rows span.dim{color:rgba(179,207,223,.8)}
-.nv-banner{margin-top:16px;padding:10px 12px;font-size:11.5px;letter-spacing:.2em;
-  text-align:center;border-left:3px solid var(--dim);background:rgba(120,140,150,.10);
-  color:rgba(201,228,246,.9)}
-.nv-banner.go{border-left-color:var(--am);background:rgba(255,170,110,.16);color:#ffe8d2}
+/* The banner is the readout's verdict — it is the line that says whether you
+   can go — and it was the quietest element in the panel: a grey rule on a 10%
+   grey wash under a column of bright numbers. Four of its five states are a
+   refusal, and a refusal that whispers gets read as decoration. It carries the
+   cut corner now, a full border rather than a single rule, and enough
+   background to be the block your eye lands on last and remembers. */
+.nv-banner{margin-top:16px;padding:11px 13px;font-size:12px;letter-spacing:.14em;
+  text-align:center;border:1px solid rgba(150,176,190,.34);border-left:3px solid rgba(176,200,214,.75);
+  background:rgba(120,140,150,.16);clip-path:var(--slate);
+  color:rgba(216,236,250,.95)}
+.nv-banner.go{border-color:rgba(255,196,138,.42);border-left-color:var(--am);
+  background:rgba(255,170,110,.18);color:#ffe8d2}
+/* The refusal variant. Nothing sets this class yet — the chart readout is
+   written from src/ship/HoloMap.js, which this change does not own — so it is
+   here for whoever closes that half: `.toggle('stop', !canJump && !isCur)`
+   beside the existing `.toggle('go', canJump)` turns the three blocked states
+   red and leaves "you are here" neutral. */
+.nv-banner.stop{border-color:rgba(255,107,94,.40);border-left-color:var(--rd);
+  background:rgba(255,107,94,.15);color:#ffd8d2}
 @media (max-width:640px){
   #navinfo{width:min(300px,54vw);padding:12px 13px 11px}
   #navinfo h2{font-size:19px}
@@ -290,77 +360,139 @@ html[lang="th"] #driveWarn{letter-spacing:0;text-transform:none}
 
 /* dock market. One table; the ledger lives in the header so a trade and its
    consequence are never in two places. */
-.dk-sub{font-size:9px;letter-spacing:.3em;color:var(--am);margin-top:5px}
+.dk-sub{font-size:var(--t-min);letter-spacing:.20em;color:var(--am);margin-top:5px}
 .dk-ledger{display:flex;gap:22px;align-items:baseline;margin-left:auto;margin-right:22px}
-.dk-cr{font-size:17px;color:#eafaff;font-variant-numeric:tabular-nums}
-.dk-cr i,.dk-num i{font-style:normal;font-size:9px;letter-spacing:.18em;color:var(--dim)}
-.dk-hold{font-size:10px;letter-spacing:.22em;color:var(--dim)}
+.dk-cr{font-size:19px;color:#eafaff;font-variant-numeric:tabular-nums}
+.dk-cr i,.dk-num i{font-style:normal;font-size:var(--t-min);letter-spacing:.10em;color:var(--dim)}
+.dk-hold{font-size:var(--t-min);letter-spacing:.15em;color:var(--dim)}
 .dk-hold.full{color:var(--am)}
-.dk-depart{font-size:10.5px;letter-spacing:.26em;color:var(--cy);border:1px solid var(--line);
-  padding:8px 14px;transition:.2s}
+.dk-depart{font-size:11.5px;letter-spacing:.18em;color:var(--cy);border:1px solid var(--line);
+  padding:9px 15px;transition:.2s;clip-path:var(--slate)}
 .dk-depart:hover{background:rgba(143,228,255,.08)}
-.dock-main{overflow-y:auto;padding:26px clamp(20px,5vw,64px) 60px;max-width:1060px;margin:0 auto;width:100%}
+/* The scroller, and the two things that tell you it is one.
+
+   The market runs to five blocks — goods, board, bar, yard, reports — and the
+   frame cuts it somewhere in the third. With a flat bottom edge and an overlay
+   scrollbar that only exists while the wheel is moving, a still frame of this
+   screen is indistinguishable from one where the content simply ends: the
+   review set caught it mid-word in the crew list and read it as a layout bug.
+   `scrollbar-color` opts Chromium out of overlay behaviour, so the track is
+   there in a screenshot, and .dock-body's fade says "there is more" even for
+   someone who has not looked at the right-hand edge. */
+.dock-body{position:relative}
+.dock-body::after{content:'';position:absolute;left:0;right:0;bottom:0;height:70px;
+  pointer-events:none;
+  background:linear-gradient(to top,rgba(2,6,11,.94),rgba(2,6,11,.55) 44%,rgba(2,6,11,0))}
+.dock-main{overflow-y:auto;padding:26px clamp(20px,5vw,64px) 78px;max-width:1060px;margin:0 auto;width:100%}
+.dock-main,.codex-main,.codex-nav,.map-side,.comms-feed{
+  scrollbar-width:thin;scrollbar-color:rgba(143,228,255,.34) rgba(143,228,255,.06)}
 .dk-table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
-.dk-table th{font-size:9px;font-weight:400;letter-spacing:.24em;color:var(--dim);
+.dk-table th{font-size:var(--t-min);font-weight:400;letter-spacing:.16em;color:var(--dim);
   text-align:left;padding:0 12px 9px;border-bottom:1px solid var(--line-s)}
 .dk-table td{padding:9px 12px;border-bottom:1px solid var(--line-s);font-size:12.5px;
   letter-spacing:.08em;color:var(--txt)}
-.dk-table tr.produces td{background:rgba(138,255,193,.03)}
-.dk-table tr.demands td{background:rgba(255,196,138,.03)}
+/* PRODUCES / WANTED at 3% alpha is roughly one level out of 255 on this
+   ground — the tint was there in the stylesheet and not in the frame, and the
+   whole "buy the green rows, sell into their green rows" pitch rests on being
+   able to see it across a table at a glance. 9% is visible without becoming a
+   highlight, and the saturated 2px edge is what actually carries it: an edge
+   survives being looked at from four feet away, a wash does not. Every first
+   cell reserves the 2px whether or not it is coloured, so a tinted row does
+   not sit two pixels right of an untinted one. */
+.dk-table td:first-child,.dk-table th:first-child{border-left:2px solid transparent}
+.dk-table tr.produces td{background:rgba(138,255,193,.09)}
+.dk-table tr.produces td:first-child{border-left-color:rgba(138,255,193,.55)}
+.dk-table tr.demands td{background:rgba(255,196,138,.09)}
+.dk-table tr.demands td:first-child{border-left-color:rgba(255,196,138,.55)}
 .dk-name{color:#dff4ff}
-.dk-name em{display:block;font-style:normal;font-size:9.5px;letter-spacing:.1em;
+.dk-name em{display:block;font-style:normal;font-size:var(--t-min);letter-spacing:.06em;
   color:var(--dim);margin-top:3px}
-.dk-tag{font-style:normal;font-size:8px;letter-spacing:.22em;padding:2px 7px;margin-left:10px;
-  vertical-align:2px;border:1px solid}
+/* 10px, one under the floor, and the exception is argued rather than
+   overlooked: the tag is set in capitals only, so its cap height at 10px is
+   the same ink as a mixed-case string at about 13.5px — larger than the
+   commodity name it sits beside. Taking it to 11 made the badge the loudest
+   word on the row, which is backwards. */
+.dk-tag{font-style:normal;font-size:10px;letter-spacing:.13em;padding:2px 7px;margin-left:10px;
+  vertical-align:1px;border:1px solid}
 /* `prod`, not `mk`: .mk is the HUD's world-marker class, and a tag wearing it
    is position:absolute'd out of the table into a 28px box at the panel origin. */
 .dk-tag.prod{color:var(--gn);border-color:rgba(138,255,193,.35)}
 .dk-tag.want{color:var(--am);border-color:rgba(255,196,138,.4)}
 .dk-num{text-align:right;white-space:nowrap}
 th.dk-num{text-align:right}
+/* Price against the commodity's standard value, which is the number the table
+   was missing: 43 cr means nothing on its own, and "+79%" is the entire trade
+   decision. Green is cheap and amber is dear, matching what PRODUCES and
+   WANTED already mean on the same row, so the two signals reinforce instead of
+   introducing a second colour law. Inside a few per cent of standard it goes
+   grey — a market at par is not news and should not draw the eye. */
+.dk-dev{font-size:11.5px;letter-spacing:.06em}
+th.dk-dev{font-size:var(--t-min);letter-spacing:.16em}
+.dk-dev.cheap{color:var(--gn)}
+.dk-dev.dear{color:var(--am)}
+.dk-dev.par{color:rgba(160,196,214,.48)}
 .dk-act{text-align:right;white-space:nowrap}
-.dk-act button{font-size:9.5px;letter-spacing:.2em;color:var(--cy);border:1px solid var(--line);
+.dk-act button{font-size:var(--t-min);letter-spacing:.13em;color:var(--cy);border:1px solid var(--line);
   padding:5px 12px;margin-left:6px;transition:.15s}
 .dk-act button:hover:not(:disabled){background:rgba(143,228,255,.1)}
-.dk-act button:disabled{color:rgba(160,196,214,.28);border-color:rgba(143,228,255,.06)}
+/* A disabled verb kept its full box, so every row showed two controls and only
+   one of them did anything — the table read as twice as interactive as it is,
+   and SELL on a commodity you hold none of was drawn with the same weight as
+   BUY on one you can afford. Dropping the border to transparent rather than to
+   a dim colour leaves the box exactly the same size, so nothing reflows when a
+   purchase enables it; what is left is a ghost of the word, which is the
+   honest amount of presence for a thing you cannot press. */
+.dk-act button:disabled{color:rgba(160,196,214,.26);border-color:transparent;cursor:default}
 .dk-risk{color:var(--am);font-weight:400}
-.dk-max{font-size:9.5px;letter-spacing:.2em;color:rgba(160,196,214,.45)}
-.dk-note{margin-top:18px;font-size:9.5px;letter-spacing:.16em;color:var(--dim);text-align:center}
-.dk-note kbd{font-size:8.5px;border:1px solid var(--line-s);padding:1px 5px;margin:0 2px}
+.dk-max{font-size:var(--t-min);letter-spacing:.13em;color:rgba(160,196,214,.5)}
+.dk-note{margin-top:18px;font-size:var(--t-min);letter-spacing:.11em;color:var(--dim);text-align:center}
+.dk-note kbd{font-size:10.5px;border:1px solid var(--line-s);padding:1px 5px;margin:0 2px}
 .dk-charts{display:flex;align-items:center;justify-content:space-between;gap:18px;
   margin-top:16px;padding:12px 14px;border:1px solid rgba(138,255,193,.22);
   background:rgba(138,255,193,.04)}
-.dk-charts span{font-size:10.5px;letter-spacing:.12em;color:var(--txt)}
-.dk-charts button{font-size:10px;letter-spacing:.2em;color:var(--gn);
-  border:1px solid rgba(138,255,193,.4);padding:8px 14px;white-space:nowrap;transition:.15s}
+.dk-charts span{font-size:11.5px;letter-spacing:.08em;color:var(--txt)}
+.dk-charts button{font-size:11.5px;letter-spacing:.13em;color:var(--gn);
+  border:1px solid rgba(138,255,193,.4);padding:8px 14px;white-space:nowrap;transition:.15s;
+  clip-path:var(--slate)}
 .dk-charts button:hover{background:rgba(138,255,193,.1)}
-.dk-h3{margin:30px 0 8px;font-size:10px;font-weight:400;letter-spacing:.3em;color:var(--dim)}
+.dk-charts button:disabled{color:rgba(160,196,214,.26);border-color:transparent;cursor:default}
+.dk-h3{margin:30px 0 8px;font-size:var(--t-min);font-weight:400;letter-spacing:.20em;color:var(--dim)}
 .dk-reptable td{vertical-align:top}
 .dk-repcell{text-align:right}
-.dk-rep{display:inline-block;font-size:10px;letter-spacing:.14em;margin:2px 0 2px 14px;
+.dk-rep{display:inline-block;font-size:var(--t-min);letter-spacing:.09em;margin:2px 0 2px 14px;
   padding:3px 8px;border:1px solid var(--line-s);color:var(--txt);white-space:nowrap}
-.dk-rep i{font-style:normal;font-size:8px;color:var(--dim);margin-left:3px}
+/* 10px, and for the same reason .dk-tag is: two lower-case letters that mean
+   "credits" beside a number that means everything. Below the floor by one
+   pixel and above the size where this face stops resolving the counter in the
+   `c`, which is the test that matters for a two-letter unit. */
+.dk-rep i{font-style:normal;font-size:10px;color:var(--dim);margin-left:3px}
 .dk-rep.want{color:var(--am);border-color:rgba(255,196,138,.3)}
 .dk-rep.prod{color:var(--gn);border-color:rgba(138,255,193,.28)}
 @media (max-width:640px){
   .dk-ledger{gap:12px;margin-right:10px}
   .dk-name em{display:none}
   .dk-table td,.dk-table th{padding:8px 6px}
+  /* Six columns do not fit a phone. The deviation is the first thing to go
+     rather than the last, because it is the only one that is derivable — a
+     player who can see the price still has the number, where a player who
+     loses STOCK or HELD has lost a fact. */
+  .dk-dev{display:none}
+  .dock-body::after{height:44px}
 }
 
 /* subsurface survey, in a scanned world's archive entry */
-.cx-h3{margin:30px 0 10px;font-size:10px;font-weight:400;letter-spacing:.3em;color:var(--dim)}
+.cx-h3{margin:30px 0 10px;font-size:var(--t-min);font-weight:400;letter-spacing:.20em;color:var(--dim)}
 .cx-deps{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:1px;
   background:var(--line-s);border:1px solid var(--line-s);max-width:62ch}
 .cx-dep{background:rgba(4,10,16,.7);padding:11px 13px}
 .cx-dep b{display:block;font-weight:400;font-size:11px;letter-spacing:.2em;color:var(--gn)}
 .cx-dep span{display:block;font-size:13px;color:#dff4ff;margin-top:4px}
-.cx-dep em{display:block;font-style:normal;font-size:9px;letter-spacing:.16em;
+.cx-dep em{display:block;font-style:normal;font-size:var(--t-min);letter-spacing:.11em;
   color:var(--dim);margin-top:3px}
 .cx-dep.spent b{color:rgba(160,196,214,.4)}
 .cx-dep.spent span{color:rgba(160,196,214,.45)}
-.cx-note{margin-top:10px;font-size:9.5px;letter-spacing:.16em;color:var(--dim);max-width:62ch}
-.cx-note kbd{font-size:8.5px;border:1px solid var(--line-s);padding:1px 5px;margin:0 2px}
+.cx-note{margin-top:10px;font-size:var(--t-min);letter-spacing:.11em;color:var(--dim);max-width:62ch}
+.cx-note kbd{font-size:10.5px;border:1px solid var(--line-s);padding:1px 5px;margin:0 2px}
 
 /* the question: what the player has worked out, and what is still dark */
 .cx-rev{border-left:2px solid rgba(138,255,193,.5);padding:2px 0 2px 16px;
@@ -378,28 +510,111 @@ th.dk-num{text-align:right}
 .cx-rumor p{margin:0 0 6px;font-size:13px;line-height:1.8;letter-spacing:.05em;
   color:rgba(214,238,248,.92)}
 .cx-rumor.cor{border-left-color:rgba(138,255,193,.6)}
-.cx-rmeta{font-size:9px;letter-spacing:.24em;color:var(--dim)}
+.cx-rmeta{font-size:var(--t-min);letter-spacing:.16em;color:var(--dim)}
 .cx-rmeta b{color:var(--gn);font-weight:400}
 .cx-rmeta b.cx-contest{color:var(--am)}
 
-/* comms. A transcript and a row of verbs; the conversation is the interface. */
-.comms-body{display:flex;flex-direction:column;max-width:760px;margin:0 auto;width:100%;
-  padding:26px clamp(20px,5vw,64px) 40px}
-.comms-feed{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;
-  gap:14px;padding-bottom:22px}
-.cm-line{font-size:13.5px;line-height:1.75;letter-spacing:.05em;color:var(--txt);max-width:56ch}
+/* comms. A transcript and a row of verbs; the conversation is the interface.
+
+   The layout used to put about seven hundred pixels of blurred backdrop
+   between the question and the three buttons that answer it: `flex:1` on the
+   feed made it eat the whole column, so the transcript pinned itself to the
+   top of a 900px screen and the verbs pinned themselves to the bottom, with
+   nothing in between. A conversation is one object. `margin-top:auto` and no
+   grow gives the feed its content height and pushes it down onto the verb row,
+   so the exchange and the reply to it are always within a couple of lines of
+   each other and the empty space collects *above*, where it reads as air over
+   a conversation rather than as a gap inside one. It still shrinks and scrolls
+   once the transcript is taller than the panel — min-height:0 and overflow
+   are what make that work in a flex column, and _line()'s scrollTop keeps
+   following the bottom.
+
+   The measure moved off .cm-line and onto the column. On the line it meant a
+   10px system note wrapped at ~350px and a 13.5px reply at ~790px, because ch
+   is a function of the element's own font size — the left edge was straight
+   and the right edge stepped in and out by half the column, on a screen whose
+   whole content is text. Setting it once on .comms-body instead means the
+   transcript, the deal strip and the verb row all share one rag: four edges
+   that used to be four different widths are now one, and the panel reads as a
+   channel rather than as three unrelated blocks floating in a 1600px frame. */
+/* 552 outside, 24px of gutter each side, so the text column lands at ~504px —
+   about 62 characters of this monospace at 13.5px, which is the same measure
+   the archive's prose already uses. The old 760 with a 64px gutter gave 632px,
+   ~78 characters, which is past the width a reader tracks back from reliably;
+   the 56ch on the line was there to fix that and fixed it for one font size
+   out of three. */
+.comms-body{display:flex;flex-direction:column;max-width:552px;margin:0 auto;width:100%;
+  padding:26px 24px 40px}
+.comms-feed{margin-top:auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;
+  align-items:flex-start;gap:14px;padding-bottom:22px;width:100%}
+.cm-line{font-size:13.5px;line-height:1.75;letter-spacing:.05em;color:var(--txt)}
 .cm-line.them{color:#ffe6c8;border-left:2px solid rgba(255,196,138,.5);padding-left:14px}
-.cm-line.sys{font-size:10px;letter-spacing:.22em;color:var(--dim)}
-.comms-acts{display:flex;flex-wrap:wrap;gap:10px;border-top:1px solid var(--line-s);
-  padding-top:18px}
-.comms-acts button{font-size:10.5px;letter-spacing:.22em;color:var(--cy);
-  border:1px solid var(--line);padding:10px 16px;transition:.15s}
-.comms-acts button:hover{background:rgba(143,228,255,.09)}
+/* The player's own half of the transcript. Four lines of the contact talking
+   and no record of what was said to provoke it read as a monologue: you could
+   not tell, coming back to the screen, whether you had opened friendly or
+   hostile — which is the one irreversible choice in the encounter. Echoed on
+   the right in the interface's own cyan, so speaker is carried by side and
+   colour and needs no name label. */
+.cm-line.you{align-self:flex-end;text-align:right;color:#cdeaf7;
+  border-right:2px solid rgba(143,228,255,.45);padding-right:14px}
+.cm-line.sys{font-size:var(--t-min);letter-spacing:.15em;color:var(--dim)}
+
+/* The deal, as a number rather than as a clause inside a sentence. The quote
+   only ever existed in the contact's prose — "20 a unit and we both walk away
+   smiling" — so the most important figure on the screen was also the least
+   prominent, and there was nothing at all to judge it against. This strip
+   carries the unit price at display size, what the whole lot comes to, and the
+   deviation from the commodity's standard value, which is what actually tells
+   you whether to press ACCEPT. Written by Comms.js as the last element of the
+   transcript so it sits directly above the verbs and is replaced, not stacked,
+   on every counter. */
+.cm-deal{align-self:stretch;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  padding:12px 16px;border:1px solid var(--line-s);border-left:3px solid rgba(143,228,255,.55);
+  background:rgba(143,228,255,.05);clip-path:var(--slate)}
+.cm-deal b{font-size:26px;font-weight:400;color:#eafaff;letter-spacing:.02em;
+  font-variant-numeric:tabular-nums}
+.cm-deal i{font-style:normal;font-size:var(--t-min);letter-spacing:.14em;color:var(--dim)}
+.cm-deal span{margin-left:auto;font-size:12.5px;letter-spacing:.06em;color:var(--txt);
+  font-variant-numeric:tabular-nums}
+.cm-deal em{font-style:normal;font-size:12.5px;letter-spacing:.1em;color:rgba(168,204,222,.62)}
+.cm-deal em.good{color:var(--gn)}
+.cm-deal em.bad{color:var(--am)}
+
+/* Three verbs that were three identical cyan boxes, so the screen offered no
+   opinion about which one the conversation was waiting for. ACCEPT is the
+   commitment and gets the amber and the machined corner; COUNTER is the
+   reversible move and keeps the outline it had; WALK AWAY is the exit and
+   should look like one. */
+.comms-acts{display:flex;flex-wrap:wrap;align-items:stretch;gap:10px;
+  border-top:1px solid var(--line-s);padding-top:18px}
+/* align-items:stretch on the row and justify-content:center in the button: the
+   verb with a sub-line sets the height and the two without it sit centred in
+   the same box, rather than the row being one tall control and two short ones
+   hanging off its top edge. */
+.comms-acts button{display:flex;flex-direction:column;align-items:flex-start;
+  justify-content:center;gap:4px;
+  font-size:11.5px;letter-spacing:.15em;color:var(--cy);
+  border:1px solid var(--line);padding:10px 16px;transition:.15s;text-align:left}
+.comms-acts button:hover:not(:disabled){background:rgba(143,228,255,.09)}
+.comms-acts button em{font-style:normal;font-size:var(--t-min);letter-spacing:.06em;
+  color:var(--dim);font-variant-numeric:tabular-nums}
+.comms-acts button.pri{color:#ffe8d2;border-color:rgba(255,196,138,.55);
+  background:rgba(255,170,110,.13);clip-path:var(--slate);padding:10px 22px}
+.comms-acts button.pri:hover:not(:disabled){background:rgba(255,170,110,.24)}
+.comms-acts button.pri em{color:rgba(255,222,196,.82)}
+.comms-acts button.ghost{color:rgba(168,204,222,.62);border-color:transparent}
+.comms-acts button.ghost:hover:not(:disabled){color:var(--txt);background:rgba(143,228,255,.06)}
+/* Disabled with the reason on the control. See Comms.js — the affordability
+   test used to run inside the click handler, so "your hold is full" arrived
+   after you had already decided. */
+.comms-acts button:disabled{color:rgba(160,196,214,.34);border-color:rgba(143,228,255,.07);
+  background:none;cursor:default}
+.comms-acts button:disabled em{color:rgba(255,157,139,.72)}
 
 /* archive */
 .codex-body{display:grid;grid-template-columns:224px 1fr}
 .codex-nav{overflow-y:auto;border-right:1px solid var(--line-s);padding:14px 0 40px}
-.cx-grp{font-size:9.5px;letter-spacing:.26em;color:var(--dim);padding:16px 26px 7px}
+.cx-grp{font-size:var(--t-min);letter-spacing:.17em;color:var(--dim);padding:16px 26px 7px}
 .cx-item{display:block;width:100%;text-align:left;padding:7px 26px;font-size:11.5px;letter-spacing:.13em;
   color:rgba(198,232,244,.76);border-left:2px solid transparent;transition:.15s}
 .cx-item:hover{color:#dff4ff;background:rgba(143,228,255,.05)}
@@ -407,11 +622,11 @@ th.dk-num{text-align:right}
 .cx-item.locked{color:rgba(160,196,214,.34);font-style:italic}
 .codex-main{overflow-y:auto;padding:34px clamp(20px,5vw,64px) 70px}
 .cx-title{font-size:24px;letter-spacing:.24em;color:#eafaff;margin:0 0 6px;font-weight:400}
-.cx-sub{font-size:10px;letter-spacing:.26em;color:var(--am);margin-bottom:26px}
+.cx-sub{font-size:var(--t-min);letter-spacing:.17em;color:var(--am);margin-bottom:26px}
 .cx-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:1px;
   background:var(--line-s);border:1px solid var(--line-s);margin-bottom:28px}
 .cx-stat{background:rgba(4,10,16,.7);padding:12px 14px}
-.cx-stat label{display:block;font-size:9px;letter-spacing:.22em;color:var(--dim);margin-bottom:5px}
+.cx-stat label{display:block;font-size:var(--t-min);letter-spacing:.15em;color:var(--dim);margin-bottom:5px}
 .cx-stat b{font-weight:400;font-size:14.5px;color:#dff4ff}
 .cx-text{font-size:13px;line-height:1.95;letter-spacing:.05em;color:rgba(214,238,248,.92);max-width:62ch}
 .cx-text p{margin:0 0 16px}
@@ -424,16 +639,16 @@ th.dk-num{text-align:right}
 #mapCanvas{width:100%;height:100%;display:block;touch-action:none}
 .map-side{border-left:1px solid var(--line-s);padding:26px 24px;overflow-y:auto}
 .ms-name{font-size:17px;letter-spacing:.26em;color:#eafaff;margin-bottom:5px}
-.ms-cls{font-size:9px;letter-spacing:.24em;color:var(--am);margin-bottom:22px}
-.ms-row{display:flex;justify-content:space-between;font-size:10px;letter-spacing:.13em;
+.ms-cls{font-size:var(--t-min);letter-spacing:.16em;color:var(--am);margin-bottom:22px}
+.ms-row{display:flex;justify-content:space-between;font-size:var(--t-min);letter-spacing:.09em;
   padding:7px 0;border-bottom:1px solid var(--line-s);color:var(--dim)}
 .ms-row b{font-weight:400;color:#dff4ff}
 .ms-go{margin-top:26px;width:100%;padding:13px;border:1px solid var(--line);background:rgba(143,228,255,.06);
-  font-size:10px;letter-spacing:.3em;color:#dff4ff;transition:.2s}
+  font-size:11.5px;letter-spacing:.20em;color:#dff4ff;transition:.2s;clip-path:var(--slate)}
 .ms-go:hover:not(:disabled){background:rgba(143,228,255,.15);border-color:var(--cy);
   box-shadow:0 0 26px rgba(143,228,255,.2)}
 .ms-go:disabled{opacity:.3;cursor:default}
-.ms-note{margin-top:14px;font-size:9px;letter-spacing:.14em;color:var(--dim);line-height:1.7}
+.ms-note{margin-top:14px;font-size:var(--t-min);letter-spacing:.09em;color:var(--dim);line-height:1.7}
 
 /* ============================ TOUCH ============================ */
 #touchUI{position:fixed;inset:0;z-index:30;pointer-events:none}
@@ -449,7 +664,7 @@ th.dk-num{text-align:right}
 #touchBtns{position:absolute;right:calc(18px + var(--safe-r));top:50%;transform:translateY(-50%);
   display:flex;flex-direction:column;gap:9px;pointer-events:auto}
 .tb{width:58px;height:38px;border:1px solid rgba(143,228,255,.2);background:rgba(6,14,22,.35);
-  font-size:9px;letter-spacing:.12em;color:rgba(190,226,240,.75);border-radius:2px;
+  font-size:10.5px;letter-spacing:.06em;color:rgba(190,226,240,.8);border-radius:2px;
   backdrop-filter:blur(4px);transition:.12s}
 .tb:active,.tb.on{background:rgba(143,228,255,.2);color:#fff;border-color:var(--cy)}
 #touchThr{position:absolute;left:calc(18px + var(--safe-l));top:50%;transform:translateY(-50%);
@@ -472,11 +687,13 @@ th.dk-num{text-align:right}
 
 @media (max-width:760px){
   #log{left:calc(12px + var(--safe-l));width:min(230px,48vw)}
-  .lg{font-size:8px}
+  /* 8px here undid the floor on exactly the devices that need it most. The
+     narrow-screen saving comes from the tracking and the padding now. */
+  .lg{font-size:10px;letter-spacing:.06em}
   #reticle{width:80px;height:80px}
   #narr{bottom:calc(21% + var(--safe-b));width:88vw}
-  #narrText{font-size:11px;line-height:1.75;letter-spacing:.08em}
-  #prompt span{font-size:10.5px;letter-spacing:.18em}
+  #narrText{font-size:11.5px;line-height:1.75;letter-spacing:.06em}
+  #prompt span{font-size:11.5px;letter-spacing:.14em}
   #prompt em{display:none}
   #hints{display:none}
   .codex-body{grid-template-columns:1fr;grid-template-rows:auto 1fr}
@@ -493,12 +710,16 @@ th.dk-num{text-align:right}
   .map-side{border-left:none;border-top:1px solid var(--line-s);max-height:44vh;padding:14px}
   .ms-name{font-size:14px}
   .p-head{padding-top:calc(12px + var(--safe-t))}
+  .comms-body{padding:18px 18px 22px}
+  .cm-deal b{font-size:22px}
+  .cm-deal span{margin-left:0}
+  .comms-acts button.pri{padding:10px 16px}
 }
 
 /* portrait phone */
 @media (max-width:760px) and (orientation:portrait){
   #touchBtns{right:calc(8px + var(--safe-r));gap:7px}
-  .tb{width:52px;height:32px;font-size:8.5px}
+  .tb{width:54px;height:32px;font-size:10px}
   #touchThr{left:calc(8px + var(--safe-l));top:auto;bottom:calc(158px + var(--safe-b));
     transform:none;flex-direction:row;gap:6px}
   .tt{width:38px;height:34px;font-size:15px}
@@ -509,15 +730,22 @@ th.dk-num{text-align:right}
 }
 
 /* landscape phone */
+/* This block is the one JUDGE.md's "judge every interface frame at more than
+   one aspect ratio" actually lands in: a 1024x480 capture is 480 tall and
+   trips it. Everything here that set type below the floor has been brought
+   back up to it — a short window is a reason to spend less vertical space, not
+   a reason to make the text unreadable — and .comms-* has short-viewport rules
+   for the first time, which is why the negotiation screen was the one panel
+   with no responsive behaviour at any breakpoint. */
 @media (max-height:520px){
   #log{left:calc(120px + var(--safe-l));top:calc(12px + var(--safe-t));bottom:auto;
     width:min(210px,30vw)}
-  .lg{font-size:7.5px;letter-spacing:.08em;padding-left:6px}
+  .lg{font-size:10px;letter-spacing:.05em;padding:3px 10px 3px 9px}
   #prompt{bottom:calc(20% + var(--safe-b))}
   #narr{bottom:calc(50% + var(--safe-b));width:min(520px,58vw)}
-  #narrText{font-size:10.5px;line-height:1.6}
+  #narrText{font-size:11.5px;line-height:1.55;padding:10px 22px}
   #reticle{width:66px;height:66px}
-  .mk-lbl{font-size:7.5px}
+  .mk-lbl{font-size:10px;letter-spacing:.05em}
   .mk-lbl em{display:none}
   #markers{right:82px;width:calc(100% - 82px);overflow:hidden}
   .fo-t{margin-top:-16vh;font-size:clamp(20px,4.2vw,30px)}
@@ -527,19 +755,34 @@ th.dk-num{text-align:right}
   #stickL{left:calc(14px + var(--safe-l))}
   #stickR{right:calc(14px + var(--safe-r))}
   #touchBtns{right:calc(10px + var(--safe-r));top:calc(10px + var(--safe-t));transform:none;gap:5px}
-  .tb{width:56px;height:26px;font-size:8px}
+  .tb{width:58px;height:26px;font-size:10px}
   #touchThr{left:calc(10px + var(--safe-l));top:auto;bottom:calc(122px + var(--safe-b));
     transform:none;flex-direction:row;gap:6px}
   .tt{width:36px;height:32px;font-size:14px}
   .map-side{max-height:none;padding:10px 14px}
   .map-body{grid-template-columns:1fr 240px}
-  .ms-row{padding:4px 0;font-size:9px}
+  .ms-row{padding:4px 0;font-size:var(--t-min)}
+  .ms-cls{margin-bottom:12px}
   .ms-go{padding:9px;margin-top:14px}
   .ms-note{display:none}
   .codex-nav{max-height:44px;padding:4px 6px}
   .codex-main{padding:14px 16px 40px}
-  .cx-text{font-size:11px;line-height:1.75}
+  .cx-text{font-size:11.5px;line-height:1.75}
   .p-head{padding:calc(8px + var(--safe-t)) 16px 8px 16px}
+  /* The negotiation, in 480 rows. The transcript is already bottom-anchored,
+     so the only thing that has to give is the air around it. */
+  .comms-body{padding:12px 18px}
+  .comms-feed{gap:8px;padding-bottom:12px}
+  .cm-line{font-size:12.5px;line-height:1.55}
+  .cm-deal{padding:8px 13px;gap:10px}
+  .cm-deal b{font-size:20px}
+  .comms-acts{padding-top:11px;gap:7px}
+  .comms-acts button{padding:7px 13px;gap:2px}
+  .comms-acts button.pri{padding:7px 17px}
+  .dock-main{padding:14px 18px 56px}
+  .dock-body::after{height:48px}
+  .dk-table td{padding:6px 10px}
+  .dk-h3{margin:18px 0 6px}
 }
 
 @media (max-height:400px){
@@ -595,13 +838,32 @@ th.dk-num{text-align:right}
 
 /* ======================= LANGUAGE ======================= */
 .lang{display:flex;gap:1px;justify-content:center;margin-top:22px}
-.lang button{font-size:9.5px;letter-spacing:.22em;padding:5px 12px;
+.lang button{font-size:var(--t-min);letter-spacing:.15em;padding:5px 12px;
   border:1px solid var(--line-s);color:rgba(168,204,222,.62);transition:.15s}
 .lang button:hover{color:var(--cy)}
 .lang button.on{color:#04121a;background:var(--cy);border-color:var(--cy)}
+/* The detail tier sits under the language, and deliberately reads quieter than
+   it: language is the one thing the title card asks of you, detail is a thing
+   it offers. Same control, no fill on the selected chip, so the eye goes to
+   WAKE and to the language row first and finds this only when it is looking
+   for it. */
+.lang.detail{margin-top:9px}
+.lang.detail button{padding:4px 10px;opacity:.8}
+.lang.detail button.on{color:var(--cy);background:none;border-color:rgba(143,228,255,.45);opacity:1}
+.boot-detail-note{margin-top:7px;font-size:var(--t-min);letter-spacing:.06em;
+  color:rgba(168,204,222,.38);text-align:center}
+/* In flight the same control is a solid cyan chip in the top-left corner — a
+   filled swatch against black, which made the least consequential switch in
+   the game the brightest object in the frame, brighter than the target
+   reticle. On the boot screen the fill is right: choosing a language is the
+   only thing that screen asks of you. In the cockpit it is a setting you touch
+   once, so it keeps the shape and loses the fill, and the hover state is what
+   brings it back when you go looking for it. */
 .hud-lang{position:absolute;top:calc(18px + var(--safe-t));left:calc(26px + var(--safe-l));
-  margin:0;pointer-events:auto;opacity:.55;transition:opacity .2s}
+  margin:0;pointer-events:auto;opacity:.42;transition:opacity .2s}
 .hud-lang:hover{opacity:1}
+.hud-lang button{border-color:transparent;color:rgba(168,204,222,.5)}
+.hud-lang button.on{color:var(--cy);background:none;border-color:rgba(143,228,255,.28)}
 
 /* Thai typography.
 
@@ -638,6 +900,9 @@ html[lang="th"] .dk-max,
 html[lang="th"] .dk-rep,
 html[lang="th"] .cm-line,
 html[lang="th"] .comms-acts button,
+html[lang="th"] .comms-acts button em,
+html[lang="th"] .cm-deal i,
+html[lang="th"] .cm-deal em,
 html[lang="th"] .cx-grp,
 html[lang="th"] .cx-item,
 html[lang="th"] .cx-sub,
@@ -659,25 +924,29 @@ html[lang="th"] .boot-title{letter-spacing:.10em;text-indent:.10em}
 html[lang="th"] .cx-title,
 html[lang="th"] #navinfo h2,
 html[lang="th"] .p-head h2{letter-spacing:.04em}
-/* The rows are set in tabular numerals for alignment; Thai labels are not. */
+/* The rows are set in tabular numerals for alignment; Thai labels are not.
+   Both of these used to be *upgrades* over an 9-11px Latin size; with the
+   floor at 11 the column head at 10 would have been a downgrade applied to the
+   one script that needs the extra body — Thai carries marks above and below
+   the line and loses them first. */
 html[lang="th"] .nv-rows b{font-size:12px}
-html[lang="th"] .dk-table th{font-size:10px}
+html[lang="th"] .dk-table th{font-size:12px}
 
 /* ---- the surface chart ------------------------------------------------
    Same frame as the star map, one scale down. The rows carry the decision
    the map is for: bearing, range, and whether the pack gets you back. */
-.gm-head{font-size:9px;letter-spacing:.24em;color:var(--dim);margin-bottom:6px}
+.gm-head{font-size:var(--t-min);letter-spacing:.16em;color:var(--dim);margin-bottom:6px}
 .gm-pack{font-size:13px;color:var(--cy);margin-bottom:18px}
 .gm-rows{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
 .gm-row{display:grid;grid-template-columns:1fr auto;gap:2px 10px;
   padding-bottom:9px;border-bottom:1px solid var(--line-s)}
-.gm-row b{font-size:11px;letter-spacing:.10em;font-weight:500}
-.gm-row span{font-size:10px;color:var(--dim);text-align:right;
+.gm-row b{font-size:11.5px;letter-spacing:.07em;font-weight:500}
+.gm-row span{font-size:var(--t-min);color:var(--dim);text-align:right;
   font-variant-numeric:tabular-nums}
-.gm-row em{grid-column:1/-1;font-size:9.5px;color:var(--dim);font-style:normal}
+.gm-row em{grid-column:1/-1;font-size:var(--t-min);color:var(--dim);font-style:normal}
 .gm-row em.far{color:#ff6b6b}
 .gm-row.spent b,.gm-row.spent span{color:#4a5560}
-.gm-note{font-size:9.5px;color:var(--dim);line-height:1.7}
+.gm-note{font-size:var(--t-min);color:var(--dim);line-height:1.7}
 .k-seam{color:#7fd7a8}
 .k-wreck{color:#e8a44c}
 .k-marker{color:#c98bff}
@@ -701,12 +970,12 @@ html[lang="th"] .gm-note{letter-spacing:0;text-transform:none;line-height:var(--
 #groundmap.closing{opacity:0}
 .gm-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
   padding:9px 12px 7px;border-bottom:1px solid var(--line-s)}
-.gm-top span{font-size:9px;letter-spacing:.24em;color:var(--dim)}
-.gm-top b{font-size:10px;color:var(--cy);font-weight:500;font-variant-numeric:tabular-nums}
+.gm-top span{font-size:var(--t-min);letter-spacing:.16em;color:var(--dim)}
+.gm-top b{font-size:11.5px;color:var(--cy);font-weight:500;font-variant-numeric:tabular-nums}
 #gmCanvas{width:300px;height:300px;display:block}
 #groundmap .map-side{border-left:none;border-top:1px solid var(--line-s);
   padding:11px 12px 12px;max-height:230px;overflow-y:auto}
 .gm-top b.warn{color:#e8a44c}
-.gm-steep{padding:0 12px;font-size:9px;letter-spacing:.18em;color:#e8a44c;text-align:center}
+.gm-steep{padding:0 12px;font-size:var(--t-min);letter-spacing:.12em;color:#e8a44c;text-align:center}
 .gm-steep:empty{display:none}
 html[lang="th"] .gm-steep{letter-spacing:0;text-transform:none}

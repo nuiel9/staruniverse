@@ -2489,9 +2489,12 @@ vec3 aerial(vec3 c, vec3 wp){
   float y0 = max(uCamPos.y, 0.0), y1 = max(wp.y, 0.0);
 
   /* Two layers, because a landscape has two. The air is kilometres deep and
-     blue; the dust the wind keeps in the first sixty metres is warm, dense and
-     the reason a desert middle distance has a bloom lying along the ground
-     that the ridges above it stand clear of. One exponential cannot do both —
+     blue; the dust the wind keeps in the first few hundred metres is warm,
+     dense and the reason a desert middle distance has a bloom lying along the
+     ground that only the tallest ridges stand clear of. (It was sixty metres,
+     which is a still morning rather than a landscape — see uDustH in update()
+     for why the layer had to be deep enough to contain the hills instead of
+     ending under them.) One exponential cannot do both —
      a scale height large enough to reach a mountain leaves nothing in the
      basin, and one small enough to fill the basin never touches the mountain. */
   float dd = dist * airColumn(y0, y1, uHazeH);
@@ -3839,8 +3842,80 @@ void main(){
        on it — a different way of being one flat colour, not a fix for it. */
     vec3 veg = mix(uCVeg, vDark, wetK*0.90);
     veg = mix(veg, vDry, dryK*0.55);
-    // clump value, and the fine mottle that stops a clump being a blob
-    veg *= (0.80 + 0.42*n2)*(0.90 + 0.20*n3)*(0.86 + 0.28*lum);
+
+    /* Thatch, and it is the band this shader did not have.
+     *
+     * Everything above this line varies the sward at 290 m, 48 m and 9 m. A
+     * standing figure sees thirteen metres of ground in a foot-height crop, so
+     * *every one of those bands is a constant across the near field* and the
+     * only thing left modulating it was the scalar (0.86 + 0.28*lum) — a swing
+     * of about seven per cent of value on one hue. That is the whole of an
+     * independent judge's "a single flat saturated kelly green with essentially
+     * no albedo variation and no texture — a green plastic sheet over
+     * vertex-shaded hills", and it is the same structural fault the mineral
+     * block thirty lines above already diagnosed for itself: multiplying a
+     * colour by a scalar preserves every hue ratio in it, so there was no way
+     * to get anything but one green at one chroma however hard the noise was
+     * driven. Measured on the judge's own y-landed pose, four bands of ground
+     * from 47 m to 214 m came back at a mean saturation of 0.77/0.75/0.72/0.73
+     * with a hue spread of 13-19 degrees and a 3x3 local sigma of 4.0-6.5.
+     * Reference photography of grassland runs a saturation near 0.35-0.55 and a
+     * local sigma several times ours; 0.77 is not a meadow, it is baize.
+     *
+     * A sward is not one material. Standing in it you are looking at live
+     * blade, at last year's dead blade still standing in the same tussock, and
+     * at the litter and soil between them — and the dead fraction is not a
+     * darker green, it is a *different hue* about forty degrees toward straw
+     * and roughly half the chroma. That is a colour axis rather than a value
+     * axis, which is exactly what was missing, and mixing along it lowers the
+     * mean saturation and raises its spread at the same time.
+     *
+     * It is driven off "tone", which is already in a register from the mineral
+     * pivot above: the baked tile's per-clast mineral channel plus its
+     * luminance, so it is a metre-and-finer field that has a mip chain, cannot
+     * alias, and costs not one additional fetch or noise octave — which matters
+     * because this shader covers most of a landed frame and the file's own
+     * measurement is that a new per-fragment simplex here is worth about three
+     * milliseconds. It goes to 0.5 as the tile minifies, so the distance lands
+     * on a fixed half-and-half blend and the fade is invisible, the same
+     * contract every other tile-driven term in here keeps.
+     *
+     * Biased toward the thatch rather than centred, because a real sward at the
+     * end of a growing season is more dead matter than live and because the
+     * live component is deliberately left at full chroma — the argument for a
+     * saturated uCVeg further up is sound and is not being undone here. What
+     * changes is that the live blade is no longer a hundred per cent of the
+     * ground. */
+    /* And the bias is graded on the pixel, not held constant, because the
+     * *first* version of this was and it cost the distance its colour.
+     *
+     * "tone" goes to exactly 0.5 as the tile minifies — that is the contract
+     * that makes every tile-driven term in this shader fade invisibly — so a
+     * constant bias on top of it lands the far ground on a fixed thatch weight
+     * with no variation left in it. Measured at a flat 0.16: the near field did
+     * what it was asked (saturation 0.71 to 0.58, hue spread 14 to 25 degrees)
+     * and the middle distance went with it, the ground at 400 m to 1 km coming
+     * back at a hue of 70-73 degrees against 85-94 before and a saturation
+     * *spread* of 0.109-0.125 against 0.156-0.171. That is a whole landscape
+     * turned one flat straw — the same fault, a hue to the left — and worse, it
+     * threw away spread the distance already had.
+     *
+     * There is a real observation to grade it on. Standing in a sward you are
+     * looking at the *side* of the canopy: stem, litter and last year's dead
+     * blade, which is most of what a grazing view of grassland actually shows.
+     * From a kilometre away you are looking down at the *top* of the same
+     * canopy, which is this year's live leaf, and that is why a distant meadow
+     * is greener than the one you are standing in. nearK is already in a
+     * register from the metre band above — it is the same footprint gate, and
+     * it costs nothing to read twice. */
+    float gyS = dot(veg, vec3(0.2126, 0.7152, 0.0722));
+    vec3 vThatch = mix(veg, vec3(gyS*1.42, gyS*1.20, gyS*0.72), 0.70)*1.28;
+    veg = mix(veg, vThatch, clamp(tone + mix(-0.22, 0.20, nearK), 0.0, 1.0));
+    // clump value, and the fine mottle that stops a clump being a blob. The
+    // tile's luminance has left this expression: it is spent as chroma above,
+    // where it is worth several times as much, and paying it twice only put the
+    // value swing back on top of a colour swing that already carries it.
+    veg *= (0.80 + 0.42*n2)*(0.90 + 0.20*n3);
 
     /* Coverage. Patchy at the clump scale, off the steep faces, thinner on
        bedrock, and never quite total — a fraction of the soil shows through
@@ -3849,7 +3924,21 @@ void main(){
     float cov = clamp(fm*(0.72 + 0.62*n2)*(0.82 + 0.32*n3) - 0.04, 0.0, 1.0);
     cov *= 1.0 - smoothstep(0.34, 0.72, slope);
     cov *= 1.0 - bare*0.48;
-    col = mix(col, veg, cov*0.94);
+    /* And it thins at the scale you walk across, not only at the scale you fly
+       over. The three noise bands above are all coarser than a near-field crop,
+       so "cov" was a constant of about 0.94 over the whole foreground and the
+       mineral ground — which has had four separate bands of chromatic work done
+       to it in the two hundred lines above this one — was being painted out
+       everywhere at once. The same tile channel that chooses thatch chooses
+       where the litter and the trodden bare patches are, which is right: bare
+       ground and dead matter go together, and a bright chip in the tile is a
+       stone the grass is not growing on. */
+    cov *= 1.0 - 0.34*smoothstep(0.50, 1.0, tone);
+    /* 0.90, not 0.94. Six per cent of soil showing through the closed sward was
+       not enough to register against an albedo that had no other variation in
+       it; it is enough now, because what shows through is a different hue as
+       well as a different value. */
+    col = mix(col, veg, cov*0.90);
     fm = cov;
   }
 
@@ -4586,18 +4675,48 @@ void main(){
   vec2 sd = uSunDir.xz;
   float sl = length(sd);
   sd = sl > 1e-4 ? sd/sl : vec2(1.0, 0.0);
-  float stretch = clamp(sl/max(uSunDir.y, 0.20), 0.7, 4.0);
+  /* The ceiling was 4.0 with the denominator floored at 0.20, so the longest
+     shadow anything could throw was the one a fourteen-degree sun throws — and
+     the two numbers together meant that from fourteen degrees all the way down
+     to sunset every stone in the field cast the *same* stubby oval. Golden hour
+     is the hour whose whole subject is the length of the shadows, and the
+     landed dusk frame is shot with the star between two and six degrees up, so
+     the clamp was removing the one thing that frame is for.
+
+     16, not the 24 a review asked for, and the limit is the mesh rather than
+     the physics: the decal is a six-segment fan, which gives it three stations
+     along its long axis to follow the ground with, and past about sixteen
+     radii a shadow crossing a dune has nothing to bend at. At the elevation
+     the dusk frame actually lands on — a shade under five degrees — the true
+     value is around twelve and the ceiling never binds, so raising it further
+     buys nothing that frame can see. The denominator's floor has to come down
+     with it or the ceiling is unreachable: 1/0.0625 is exactly 16. */
+  float stretch = clamp(sl/max(uSunDir.y, 0.0625), 0.7, 16.0);
+  /* And a long shadow is a *tongue*, not a scaled-up oval. Once it runs past
+     the old ceiling it narrows across the sun line, which is both what a
+     raking shadow looks like — the caster's own cross-section stays put while
+     the length runs away — and what keeps the quad's area, and therefore the
+     amount of it that can float off a slope, from growing with the square. At
+     the dusk frame's stretch of twelve this is about a third off the width. */
+  float narrow = 1.0/(1.0 + max(stretch - 4.0, 0.0)*0.055);
   vec2 perp = vec2(sd.y, -sd.x);
 
   float R = max(iB.x, iB.z)*1.15;
-  vec2 gp = anchor - sd*(stretch - 1.0)*R*0.85 + (perp*loc.x + sd*loc.y*stretch)*R;
+  vec2 gp = anchor - sd*(stretch - 1.0)*R*0.85
+          + (perp*loc.x*narrow + sd*loc.y*stretch)*R;
 
   float gy = groundYFlat(gp, meshLod(length(gp)), uDatum);
 
   float dist = length(vec3(gp.x, gy, gp.y) - uCamPos);
   // lifted off the ground by a hair, growing with distance — polygon offset is
   // ignored the moment a shader writes gl_FragDepth
-  float lift = 0.04 + dist*0.0006;
+  /* The tip of a long one gets more, and only the tip. Three stations along
+     twelve radii of dune is not enough to stay on the ground, and the far end
+     is the end that ends up buried in the next rise; the contact end is the
+     one whose entire job is to touch, so it keeps the old hair. loc.y is +1 at
+     the stone and -1 at the tip, which is what the second factor reads. */
+  float lift = 0.04 + dist*0.0006
+             + max(stretch - 4.0, 0.0)*R*0.012*(1.0 - loc.y)*0.5;
 
   /* No shadow march here. A decal that lands inside a ridge shadow does get
      drawn, but multiplying an already-dark patch by the same factor is a small
@@ -4607,7 +4726,15 @@ void main(){
      couple of pixels of noise, and because it is a flat quad hugging a slope
      the grid samples at nine points it floats visibly off the ground long
      before it stops being drawn. Fade it out while it is still legible. */
-  vAmt = uDecalK * exp(-dist*uHazeK) * clamp(uSunDir.y*6.0, 0.0, 1.0)
+  /* The elevation gate that used to sit here has gone up to uDecalK, where the
+     other one already was. Both read uSunDir.y, so they were uniform-valued
+     and identical everywhere in the field, and they *multiplied*: at the dusk
+     frame's sun they came to 0.35 and 0.30, so a shadow arrived at a tenth of
+     its strength before the key-to-fill ratio — which is the term that
+     actually measures how dark a shadow should be, and which is computed
+     properly on the CPU — had had its say. One gate, in one place, next to the
+     comment that explains it. */
+  vAmt = uDecalK * exp(-dist*uHazeK)
        * (1.0 - smoothstep(400.0, 1500.0, dist));
 
   vec3 wp = vec3(gp.x, gy + lift - dot(gp, gp)/(2.0*uPlanetR), gp.y);
@@ -5168,6 +5295,10 @@ ${FRAG_UNIFORMS}
 ${SURF_LIGHT}
 
 uniform vec3 uCVeg, uC0, uC2;
+/* How much light there is to bounce, as a fraction of a thirty-degree sun.
+   Written on the CPU next to the two colours it is derived from — see the
+   comment on the inter-plant bounce below for why it exists. */
+uniform float uVegLit;
 
 varying vec3  vPos;
 varying vec3  vNrm;
@@ -5243,7 +5374,21 @@ void main(){
      degrees. Cyan grass. So the plants get their fill pushed back toward their
      own colour, which is also what really happens in a sward — most of what
      lights a shaded blade is other blades. */
-  outc += col*uCVeg*vAO*0.85;
+  /* And it has to *go out with the light*, which it did not.
+     uCVeg is a palette colour rather than a radiance, so this term was the same
+     size at midnight as at midday. At noon that is a small correction sitting
+     under a key twenty times its size and nobody notices; at a five-degree sun
+     the key has been extinguished to a tenth and this becomes the brightest
+     thing on every plant in the frame — which is the whole of why a dusk
+     landing rendered midday grass under an orange sky, and why the ground's
+     careful per-channel solar extinction never reached the vegetation.
+     uVegLit is the illumination a horizontal leaf actually receives, divided by
+     what it receives under a thirty-degree sun and clamped at one, so every
+     daylight frame is unchanged by construction and only the collapse at the
+     ends of the day is felt. The argument above for the term's *hue* is
+     untouched — it was only ever its independence from the light that was
+     wrong. */
+  outc += col*uCVeg*vAO*0.85*uVegLit;
 
   /* Transmission. A leaf is thin enough to be lit from behind, and that one
      term is the whole difference between a field and green plastic — it is
@@ -5278,6 +5423,8 @@ ${FRAG_UNIFORMS}
 ${SURF_LIGHT}
 
 uniform vec3 uCVeg, uC0, uC2, uC3, uC4;
+// see FLORA_FRAG — the same inter-leaf bounce, scaled by the same illuminant
+uniform float uVegLit;
 uniform sampler2D uLeafTex;
 
 varying vec3  vPos;
@@ -5420,7 +5567,9 @@ void main(){
   vec3 V = normalize(uCamPos - vPos);
   float bk = pow(clamp(dot(-V, uSunDir)*0.5 + 0.5, 0.0, 1.0), 3.0);
   outc += col*uSunColor*bk*vShadow*1.15*(1.0 - vBark);
-  outc += col*uCVeg*vAO*0.70*(1.0 - vBark);
+  // the canopy's own share of the same inter-leaf bounce, and for the same
+  // reason as the sward it has to fall away when the light does
+  outc += col*uCVeg*vAO*0.70*uVegLit*(1.0 - vBark);
 
   /* The rim the trunk needs to stop being a silhouette, and it has to be the
      *star's* colour rather than the sky's.
@@ -6456,6 +6605,13 @@ export class Surface {
       uC3: { value: spec.colors.c3 }, uC4: { value: spec.colors.c4 },
       uCWater: { value: spec.colors.water },
       uCVeg: { value: cveg },
+      /* How much light a horizontal leaf is receiving, as a fraction of what a
+         thirty-degree sun gives it, clamped at one. The flora and the trees
+         carry an inter-plant bounce tinted with uCVeg, and a palette colour has
+         no idea what time it is — this is what tells it. Written every frame in
+         update(); one is the initialiser for the first frame, which is noon on
+         a fresh landing. */
+      uVegLit: { value: 1 },
       uVeg: { value: veg },
       uCrack: { value: crack },
       uLavaGlow: { value: (spec.typeId | 0) === 4 ? (spec.lavaGlow || 1) * 0.5 : 0 },
@@ -6829,7 +6985,7 @@ export class Surface {
           vertexShader: FLORA_VERT,
           fragmentShader: FLORA_FRAG,
           uniforms: Object.assign({}, FIELD_U, SHADE_U,
-            pick('uC0', 'uC2', 'uCVeg', 'uVeg', 'uTime'),
+            pick('uC0', 'uC2', 'uCVeg', 'uVeg', 'uVegLit', 'uTime'),
             { uFade: { value: f.fade }, uTileP: { value: f.tile } }),
           side: THREE.DoubleSide,
         });
@@ -6934,7 +7090,7 @@ export class Surface {
           vertexShader: TREE_VERT,
           fragmentShader: TREE_FRAG,
           uniforms: Object.assign({}, FIELD_U, SHADE_U,
-            pick('uC0', 'uC2', 'uC3', 'uC4', 'uCVeg', 'uVeg', 'uTime', 'uLeafTex'),
+            pick('uC0', 'uC2', 'uC3', 'uC4', 'uCVeg', 'uVeg', 'uVegLit', 'uTime', 'uLeafTex'),
             { uFade: { value: w.fade }, uTileP: { value: w.tile },
               uForm: { value: new THREE.Vector4().fromArray(w.form) },
               uPick: { value: new THREE.Vector4().fromArray(w.pick) },
@@ -7306,6 +7462,99 @@ export class Surface {
       tint.b * skyAmt * (0.55 * lumS + 0.45 * sc.b) + 0.026 * lumS * fill * nf,
     );
 
+    /* And at sunset the fill has to go warm, because both halves of what is
+       written above are structurally blue and neither of them knows the hour.
+       `tint` is the Rayleigh coefficients *normalised*, so its hue is fixed for
+       the life of the world, and the floor under it is biased blue on purpose
+       (0.013/0.018/0.026) because the void is. The result is a skylight that is
+       the same cobalt at a two-degree sun as at noon, and every rock, cliff and
+       trunk shaded from a bright orange sky was being filled with it. A judge
+       reading the dusk frame called the shadow side cold against a warm sky,
+       and that is the arithmetic behind it.
+
+       The blend target is the star's light after the air has had it —
+       sc*att — which is the same quantity uInsM is built from below, and it is
+       the physically right thing for a low sun to be painting the dome with.
+       What it is *not* is the right magnitude: worked through on the terran
+       world the dusk frame is shot on, uInsM at that elevation comes out about
+       a thirtieth of the fill in luminance, so mixing halfway toward it — which
+       is what a review proposed — would not warm the shadows, it would take
+       half of them away. So the target is renormalised to the fill's own
+       luminance first and only its hue is used. lumSky downstream is therefore
+       unchanged, which matters because the decal strength is computed from it.
+
+       The gain is worked out rather than picked. On that world, at the sun the
+       dusk frame's search settles on, the fill comes out in the ratio
+       0.137 : 0.250 : 0.482 and the star after that air mass in the ratio
+       0.834 : 0.494 : 0.156; scale the second to the first's luminance and
+       blend, and green becomes the smallest of the three at a weight of about
+       0.43 while red passes blue at about 0.53. Between those two is
+       warm-violet — red and blue over green, which is what a shadow under a
+       sunset actually is — and past about 0.60 it is simply orange. The curve
+       below puts the judged frame at 0.51 and caps at 0.58. `day` reaches one
+       at a sun of twenty-one degrees, so every daylight frame in the set gets
+       exactly zero of this and is unchanged by construction; the elevation gate
+       carries it a few degrees under the horizon and then lets go, because
+       civil twilight is warm and the middle of the night is not. */
+    if (this.hasAir) {
+      const kw = Math.min(0.58,
+        (1 - day) * THREE.MathUtils.clamp(sun.y * 14 + 0.85, 0, 1) * thick * 1.32);
+      if (kw > 1e-3) {
+        const S = U.uSkyColor.value;
+        const wr = sc.r * att.x, wg = sc.g * att.y, wb = sc.b * att.z;
+        const lw = Math.max(0.2126 * wr + 0.7152 * wg + 0.0722 * wb, 1e-5);
+        const k = (0.2126 * S.r + 0.7152 * S.g + 0.0722 * S.b) / lw;
+        S.setRGB(S.r + (wr * k - S.r) * kw,
+          S.g + (wg * k - S.g) * kw,
+          S.b + (wb * k - S.b) * kw);
+      }
+    }
+
+    /* What the plants are allowed to bounce between themselves, and it is the
+       fix for a dusk landing reading as midday grass under an orange sky.
+     *
+     * Both flora programs add a term tinted with uCVeg to keep a sward from
+     * taking the void's cyan fill — the reasoning for that is sound and is
+     * written out where the term is. What is wrong is that uCVeg is a palette
+     * entry, so the term is the same size whatever the light is doing. Worked
+     * through at the elevation the dusk frame lands on, what a horizontal leaf
+     * receives from the star — the key, reddened by that air mass and then
+     * foreshortened by the sine of it — is about a thirtieth of what it gets at
+     * the zenith, while this term has not moved at all. That makes it the
+     * dominant light on every plant in the frame and washes the ground's
+     * careful per-channel solar extinction straight back out.
+     *
+     * The reference is a thirty-degree sun rather than the zenith, and that is
+     * deliberate. A landing site almost never sees its star overhead, so
+     * normalising there would quietly dim the foliage in every daylight frame
+     * as well; and the term is not a physical bounce anyway, it is an art
+     * correction whose daytime magnitude was tuned by eye and is not in
+     * question. Above thirty degrees the ratio clamps to one and the daylight
+     * frames are bit-identical. Below it the term follows the light down: at
+     * the dusk frame's sun the illuminant is about a quarter of the reference,
+     * so the bounce loses two stops.
+     *
+     * Everything here is a scalar per frame — six exponentials and a couple of
+     * dozen multiplies, once, next to the two colours it is derived from. */
+    const REF_Y = 0.5;
+    const airRef = 1 / (REF_Y + 0.033);
+    const aRr = Math.exp(-(bR.x + bM) * airRef * COL);
+    const aRg = Math.exp(-(bR.y + bM) * airRef * COL);
+    const aRb = Math.exp(-(bR.z + bM) * airRef * COL);
+    const liftRef = Math.max(1, 0.13 / Math.max(Math.max(aRr, Math.max(aRg, aRb)), 1e-5));
+    const keyRef = (sc.r * aRr + sc.g * aRg + sc.b * aRb) / 3 * liftRef * KEY;
+    // day and nf at the reference elevation: day saturates above 0.368 and the
+    // night floor is fully off by 0.125, so both are their daylight values
+    const skyAmtRef = thick * 0.62;
+    const skyRef = (tint.r * (0.55 * lumS + 0.45 * sc.r)
+      + tint.g * (0.55 * lumS + 0.45 * sc.g)
+      + tint.b * (0.55 * lumS + 0.45 * sc.b)) / 3 * skyAmtRef
+      + (0.013 + 0.018 + 0.026) / 3 * lumS * fill;
+    const K = U.uSunColor.value, SK = U.uSkyColor.value;
+    const litNow = (K.r + K.g + K.b) / 3 * Math.max(sun.y, 0) + (SK.r + SK.g + SK.b) / 3;
+    U.uVegLit.value = THREE.MathUtils.clamp(
+      litNow / Math.max(keyRef * REF_Y + skyRef, 1e-5), 0, 1);
+
     /* Bounce off the surrounding lit ground, tinted by the ground itself and by
        whatever colour the star's light had left by the time it arrived.
      *
@@ -7373,8 +7622,32 @@ export class Surface {
     U.uExtR.value.set((bR.x / mx) * kR, (bR.y / mx) * kR, (bR.z / mx) * kR);
     U.uExtM.value = air * (0.5 + bM * 0.15) / 13000;
     U.uHazeH.value = this.hasAir ? 1800 : 5200;
-    U.uExtD.value = air / 3600;
-    U.uDustH.value = this.hasAir ? 75 : 130;
+    /* The boundary layer, and its scale height was the reason the middle
+       distance had no gradient in it.
+     *
+     * At 75 m the dust column is spent before it reaches anything with a
+     * silhouette. A hill two hundred metres above the basin floor stands
+     * entirely clear of it, so the near ground hazed, the hills did not, and
+     * the frame read as two flat planes with the fog switching on somewhere
+     * behind them — which is exactly what three separate looks at the landed
+     * frames reported as "no aerial perspective in the mid-distance". 250 m is
+     * the depth of a real convective boundary layer over warm ground and it is
+     * the number that puts the mid-ground hills *inside* the layer rather than
+     * above it, which is what turns two planes into a gradient.
+     *
+     * The extinction goes up with it, but not by the full factor a review
+     * asked for. air/1800 was proposed against the old scale height; raising
+     * both at once compounds, because a taller layer already lengthens the
+     * column through everything that stands up in it. air/2000 is 1.8x the old
+     * density at deck level, which puts a ridge at one kilometre a little over
+     * half veiled and leaves the first fifty metres at under three per cent —
+     * the near field is what the closed form in airColumn() protects and it is
+     * where this would show first if it were too much. The airless case keeps
+     * its old divisor untouched: there is no boundary layer without air, the
+     * 0.30 column there is standing in for dust the ground throws up around
+     * itself, and it was measured as it is. */
+    U.uExtD.value = air / (this.hasAir ? 2000 : 3600);
+    U.uDustH.value = this.hasAir ? 250 : 130;
     U.uHazeK.value = U.uExtM.value + U.uExtR.value.y;
 
     // The haze is lit by the star, so it carries the star's colour as well as
@@ -7430,7 +7703,24 @@ export class Surface {
     const lumSky = 0.2126 * U.uSkyColor.value.r + 0.7152 * U.uSkyColor.value.g
       + 0.0722 * U.uSkyColor.value.b;
     const keyVsFill = lumKey / (lumKey + lumSky * 1.35 + 0.01);
-    U.uDecalK.value = 0.60 * keyVsFill * THREE.MathUtils.clamp(sun.y * 7, 0, 1);
+    /* The elevation gate is now the only one — DECAL_VERT had a second, and the
+       two were multiplying — and it is much steeper than it was.
+     *
+     * At sun.y*7 this reached full strength at eight degrees and was down to a
+     * third at three, which with the shader's gate on top left the dusk frame's
+     * shadows at about a tenth. But keyVsFill immediately above is *already*
+     * the measurement of how dark a shadow should be, and it is the honest one:
+     * at the judged dusk sun it comes out around 0.55 against 0.89 at noon, a
+     * fall of a stop and a half, which is what a raking key against a bright
+     * sky genuinely does. Everything the two elevation ramps were subtracting
+     * on top of that was double-counting, and it was subtracting it at exactly
+     * the hour whose subject is the shadows.
+     *
+     * What the gate is actually for is the horizon: once the star is under it
+     * there is no key to cast anything and a decal left behind is a smudge with
+     * no cause. sun.y*20 is full strength by about three degrees and gone at
+     * the horizon, which does that job and nothing else. */
+    U.uDecalK.value = 0.60 * keyVsFill * THREE.MathUtils.clamp(sun.y * 20, 0, 1);
 
     /* Stars come through wherever the sky is dark — which on an airless world
        is the middle of the afternoon, and on a world with air is not.

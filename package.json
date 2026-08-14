@@ -10,6 +10,7 @@
     "fieldcheck": "node tools/fieldcheck.mjs",
     "treecheck": "node tools/treecheck.mjs",
     "sitecheck": "node tools/sitecheck.mjs",
+    "detailcheck": "node tools/detailcheck.mjs",
     "smoke": "node tools/smoke.mjs",
     "trade": "node tools/trade.mjs",
     "nebula": "node tools/nebula.mjs",
@@ -20,6 +21,7 @@
     "expedition": "node tools/expedition.mjs",
     "lang": "node tools/lang.mjs",
     "judge": "node tools/judgeset.mjs",
+    "reprocheck": "node tools/reprocheck.mjs",
     "splash": "node tools/splash.mjs --pose --out public/og.png && sips -z 630 1200 --setProperty format jpeg --setProperty formatOptions 88 public/og.png --out public/og.jpg >/dev/null && rm public/og.png",
     "icons": "node tools/icons.mjs",
     "deploy": "vite build && npx wrangler deploy"

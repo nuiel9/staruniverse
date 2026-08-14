@@ -200,48 +200,135 @@ vec3 F_Schlick(vec3 f0, float u){
    ========================================================================== */
 
 const RING_COMMON = /* glsl */`
-float ringGaps(float u){
+/* ---- band-limiting -------------------------------------------------------
+
+   Everything below is written at a frequency fixed in u, and u is the whole
+   ring squeezed into 0..1 — so the moment the ring is less than a couple of
+   thousand pixels across, the 640-cycle ringlet octave is past Nyquist and
+   comes back as herringbone rather than as ringlets. That is the crawling
+   nobody can see in a still and nobody can miss in motion.
+
+   Every one of these functions therefore takes w: the radial footprint of one
+   pixel, measured in the same 0..1 u the frequencies are written against. So
+   w*640 is literally "cycles of the ringlet octave per pixel" and can be
+   compared against Nyquist without any further conversion.
+
+   The fade window is 0.15..0.60 cycles per pixel for all three terms, and it
+   starts well under Nyquist (0.5) on purpose: each of these is an fbm carrying
+   two to four octaves *above* the base frequency written here, so the topmost
+   octave crosses Nyquist when the base is only at an eighth of it. 0.60 is
+   where the base octave itself is comfortably gone. These are the numbers a
+   re-judge should retune, and only against a captured pan — a still cannot
+   show what they are for.
+
+   Each term is faded toward 0.5 rather than toward 0, because each is
+   fbm*0.5 + 0.5 and 0.5 is its mean. Converging on the mean is what a properly
+   integrated pixel would have returned; converging on zero would make distant
+   rings evaporate, which is a different bug. */
+float ringLim(float cyclesPerPixel){
+  return 1.0 - smoothstep(0.15, 0.60, cyclesPerPixel);
+}
+
+float ringGaps(float u, float w){
   /* Cassini-style divisions plus the edges. Both edges are *sharp*: the outer
      rim of the A ring is one of the hardest lines in the solar system, and
      fading it out over a tenth of the ring's width was most of why the shadow
      it casts read as a smudge of shading rather than as the edge of a solid
-     object crossing the cloud tops. That one hard line is the whole tell. */
-  float gapA = smoothstep(0.030, 0.055, abs(u - 0.46));
-  float gapB = smoothstep(0.012, 0.028, abs(u - 0.71));
+     object crossing the cloud tops. That one hard line is the whole tell.
+
+     So the widths below are floors, never replacements: max() keeps every
+     authored ramp exactly as authored until a pixel is wider than the ramp is,
+     and only past that point — where the edge is sub-pixel and drawing it hard
+     is drawing aliasing, not drawing an edge — does the footprint take over.
+     1.5 pixels of ramp rather than 1, because a one-pixel smoothstep still
+     steps visibly once the ring is moving across the screen.
+
+     Ceilinged as well as floored, and that one is not cosmetic. Edge-on, one
+     pixel covers the entire ring and the footprint runs away — an unbounded
+     ramp then reaches from the inner edge past the outer one and multiplies
+     the whole annulus down to nothing, so a ring seen along its own plane
+     would *vanish* instead of collapsing to the bright line it should be. A
+     sixth of the ring's width is the point past which there is no structure
+     left to preserve anyway. */
+  float g = min(w, 0.16)*1.5;
+  // Authored as smoothstep(0.030, 0.055) and smoothstep(0.012, 0.028): the
+  // same ramps rewritten as centre +- half-width so the floor can widen them
+  // symmetrically and leave the division sitting where it was authored.
+  float hA = max(0.0125, g*0.5);
+  float hB = max(0.0080, g*0.5);
+  float gapA = smoothstep(0.0425 - hA, 0.0425 + hA, abs(u - 0.46));
+  float gapB = smoothstep(0.0200 - hB, 0.0200 + hB, abs(u - 0.71));
   // The inner edge is sharp too. Fading it in over three percent of the ring's
   // width is three percent of the ring but a *third* of the latitude band the
   // shadow covers, so the shadow's leading edge arrived as a gradient and read
   // as extra limb darkening rather than as the edge of something solid.
-  return gapA*gapB*smoothstep(0.0, 0.012, u)*(1.0 - smoothstep(0.958, 1.0, u));
+  float eIn  = max(0.012, g);
+  float eOut = max(0.042, g);
+  return gapA*gapB*smoothstep(0.0, eIn, u)*(1.0 - smoothstep(1.0 - eOut, 1.0, u));
 }
-float ringDensLo(float u, float sd){
+float ringDensLo(float u, float sd, float w){
   if(u < 0.0 || u > 1.0) return 0.0;
   float band = fbm(vec3(u*34.0, 0.0, sd), 4)*0.5 + 0.5;
   float fine = fbm(vec3(u*190.0, 3.0, sd*2.0), 3)*0.5 + 0.5;
-  return clamp((band*0.68 + fine*0.32)*ringGaps(u), 0.0, 1.0);
+  band = mix(0.5, band, ringLim(w*34.0));
+  fine = mix(0.5, fine, ringLim(w*190.0));
+  return clamp((band*0.68 + fine*0.32)*ringGaps(u, w), 0.0, 1.0);
 }
 // The full thing. band and fine come back out because the ring shader wants
 // them for its colour, and recomputing them there doubled the pass's noise.
-float ringDens(float u, float sd, out float band, out float fine){
+// They come back out *already band-limited*, which is deliberate: the ring's
+// colour is driven by them, so a distant ring converges on its own average
+// tint instead of dithering between two of them.
+float ringDens(float u, float sd, float w, out float band, out float fine){
   band = fbm(vec3(u*34.0, 0.0, sd), 5)*0.5 + 0.5;
   fine = fbm(vec3(u*190.0, 3.0, sd*2.0), 4)*0.5 + 0.5;
+  band = mix(0.5, band, ringLim(w*34.0));
+  fine = mix(0.5, fine, ringLim(w*190.0));
   if(u < 0.0 || u > 1.0) return 0.0;
   float ringlets = fbm(vec3(u*640.0, 7.0, sd*3.0), 3)*0.5 + 0.5;
-  return clamp((band*0.62 + fine*0.28 + ringlets*0.10)*ringGaps(u), 0.0, 1.0);
+  ringlets = mix(0.5, ringlets, ringLim(w*640.0));
+  return clamp((band*0.62 + fine*0.28 + ringlets*0.10)*ringGaps(u, w), 0.0, 1.0);
 }
 
 /**
  * Shadow cast by the ring plane onto a point on the unit sphere.
  * @param d     surface point, object space, |d| = 1
  * @param lObj  direction toward the star, object space
+ * @param pd    how far d moves across one pixel, object space (radius units)
  */
-float ringShadow(vec3 d, vec3 lObj, float inner, float outer, float opacity, float sd){
+float ringShadow(vec3 d, vec3 lObj, float inner, float outer, float opacity, float sd, float pd){
   if(opacity < 0.001 || abs(lObj.y) < 1e-4) return 1.0;
   float t = -d.y/lObj.y;
   if(t <= 0.0) return 1.0;
   vec3 hp = d + lObj*t;
   float rr = length(hp.xz);
   float u = (rr - inner)/max(outer - inner, 1e-4);
+  /* The footprint the density taps get band-limited against, and it is
+     deliberately *not* fwidth(u). One of the three shaders that call this — the
+     cloud deck — reaches it past two data-dependent early returns, and a
+     derivative taken in non-uniform control flow reads whatever was left in the
+     lanes that stopped executing. That failure mode is already written up
+     elsewhere in this project and is not worth re-earning for one function.
+
+     So the caller hands in the footprint of the *surface point*, which it can
+     measure in straight-line code at the top of its own main, and the chain
+     rule carries it the rest of the way. hp = d + lObj*t with t = -d.y/lObj.y,
+     so a step of pd in d moves hp by at most pd*(1 + 1/|lObj.y|).
+
+     That second term is the projection tightening, not loosening. When the star
+     sits near the ring plane the ring is edge-on to the planet and its entire
+     shadow squeezes into a narrow band near the equator — Saturn at equinox
+     throws a line, Saturn at solstice throws broad separated bands. A narrow
+     band means the ring's whole radial structure is packed into a handful of
+     pixels, which is exactly when it needs the most filtering, and 1/|lObj.y|
+     is how much. Clamped at 0.12 because past that the shadow is a smudge a few
+     pixels tall and there is nothing left in it to resolve.
+
+     Dividing by the ring's radial extent converts the result to u. It is an
+     upper bound over the direction of the pixel step rather than the exact
+     Jacobian along the u gradient, so it errs toward over-filtering — the right
+     direction to err when the alternative is herringbone. */
+  float wS = pd * (1.0 + 1.0/max(abs(lObj.y), 0.12)) / max(outer - inner, 1e-4);
   /* The star is a disc, so the shadow of a sharp gap edge is blurred by a
      penumbra. Three taps across that width turn hard-edged stripes into the
      soft banding a real ring throws — but they have to be weighted as a tent.
@@ -251,7 +338,7 @@ float ringShadow(vec3 d, vec3 lObj, float inner, float outer, float opacity, flo
      lost the structure that identifies it as the shadow of a ring rather than
      as one more belt. */
   float w = 0.011;
-  float dens = ringDensLo(u - w, sd)*0.25 + ringDensLo(u, sd)*0.50 + ringDensLo(u + w, sd)*0.25;
+  float dens = ringDensLo(u - w, sd, wS)*0.25 + ringDensLo(u, sd, wS)*0.50 + ringDensLo(u + w, sd, wS)*0.25;
   // Optical depth, not coverage, and the *same* optical depth law the ring
   // shader uses for its own opacity — so a band that looks solid throws a
   // solid shadow. Subtracting density scaled by opacity, as this used to,
@@ -404,12 +491,37 @@ void main(){
   vec3 alb = S.rgb;
   float h  = S.a;
 
+  /* The angular size of one pixel, measured on the sphere. Everything below
+     that finite-differences a field is sized against this rather than against
+     a constant, because a lag finer than a pixel is not extra detail, it is
+     noise — and every one of those slopes then feeds a specular lobe, so what
+     it actually buys is crawling glitter. Taken once, at the top of main, in
+     straight-line code so the derivative is defined. */
+  float px = length(fwidth(dt));
+
   // ---- tangent frame on the sphere -----------------------------------
   vec3 up = abs(dt.y) < 0.98 ? vec3(0.0,1.0,0.0) : vec3(1.0,0.0,0.0);
   vec3 T = normalize(cross(up, dt));
   vec3 B = cross(dt, T);
 
-  float e = uTexel*1.6;
+  /* The lag the bake's height is differenced across. It was a flat uTexel*1.6,
+     which is right at the range the bake was sized for and wrong at every other
+     one: at a distance the difference reads relief far below the pixel and the
+     normal map turns to shimmering grit, and there is no amount of tone mapping
+     that hides a normal that changes sign between frames.
+     uTexel and length(fwidth(dt)) are in the same units — both are roughly an
+     angle divided by a face size — so clamping the footprint against a floor of
+     uTexel*1.6 reads directly as "never difference across less than a pixel,
+     and never across less than the bake can resolve either", with the old
+     constant surviving unchanged as that floor. It is the conservative form of
+     the footprint (fwidth sums the two screen derivatives rather than taking
+     the larger), which is the same estimate greeble.js and Surface.js already
+     use for metres-per-pixel, and it errs toward filtering. Capped at fifteen
+     times the texel floor because
+     fwidth(dt) diverges at the limb, where the sphere turns away from the
+     camera, and an uncapped lag would flatten exactly the band of the disc
+     whose relief is doing the most work — the silhouette. */
+  float e = clamp(px, uTexel*1.6, uTexel*24.0);
   float hT = surf(normalize(dt + T*e)).a;
   float hB = surf(normalize(dt + B*e)).a;
   float dhx = (hT - h)/e;
@@ -419,20 +531,77 @@ void main(){
   // survive magnification is sized against this rather than a constant, so the
   // same code behaves at 128 per face and at 1024.
   float relTex = max(abs(hT - h), abs(hB - h));
+  // A point that sits lower than the ground on either side of it is a valley
+  // floor. Hoisted out of the night-lights block so the central-difference
+  // taps below can improve it without that block having to know they exist.
+  float valleyH = (hT + hB)*0.5 - h;
+
+  /* Central difference, and only close up.
+
+     A forward difference estimates the slope at a point half a lag away from
+     the pixel it is shading, so the entire normal field is biased diagonally by
+     eight tenths of a texel. Across a bilinearly magnified height field that
+     bias lands on the interpolation grid and comes back as flat facets with
+     steps between them — which is the contour-map reading on a dry world, and
+     it is a reconstruction artefact rather than anything the bake contains.
+     Two more taps make the estimate centred and second-order and it goes away.
+
+     But it is two more cubemap fetches on every pixel of a body that by
+     definition fills the frame, which is the most expensive moment in the game,
+     so it rides uSharp — the same ramp the coastline re-synthesis uses, on for
+     the same reason: below about a tenth of a radian of angular size the
+     half-texel bias is well under a pixel and there is nothing there to fix.
+     The blend rather than a hard switch is so it arrives with the rest of the
+     close-range work instead of popping at a threshold, and it costs nothing:
+     the taps are already paid for wherever the blend is non-zero. */
+  if(uSharp > 0.004){
+    float hTm = surf(normalize(dt - T*e)).a;
+    float hBm = surf(normalize(dt - B*e)).a;
+    dhx = mix(dhx, (hT - hTm)/(2.0*e), uSharp);
+    dhy = mix(dhy, (hB - hBm)/(2.0*e), uSharp);
+    // Same quantity as before — height change per lag e — so everything sized
+    // against relTex keeps meaning what it meant.
+    relTex  = mix(relTex, max(abs(hT - hTm), abs(hB - hBm))*0.5, uSharp);
+    // and with four neighbours this is a real Laplacian rather than a one-sided
+    // guess, so the valleys it finds are valleys rather than every slope.
+    valleyH = mix(valleyH, (hT + hTm + hB + hBm)*0.25 - h, uSharp);
+  }
 
   // ---- close-range detail: re-synthesise what the bake can't hold -----
   if(uDetail > 0.001){
     vec3 dp = dt*260.0 + uSeed*17.0;
+    /* The same footprint argument as above, in the frequency-260 frame this
+       field is sampled in: a lag of 0.35 there is 0.35/260 of a radian, which
+       is about one pixel at the range the uDetail ramp switches on and less
+       than one at any wider field of view or smaller window. Differencing
+       across less than a pixel returns the noise between two samples rather
+       than the slope between them, and that is what crawls.
+       The difference has to be renormalised when the lag grows, because what is
+       added below is a difference and not a derivative — without the ratio, a
+       wider lag would silently make the bumps deeper. */
+    float dl = max(0.35, px*260.0);
+    float n0 = fbm(dp, 3);
     // Three taps at three octaves rather than four: this runs over every pixel
     // of a planet that by definition fills the frame, and the last octave buys
     // three more noise evaluations of detail already below the pixel.
-    float n0 = fbm(dp, 3);
-    float nx = fbm(dp + T*0.35, 3);
-    float ny = fbm(dp + B*0.35, 3);
-    float k = uDetail*0.9;
+    float nx = fbm(dp + T*dl, 3);
+    float ny = fbm(dp + B*dl, 3);
+    /* And the whole term fades out once a pixel is wider than the features it
+       is synthesising. uDetail already rides angular size, which correlates
+       with the footprint at a fixed window — but only at a fixed window, and a
+       wide field of view or a small canvas breaks that correlation while the
+       ramp goes on believing the planet is close. The thresholds sit above the
+       footprint at the ramp's own onset (about 0.0011 radians per pixel at the
+       0.80-radian angular size where uDetail starts), so at the range this was
+       tuned for the fade is a no-op and it only ever rescues the cases the
+       angular-size ramp cannot see. */
+    float dFade = 1.0 - smoothstep(0.0014, 0.0040, px);
+    float k = uDetail*0.9 * dFade * (0.35/dl);
     dhx += (nx-n0)*k*2.2;
     dhy += (ny-n0)*k*2.2;
-    alb *= 1.0 + n0*0.18*uDetail;
+    // the albedo mottling is the same field at the same frequency, so it fades
+    // on the same terms rather than being left to speckle on its own
+    alb *= 1.0 + n0*0.18*uDetail*dFade;
   }
 
   // ---- coastline ------------------------------------------------------
@@ -566,7 +735,7 @@ void main(){
   }
 
   // ---- ring shadow ----------------------------------------------------
-  float rs = ringShadow(d, lObj, uRingInner, uRingOuter, uRingOpacity, uSeed*1.7);
+  float rs = ringShadow(d, lObj, uRingInner, uRingOuter, uRingOpacity, uSeed*1.7, px);
 
   /* ---- terrain casting its own shadow ---------------------------------
      N.L alone tells you which *face* of a ridge is turned away from the star.
@@ -624,8 +793,26 @@ void main(){
   // a cloud the sky is the cloud, so the fill goes with the direct term —
   // shadowing only the direct light left the sea beneath a cyclone lit by
   // everything else in the frame, which is a ten percent dip nobody can see.
-  vec3 env = textureCube(uEnv, N).rgb;
-  vec3 ambient = alb * (uAmbient + env*0.22) * (0.16 + 0.84*shadowMask)
+  /* Sampled with the *geometric* normal, not the bumped one. What this term
+     stands in for is the sky over this point, and on a sphere that is the
+     geometric hemisphere — a bump map's business is which way a hillside faces
+     the star, not which quarter of the galaxy is over it. Driving a PMREM of
+     the nebula with the bumped normal instead meant every ridge on the night
+     side fetched a different part of the sky, which is where the mottled
+     high-contrast patches with black bites between them came from: structure
+     on the unlit hemisphere that no light source in the scene accounts for.
+     Free — same fetch, different argument.
+
+     And the environment term is gated by the terminator now. The 0.16 floor
+     below is deliberate and stays: it is what keeps a night side from crushing
+     to pure black, which reads as a hole rather than as a planet. But it was
+     also letting the full nebula fill through onto the unlit hemisphere, which
+     is a second, brighter, structured floor underneath the first one and is
+     most of why the night side read as a flat legible tint rather than as
+     night. uAmbient keeps its floor; the sky does not get one. This serves the
+     argument in the comment below rather than contradicting it. */
+  vec3 env = textureCube(uEnv, Ng).rgb;
+  vec3 ambient = alb * (uAmbient + env*0.22*shadowMask) * (0.16 + 0.84*shadowMask)
                * mix(1.0, limb, 0.65) * mix(1.0, cs, 0.6);
 
   vec3 col = diffuse + specular + ambient;
@@ -744,7 +931,7 @@ void main(){
       float above = hs - uSea;
       float sh = above/0.088;
       float shore = exp(-sh*sh);
-      float valley = clamp(((hT + hB)*0.5 - h)/(relTex + 0.0006), 0.0, 1.0);
+      float valley = clamp(valleyH/(relTex + 0.0006), 0.0, 1.0);
       float inland = smoothstep(0.0, 0.010, above)
                    * (1.0 - smoothstep(0.26, 0.62, above));
       float polar = 1.0 - smoothstep(0.58, 0.82, abs(dt.y));
@@ -869,6 +1056,10 @@ void main(){
   ${LOGD_F}
   vec3 outer = normalize(vObj) * uShellR;
   vec3 rd = normalize(outer - uCamObj);
+  /* Measured up here, above the night-side early-out, and that placement is the
+     whole point: fwidth past a return statement is reading a lane that stopped
+     executing. The ring shadow further down wants it. */
+  float pd = length(fwidth(normalize(vObj)));
   // world -> object is matrix-times-vector, in that order. The other order is
   // its transpose, and throws every shadow the tilt angle out the wrong way.
   vec3 lObj = normalize(uObjFromWorld * normalize(uSunDir));
@@ -990,7 +1181,7 @@ void main(){
      uniform, so the nine worlds in ten that have no ring never pay for it. */
   float rs = 1.0;
   if(uRingOpacity > 0.001){
-    rs = ringShadow(normalize(vObj), lObj, uRingInner, uRingOuter, uRingOpacity, uSeed*1.7);
+    rs = ringShadow(normalize(vObj), lObj, uRingInner, uRingOuter, uRingOpacity, uSeed*1.7, pd);
   }
 
   vec3 col = uSunColor * warm * body * lit * phase * (0.34 + lightFrac*0.92) * rs;
@@ -1342,6 +1533,11 @@ vec3 spinY(vec3 v, float a){
 void main(){
   ${LOGD_F}
   vec3 d = normalize(vObj);
+  // How far the object-space surface direction moves across one pixel. Taken
+  // once, here, in straight-line code, because the ring-shadow taps further
+  // down need a footprint to band-limit against and cannot legally measure one
+  // for themselves from inside a function reached through a branch.
+  float pd = length(fwidth(d));
 
   // ---- differential rotation -----------------------------------------
   // Every latitude runs at its own rate. This single detail is what makes a
@@ -1454,6 +1650,61 @@ void main(){
   zone = mix(zone, mix(zone, uC3, 0.30), smoothstep(0.58, 0.90, hueF));
   // a belt that draws a low jitter is a faint one, barely darker than the zone
   belt = mix(zone*0.72, belt, 0.34 + jit*0.66);
+
+  /* ---- chroma across the bands ------------------------------------------
+
+     The block above is labelled "hue as well as value" and it does everything
+     it says — but it has nowhere to go. Every one of its mixes lands between
+     uC0..uC3, and in each of the six gas palettes those four are four *values
+     of one hue*: 0x150c06 to 0xf8ecd0 is one brown from near-black to cream,
+     0x061420 to 0xe4f4fa is one blue. That was a deliberate and correct choice
+     — the note over those palettes records that value separation was what the
+     disc needed first, and it got it — but it means a mix between them can only
+     ever move along a single line through colour space. Which is precisely the
+     complaint: one brown modulated in value. The missing axis has to be
+     synthesised here, because it does not exist in the inputs.
+
+     So: a saturation-and-warmth shift rather than a hue rotation. That is also
+     the right physics, which is why it does not look like a hack. Jupiter's
+     belts are not different pigments; they are one chromophore at different
+     concentrations over the same white ammonia, so they differ far more in how
+     *saturated* they are than in what hue they are, and the ones carrying more
+     of it also read warmer. Scaling chroma about the band's own luma leaves the
+     value structure the palettes were chosen for completely untouched.
+
+     Keyed to latW — latitude plus its slow warp — so it is continuous
+     everywhere and near enough constant along a band, which is the one thing
+     hueF cannot be: hueF rides w1 and w2, which are sampled in a frame squashed
+     7.5x in latitude and therefore drift along a belt's own length. A belt
+     wants to be one colour from limb to limb and a different one from its
+     neighbour, and only a function of latitude alone can do that.
+
+     Deliberately *not* keyed to hash11 of the band index the way the width and
+     darkness jitters are. phaseA carries up to 1.55 radians of warp against a
+     band period of pi, so bid is not monotonic in latitude; a colour keyed to
+     it would draw hard-walled islands of tint across the disc, which is the
+     Voronoi-wall failure the night-lights comment in this file spends a
+     paragraph refusing to re-commit.
+
+     Frequency 2.6 in latitude at two octaves: a lobe spans roughly one to two
+     bands at the 7..20 band counts these worlds are generated with, so
+     neighbours differ without a belt carrying a gradient across its own width
+     that nothing in the atmosphere could account for. Two octaves and not
+     three because this is a tint, and a third simplex evaluation on every pixel
+     of a body that fills the frame buys detail below the thing it is tinting.
+     The swings — half the chroma on a belt, a fifth on a zone — are set so the
+     palest belt on a disc still reads as the same world as the most saturated
+     one; at full strength the disc stops looking like weather and starts
+     looking like a test chart. Zones move less because a zone is the ammonia
+     showing through and has less chromophore in it to vary. */
+  float zChr = fbm(vec3(uSeed*11.0, latW*2.6, 19.0), 2);
+  float beltL = dot(belt, vec3(0.2126, 0.7152, 0.0722));
+  float zoneL = dot(zone, vec3(0.2126, 0.7152, 0.0722));
+  belt = max(beltL + (belt - beltL)*(1.0 + zChr*0.50), 0.0)
+       * vec3(1.0 + zChr*0.055, 1.0, 1.0 - zChr*0.075);
+  zone = max(zoneL + (zone - zoneL)*(1.0 + zChr*0.22), 0.0)
+       * vec3(1.0 + zChr*0.028, 1.0, 1.0 - zChr*0.038);
+
   vec3 col = mix(belt, zone, band);
 
   /* The interior itself: a dark eddy field with a bright crest on the folds,
@@ -1663,7 +1914,7 @@ void main(){
   // and on a world tilted far enough to show its rings at all that error is tens of degrees — the
   // shadow bands were being thrown at a hemisphere nobody was looking at.
   vec3 lObj = normalize(uObjFromWorld * L);
-  float rs = ringShadow(d, lObj, uRingInner, uRingOuter, uRingOpacity, uSeed*1.7);
+  float rs = ringShadow(d, lObj, uRingInner, uRingOuter, uRingOpacity, uSeed*1.7, pd);
 
   vec3 haze = mix(uC3, vec3(0.75, 0.85, 1.0), 0.45);
   // multi-scattered light has been through more air, so it arrives warmer and
@@ -1729,8 +1980,14 @@ void main(){
   float r = length(vObj.xz);
   float u = (r - uInner)/(uOuter - uInner);
 
+  /* Taken here, at the top of main and before the transparent early-out below,
+     because a derivative is only defined where the whole 2x2 quad is still
+     running. It is the ring's own radial footprint in u, which is what every
+     octave below is band-limited against. */
+  float fw = fwidth(u);
+
   float band, fine;
-  float dens = ringDens(u, uSeed, band, fine);
+  float dens = ringDens(u, uSeed, fw, band, fine);
   // A transparent premultiplied fragment rather than discard: discard together
   // with a written gl_FragDepth mis-compiles under ANGLE/Metal.
   if(u < 0.0 || u > 1.0 || dens < 0.004){ gl_FragColor = vec4(0.0); return; }

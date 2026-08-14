@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { renderToCube } from '../gfx/cubeBake.js';
 import { BAKE_VERT, BAKE_FRAG } from './planetBakeShader.js';
+import { seededUnit } from '../core/clock.js';
 import {
   SURFACE_VERT, SURFACE_FRAG, PLAIN_VERT,
   CLOUD_VERT, CLOUD_FRAG,
@@ -72,7 +73,11 @@ export class Planet {
     this.radius = spec.radius;
     this.isGas = spec.type === 'gas';
     this.absPos = new THREE.Vector3();
-    this.spin = Math.random() * Math.PI * 2;
+    /* Where the planet is turned to. This was Math.random(), which quietly
+       broke the promise generate.js opens with — the same world came back at a
+       different longitude every time you loaded it, so no two captures of a
+       planet were of the same planet. The spec already carries a seed; use it. */
+    this.spin = seededUnit(spec.seed || 0) * Math.PI * 2;
     this.spinRate = spec.spinRate;
     this.cloudSpin = 0;
     this.scanned = false;

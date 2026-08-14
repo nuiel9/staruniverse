@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { t, mountToggle, onLangChange } from './i18n.js';
+import { after } from '../core/clock.js';
 
 /* ============================================================================
    The screen-space layer.
@@ -83,7 +84,8 @@ export class HUD {
     this.el.log.appendChild(d);
     this.logs.push({ el: d, t: 0 });
     while (this.logs.length > 4) { const o = this.logs.shift(); o.el.remove(); }
-    setTimeout(() => d.classList.add('out'), 6000);
+    // scene clock, so a stepped capture fades it at the same frame every run
+    after(6, () => d.classList.add('out'));
   }
 
   narrate(text, who) {

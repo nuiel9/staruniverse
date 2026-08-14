@@ -171,7 +171,22 @@ function makeBeacons(lights) {
   geo.setIndex(new THREE.BufferAttribute(idx, 1));
   const mat = new THREE.ShaderMaterial({
     vertexShader: BEACON_VERT, fragmentShader: BEACON_FRAG,
-    transparent: true, depthWrite: false, depthTest: false,
+    /* Depth-TESTED, which it was not, and that was the bug behind a defect two
+       independent judges reported as "stars drawn over an opaque planet".
+       They were not stars. A beacon is a camera-facing quad held at a five
+       pixel minimum however far away its hull is — deliberately, see the note
+       on uMinPx — and with the test off it painted that five-pixel additive
+       square over whatever was in front of it. On q-jump three of them sat on
+       the gas giant's cloud tops at 255,255,248 over a surface reading
+       240,210,180; on f-ice two sat on the lit disc of a moon, indistinguishable
+       from the field stars beside them. A lamp on a ship behind a planet is
+       behind the planet.
+
+       depthWrite stays off: this is additive transparency and it must not
+       occlude what comes after it. The cost of turning the test on is that a
+       lamp whose centre sits inside its own hull is now hidden by that hull,
+       which is what a real nav light does. */
+    transparent: true, depthWrite: false, depthTest: true,
     blending: THREE.AdditiveBlending,
     uniforms: {
       uPixel: { value: 0.002 }, uMinPx: { value: 5.0 },

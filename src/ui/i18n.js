@@ -48,6 +48,15 @@ const STRINGS = {
   'boot.wake': ['WAKE', 'ตื่น'],
   'boot.legal': ['requires WebGL2 · headphones recommended',
     'ต้องใช้ WebGL2 · แนะนำให้ใส่หูฟัง'],
+  /* The detail tier. No heading: the hint below the row says what the three
+     words are for, which "DETAIL" on its own would not. */
+  'boot.detail.low': ['LOW', 'ต่ำ'],
+  'boot.detail.medium': ['MEDIUM', 'กลาง'],
+  'boot.detail.high': ['HIGH', 'สูง'],
+  'boot.detail.hint': ['lower detail for a smoother frame rate',
+    'ลดรายละเอียดเพื่อให้ภาพลื่นขึ้น'],
+  'boot.detail.reload': ['reloading at the new detail level…',
+    'กำลังโหลดใหม่ตามระดับรายละเอียดที่เลือก…'],
 
   /* ----------------------------------------------------------- the dock */
   'dock.berth': ['BERTH GRANTED · MARKET LINK OPEN', 'ได้รับท่าจอด · เชื่อมต่อตลาดแล้ว'],
@@ -56,6 +65,10 @@ const STRINGS = {
   'dock.lucent': ['LUCENT', 'ลูเซนต์'],
   'dock.commodity': ['COMMODITY', 'สินค้า'],
   'dock.price': ['PRICE', 'ราคา'],
+  /* The board's reference column: this station's price against the
+     commodity's standard value. Short, because it is a column head over a
+     four-character number. */
+  'dock.vsBase': ['VS BASE', 'เทียบราคากลาง'],
   'dock.stock': ['STOCK', 'คงคลัง'],
   'dock.held': ['HELD', 'ถืออยู่'],
   'dock.buy': ['BUY', 'ซื้อ'],
@@ -145,6 +158,21 @@ const STRINGS = {
   'comms.close': ['CLOSE CHANNEL', 'ปิดช่องสัญญาณ'],
   'comms.filed': ['Filed to the rumor ledger.', 'บันทึกลงสมุดข่าวลือแล้ว'],
   'comms.cannotPay': ['You cannot cover the fee.', 'เครดิตไม่พอจ่าย'],
+  /* The deal strip and the settlement lines. These four were English string
+     literals inside Comms.js — the only untranslated player-facing text left
+     in the negotiation, and the ones a player reads most, since every
+     completed trade ends in one of them. */
+  'comms.perUnit': ['cr / unit', 'cr / หน่วย'],
+  'comms.vsBase': ['%S vs standard', '%S เทียบราคากลาง'],
+  'comms.aboard': ['%N %G aboard · −%C cr', 'รับ %N %G ขึ้นยาน · −%C cr'],
+  'comms.away': ['%N %G away · +%C cr', 'ส่งมอบ %N %G · +%C cr'],
+  'comms.paidFiled': ['Paid %F cr. Filed to the rumor ledger.',
+    'จ่าย %F cr · บันทึกลงสมุดข่าวลือแล้ว'],
+  /* Why ACCEPT is greyed out. Written to sit on the control itself, so they
+     are fragments rather than sentences. */
+  'comms.holdFull': ['hold is full', 'ระวางเต็ม'],
+  'comms.shortLedger': ['not enough credits', 'เครดิตไม่พอ'],
+  'comms.noneHeld': ['you hold none', 'คุณไม่มีสินค้านี้'],
 
   /* ---------------------------------------------------------- the archive */
   'cx.archive': ['ARCHIVE', 'คลังข้อมูล'],

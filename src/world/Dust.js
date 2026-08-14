@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { LOGD_V_PARS, LOGD_V, LOGD_F_PARS, LOGD_F } from '../gfx/glsl/noise.js';
+import { seededRandom } from '../core/clock.js';
 
 /* ============================================================================
    Interplanetary dust — the single cheapest trick for conveying motion.
@@ -55,15 +56,17 @@ void main(){
 `;
 
 export class Dust {
-  constructor(count = 2400, box = 6.0) {
+  constructor(count = 2400, box = 6.0, seed = 7.31) {
     const pos = new Float32Array(count * 2 * 3);
     const side = new Float32Array(count * 2);
     const rnd = new Float32Array(count * 2);
+    // Seeded, so the cabin has the same motes in it every session.
+    const R = seededRandom(seed);
     for (let i = 0; i < count; i++) {
-      const x = (Math.random() - 0.5) * box;
-      const y = (Math.random() - 0.5) * box;
-      const z = (Math.random() - 0.5) * box;
-      const r = Math.random();
+      const x = (R() - 0.5) * box;
+      const y = (R() - 0.5) * box;
+      const z = (R() - 0.5) * box;
+      const r = R();
       for (let k = 0; k < 2; k++) {
         pos[(i * 2 + k) * 3] = x;
         pos[(i * 2 + k) * 3 + 1] = y;

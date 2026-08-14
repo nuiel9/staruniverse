@@ -2,6 +2,9 @@ import './ui/style.css';
 import { initLang, mountToggle, t, tx, onLangChange } from './ui/i18n.js';
 import { Game } from './game/Game.js';
 import { INTRO_LINES } from './game/lore.js';
+import { tickClock, after, pendingBeats } from './core/clock.js';
+import { mountDetailToggle, setStoredDetail, storedDetail } from './core/detail.js';
+import { detectQuality } from './core/Engine.js';
 
 const bootEl = document.getElementById('boot');
 const fill = document.getElementById('bootFill');
@@ -54,6 +57,37 @@ function desktopOnly() {
      switching after the fact would leave the title card in the wrong one. */
   initLang();
   mountToggle(document.getElementById('bootLang'));
+
+  /* The detail tier, beside the language. Both are choices the title card is
+     the right place to ask for: they are settled once, before anything has
+     been staked on them, and the answer changes how the whole thing is built.
+     The tier is read back out of storage by Game's constructor rather than
+     passed in, so the URL override the capture tooling uses keeps winning. */
+  let detailPaint = null;
+  const detailNote = document.getElementById('bootDetailNote');
+  /* What the buttons show before anything is built: the player's choice if
+     they have made one, otherwise the same guess Game will make. Deliberately
+     not read off `game`, which does not exist yet — and would throw rather
+     than read undefined if it were touched here. */
+  const shownDetail = () => storedDetail() || detectQuality();
+  const mountDetail = () => {
+    detailPaint = mountDetailToggle(
+      document.getElementById('bootDetail'), shownDetail(),
+      (tier) => {
+        if (!setStoredDetail(tier)) return;   // storage refused: leave it alone
+        /* Reload rather than pretend. Nearly everything a tier touches is
+           decided at construction — the terrain's step counts are compiled
+           into the shader, the asteroid field's buffers are sized once, planet
+           LOD meshes are built up front — so there is no honest way to move
+           between tiers in place, and a control that silently applied to half
+           the scene would be worse than one that takes a moment. */
+        if (detailNote) detailNote.textContent = t('boot.detail.reload');
+        setTimeout(() => location.reload(), 60);
+      },
+      (id) => t(`boot.detail.${id}`));
+    if (detailNote && !detailNote.textContent) detailNote.textContent = t('boot.detail.hint');
+  };
+  mountDetail();
   const paintBoot = () => {
     const sub = document.getElementById('bootSub');
     const legal = document.getElementById('bootLegal');
@@ -61,6 +95,9 @@ function desktopOnly() {
     if (sub) sub.textContent = t('boot.sub');
     if (legal) legal.textContent = t('boot.legal');
     if (start) start.textContent = t('boot.wake');
+    // the tier buttons carry translated labels, so they repaint with the rest
+    if (detailPaint) detailPaint(shownDetail());
+    if (detailNote) detailNote.textContent = t('boot.detail.hint');
     /* The two panel headings that live in the markup rather than in a
        render(): the archive and the star map both paint their own bodies but
        inherit their title bar from index.html. */
@@ -106,15 +143,19 @@ function desktopOnly() {
     /* Resolved at fire time, not at schedule time: the language control is on
        the title card, so a player who switches and then hits WAKE would
        otherwise get English for the first fifteen seconds of their game. */
+    /* On the scene clock, not on setTimeout. These are beats in the game, so
+       they should advance with the game: a hidden tab should not burn through
+       the opening narration, and a stepped capture should see the same line on
+       screen every time it is run. It did not — two captures of the spawn view
+       came back with different lines of intro in them. */
     INTRO_LINES.forEach((l, i) => {
-      setTimeout(() => game.hud.narrate(
-        tx(`lore.intro.${i}.text`, l.text), tx(`lore.intro.${i}.who`, l.who)),
-      1200 + i * 5200);
+      after(1.2 + i * 5.2, () => game.hud.narrate(
+        tx(`lore.intro.${i}.text`, l.text), tx(`lore.intro.${i}.who`, l.who)));
     });
-    setTimeout(() => {
+    after(0.9, () => {
       game.hud.log('SCANNER ONLINE', 'ok');
       game.hud.log(`SYSTEM · ${game.system.star.name.toUpperCase()}`);
-    }, 900);
+    });
   };
 
   startBtn.addEventListener('click', begin);
@@ -134,6 +175,12 @@ function desktopOnly() {
 
   function step(dt) {
     try {
+      /* One clock for everything that moves. Panels, rings, lamps and the
+         cabin's own shader time used to read performance.now() directly, which
+         meant they ignored this dt entirely — they ran at wall-clock speed
+         through a stepped capture and kept running while the tab was hidden.
+         See src/core/clock.js. */
+      tickClock(dt);
       if (game.started) game.update(dt);
       else game.updateIdle?.(dt);
       game.engine.time = game.time;
@@ -142,6 +189,11 @@ function desktopOnly() {
       game.engine.render(
         game.interiorRig && game.interiorRig.visible ? game.interiorScene : null,
         game.interiorCam);
+      /* Dynamic resolution is measured off the real framerate, so it is the
+         single most machine-dependent input in the pipeline: the same scene
+         comes out at a different pixel ratio — different sharpness, different
+         aliasing — on a slow machine than a fast one. A stepped capture wants
+         the resolution it was asked for and nothing else. */
       if (!RECORD) game.engine.adapt(dt);
     } catch (e) {
       console.error(e);
@@ -162,6 +214,11 @@ function desktopOnly() {
   if (RECORD) {
     // one frame per call, so the capture tool controls time exactly
     window.__step = (n = 1) => { for (let i = 0; i < n; i++) step(1 / RECORD); };
+    /* Lets a capture tool see whether anything is actually waiting on the
+       clock. Without it there is no way to distinguish a sequence that needs
+       frames from one that is blocked on a load, and driving frames through
+       the second makes the capture depend on how long the load took. */
+    window.__beats = pendingBeats;
     step(1 / RECORD);
   } else {
     requestAnimationFrame(tick);
