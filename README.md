@@ -398,13 +398,24 @@ Every tool boots through `tools/boot.mjs`, which exists because the dev server
 hot-reloads on any source edit: a capture that started before the reload
 finishes happily and screenshots the title card, with a plausible frame rate
 printed next to it. It verifies the overlay is actually gone and starts over if
-it is not, and the multi-shot tools re-check between shots.
+it is not, and the multi-shot tools re-check between shots. Frozen captures
+boot through `tools/frozen.mjs` instead, which drives the clock by hand and so
+has to click WAKE itself.
+
+Neither saves you from **editing a source file while a capture is running** —
+Vite reloads the page underneath it and the run dies with *"Execution context
+was destroyed"*, twenty minutes in. A full set is long enough that this is easy
+to do by accident. Start the run, then keep your hands off the tree.
 
 Phones are turned away at the door with a short message rather than served a
 reduced build — every feature worth looking at here is one a handset cannot
 afford, and a bad first impression is worse than none.
 
-Both drive a real headed Chromium with GPU rasterisation against `npm run dev`.
+`survey` runs a real headed Chromium with GPU rasterisation, because the frames
+it takes are the ones that get judged. Everything else — `probe`, `treecheck`,
+`detailcheck` — runs headless, which is faster and, since the frozen path pins
+the resolution rather than letting the controller chase the frame rate, gives
+up nothing that matters. All of them address `npm run dev`.
 
 ---
 
