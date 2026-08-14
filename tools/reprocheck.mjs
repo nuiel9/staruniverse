@@ -56,12 +56,19 @@ for (const n of names) {
     { encoding: 'utf8' }).trim();
   const pct = parseFloat(out) || 0;
   if (pct > worst) worst = pct;
-  const bad = pct > THR;
+  /* The percentage alone is not the whole claim. imgdiff counts pixels that
+     differ by MORE THAN TEN LEVELS, so a frame that is off by two everywhere
+     reports a spotless 0.000% — which is how the two interface frames read
+     while they were still being captured on wall-clock settles. "Reproducible"
+     here means the same picture, so the largest single difference has to be
+     zero as well. */
+  const max = +(/max=(\d+)/.exec(out)?.[1] ?? 0);
+  const bad = pct > THR || max > 0;
   if (bad) failed++;
   rows.push(`${bad ? 'FAIL' : 'ok  '} ${n.padEnd(20)} ${out}`);
 }
 console.log('\n— reproducibility —');
 console.log(rows.join('\n'));
 console.log(`\n${names.length - failed - missing}/${names.length} frames reproduced `
-  + `(threshold ${THR}%, worst ${worst.toFixed(3)}%)`);
+  + `identically (worst ${worst.toFixed(3)}% of pixels >10; any max above 0 fails)`);
 process.exit(failed || missing ? 1 : 0);
