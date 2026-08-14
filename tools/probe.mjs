@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { chromium } from 'playwright';
 import { bootGame } from './boot.mjs';
 import { frozenBoot, frozenRun, frozenSettle, installHelpers, recordQuery } from './frozen.mjs';
+import { assertRendered } from './flatframe.mjs';
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : d; };
 const EXPR = args[0] && !args[0].startsWith('--') ? args[0] : '1';
@@ -68,5 +69,9 @@ if (SHOT) {
     fps: +window.__game.engine.fps.toFixed(0), calls: window.__game.engine.drawCalls,
   }));
   console.log(`shot ${SHOT}  fps=${st.fps} calls=${st.calls}`);
+  /* And check it is a picture. A capture can fail by producing a frame — see
+     tools/flatframe.mjs — and printing a plausible fps beside a sheet of flat
+     colour is how that gets past everyone. */
+  if (!assertRendered(SHOT)) { await browser.close(); process.exit(2); }
 }
 await browser.close();

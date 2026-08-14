@@ -9,6 +9,7 @@
 import { chromium } from 'playwright';
 import { bootGame } from './boot.mjs';
 import { frozenBoot, frozenRun, frozenSettle, installHelpers, recordQuery } from './frozen.mjs';
+import { assertRendered } from './flatframe.mjs';
 import fs from 'node:fs';
 
 const args = process.argv.slice(2);
@@ -396,6 +397,10 @@ for (const s of SHOTS) {
   // see probe.mjs: the default thirty seconds is not enough after a settle has
   // just driven a hundred synchronous renders through a heavy scene
   await page.screenshot({ path: `${outDir}/${s.name}.png`, timeout: 120000 });
+  // a frame that is one flat colour is a failed capture, not a shot of the game
+  if (!assertRendered(`${outDir}/${s.name}.png`, s.name)) {
+    logs.push(`[shot ${s.name}] FLAT FRAME — capture failed`);
+  }
   const st = await page.evaluate(() => ({
     fps: +window.__game.engine.fps.toFixed(0),
     px: +window.__game.engine.pixelRatio.toFixed(2),
