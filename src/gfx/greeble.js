@@ -366,8 +366,11 @@ const HULL_PARS = /* glsl */`
      designed around it. Running the jittered law over both families is what
      makes a hull read as an arbitrary scatter of dashes rather than as bays.
 
+     The px argument is one screen pixel measured in the same units as x, and it
+     is what keeps a seam a seam at range. See the band limit below.
+
      Out: gv = (groove, lip); dt = (fastener, weld bead, dirt washing aft). */
-  void seamLine(float x, float y, float w, float fine, float reg, out vec2 gv, out vec3 dt){
+  void seamLine(float x, float y, float w, float px, float fine, float reg, out vec2 gv, out vec3 dt){
     float c = floor(x);
     float j = hHash(vec3(c, 7.7, 1.3));
     float sp = mix(0.33 + 0.34*j, 0.5, reg);
@@ -375,11 +378,62 @@ const HULL_PARS = /* glsl */`
     float g = abs(d);
     float keep = max(step(0.12, hHash(vec3(c, 3.1, 9.2))), reg);
     float bolt = max(step(0.34, hHash(vec3(c, 11.3, 4.9))), reg);
+
+    /* ---- the band limit, and it is the whole reason a station reads as a
+       smooth grey drum with a couple of lines on it rather than as plating.
+
+       w is a fraction of a *plate*, not a length: 0.026 of a 1.8 m sheet is a
+       47 mm gap, which is right. But the plate is only three pixels across at
+       the distance a station is actually judged from, so the gap is a twelfth
+       of a pixel — and a twelfth of a pixel, point sampled, is not a panel
+       line. It is a lottery. Wherever a sample happened to land inside the gap
+       the pixel came back 58% dark; everywhere else along the same joint it
+       came back at full plate value. Measured on the review frame, the seam
+       mask over the station's own lit surface had a mean run length of 5.2
+       pixels and a mean depth of 16% — which is the signature of a scatter of
+       dark specks, not of lines, and it is why the largest cylinders in the
+       frame carry one broad even highlight with nothing in it for the key to
+       break against.
+
+       So the groove is never allowed to fall under about three quarters of a
+       pixel wide, and its depth is scaled by exactly the fraction of that pixel
+       the real gap covers. The integral is unchanged — a 47 mm gap darkens a
+       pixel by 47 mm worth of darkness however far away it is — so nothing gets
+       darker or lighter overall; what changes is that the darkness lands *on
+       the joint, all along it* instead of on one pixel in twelve. That is the
+       same trade a mip chain makes and the same one hullLod makes for the
+       relief further down; this is the albedo half of it, which had none.
+
+       It converges correctly at both ends. Once px falls under about a seventh
+       of w — which on the player's hull is any view closer than the hero shot —
+       we is exactly w and aa is exactly one, so the surface is bit for bit what
+       it was. At the hero framing itself the groove is already a third of a
+       pixel and aa lands around 0.81, which measured as four hundredths of a
+       per cent of seam depth on u-shipclose: below the run-to-run noise, and
+       the relief has taken the seam over by then anyway. Far enough out that a
+       whole plate is under a pixel, we exceeds half a cell, the smoothstep
+       stops reaching zero anywhere and aa is tiny — so the plating fades to the
+       uniform slightly-darker tone that a pixel covering forty plates genuinely
+       is, rather than to noise.
+
+       0.18 is tuned, not derived, because px arrives as mpp scaled into plate
+       units and mpp is length(fwidth(vShipPos)) — the length of the *sum* of
+       the two screen derivatives, which overstates the rate along any one axis
+       by something close to a factor of two. Swept live on the review frame
+       against the seam mask's mean run length, holding the pose frozen so both
+       states are the same pixels: 0.00 gave 5.26 px of run and a dense stipple
+       of isolated dark specks over every spoke; 0.30 gave 5.36 and the specks
+       were gone while the ring's plate grid stayed as crisp as it was; 0.50
+       gave 5.53 and 1.00 gave 5.62, and both of those visibly softened plating
+       that was resolvable and had no business being touched. The knee is where
+       the lottery stops, not where the number stops climbing. */
+    float we = max(w, px*0.18);
+    float aa = w / we;
     // a welded joint still shows, but as a line rather than as a gap
-    float core = (1.0 - smoothstep(0.0, w, g)) * keep * mix(0.42, 1.0, bolt);
+    float core = (1.0 - smoothstep(0.0, we, g)) * keep * mix(0.42, 1.0, bolt) * aa;
     // The lip has to stay *narrower* than the groove. Wider and every plate
     // acquires a bright border, which reads as quilting rather than as metal.
-    float lip  = smoothstep(w*2.0, w*1.05, g) * (1.0 - core) * keep;
+    float lip  = smoothstep(we*2.0, we*1.05, g) * (1.0 - core) * keep * aa;
     gv = vec2(core, lip);
 
     float riv = 0.0, bead = 0.0;
@@ -435,7 +489,7 @@ const HULL_PARS = /* glsl */`
      Out: sm = (groove, lip, plate seed) — the seed matters most, because no
      two panels were rolled in the same year or faded by the same amount;
      dt = (fastener, weld bead, gap wash); hd = (hatch recess, hatch rim). */
-  void plating(vec3 p, vec3 n, float S, float w, float fine, float fr,
+  void plating(vec3 p, vec3 n, float S, float w, float mpp, float fine, float fr,
                out vec3 sm, out vec3 dt, out vec2 hd){
     vec3 an = abs(n);
     float rad = length(p.xy);
@@ -468,8 +522,15 @@ const HULL_PARS = /* glsl */`
       float ang = atan(p.y, p.x) * (1.55 + rad*0.045);
       float uCyl = p.z*Sc + hNoise(vec3(ang*0.30, 0.0, 0.0))*0.17*(1.0 - fr);
       float vCyl = ang*2.0 + floor(p.z*Sc)*mix(0.41, 0.5, fr);
-      seamLine(uCyl, vCyl, w,     fine, fr,  g0, d0);   // frames
-      seamLine(vCyl, uCyl, w*1.4, fine, 0.0, g1, d1);   // butt straps
+      /* One pixel, in each family's own plate units. Along the barrel that is
+         just the plate scale; around it, a metre of arc is 1/rad of a radian,
+         so the angular family gets coarser in plate units the fatter the drum
+         is — which is the whole reason a station's rings need this and a
+         nacelle's do not. */
+      float pxU = mpp*Sc;
+      float pxV = mpp*2.0*(1.55 + rad*0.045)/max(rad, 0.05);
+      seamLine(uCyl, vCyl, w,     pxU, fine, fr,  g0, d0);   // frames
+      seamLine(vCyl, uCyl, w*1.4, pxV, fine, 0.0, g1, d1);   // butt straps
       gv = max(g0, g1*0.85);
       dd = vec3(max(d0.xy, d1.xy*0.85), d0.z);
       puv = vec2(uCyl, vCyl);
@@ -488,8 +549,8 @@ const HULL_PARS = /* glsl */`
       if (wx > 0.004*ws){
         float Sx = S*1.34;                       // flanks and fins: fine plate
         vec2 u = vec2(p.z*Sx + 0.31, p.y*Sx*1.3 + floor(p.z*Sx)*mix(0.37, 0.5, fr));
-        seamLine(u.x, u.y, w,     fine, fr,  g0, d0);
-        seamLine(u.y, u.x, w*1.3, fine, 0.0, g1, d1);
+        seamLine(u.x, u.y, w,     mpp*Sx,     fine, fr,  g0, d0);
+        seamLine(u.y, u.x, w*1.3, mpp*Sx*1.3, fine, 0.0, g1, d1);
         cg += max(g0, g1*0.85)*wx;
         cd += vec3(max(d0.xy, d1.xy*0.85), d0.z)*wx;
         cc = u; best = wx;
@@ -497,16 +558,16 @@ const HULL_PARS = /* glsl */`
       if (wy > 0.004*ws){
         float Sy = S*0.71;                       // decks and roofs: long sheets
         vec2 u = vec2(p.z*Sy + 0.13, p.x*Sy*1.3 + floor(p.z*Sy)*mix(0.29, 0.5, fr));
-        seamLine(u.x, u.y, w,     fine, fr,  g0, d0);
-        seamLine(u.y, u.x, w*1.3, fine, 0.0, g1, d1);
+        seamLine(u.x, u.y, w,     mpp*Sy,     fine, fr,  g0, d0);
+        seamLine(u.y, u.x, w*1.3, mpp*Sy*1.3, fine, 0.0, g1, d1);
         cg += max(g0, g1*0.85)*wy;
         cd += vec3(max(d0.xy, d1.xy*0.85), d0.z)*wy;
         if (wy > best){ cc = u; best = wy; }
       }
       if (wz > 0.004*ws){
         vec2 u = vec2(p.x*S + 0.57, p.y*S*1.3 + floor(p.x*S)*mix(0.23, 0.5, fr));
-        seamLine(u.x, u.y, w,     fine, fr,  g0, d0);
-        seamLine(u.y, u.x, w*1.3, fine, 0.0, g1, d1);
+        seamLine(u.x, u.y, w,     mpp*S,     fine, fr,  g0, d0);
+        seamLine(u.y, u.x, w*1.3, mpp*S*1.3, fine, 0.0, g1, d1);
         cg += max(g0, g1*0.85)*wz;
         cd += vec3(max(d0.xy, d1.xy*0.85), 0.0)*wz;   // a face plate has no aft
         if (wz > best){ cc = u; best = wz; }
@@ -1030,13 +1091,13 @@ ${decalCode ? '        float hullInk = 0.0;' : ''}
           hullFine = fine;
           vec3 sm, dt, fnm = vec3(0.0, 0.0, 0.5), fdt;
           vec2 hd, fhd;
-          plating(vShipPos, vShipNrm, S, 0.026, fine, ${frame ? '1.0' : '0.0'}, sm, dt, hd);
+          plating(vShipPos, vShipNrm, S, 0.026, mpp, fine, ${frame ? '1.0' : '0.0'}, sm, dt, hd);
           ${doors ? '' : 'hd = vec2(0.0);   // frames, but nothing cut into them'}
           // The second, finer octave of plating is a whole traversal of the
           // law; at chase distance it lands under a pixel and there is no
           // reason to walk it at all.
           float fLod = hullLod(${(0.30 * plate).toFixed(4)}, mpp);
-          if (fLod > 0.004) plating(vShipPos + 41.0, vShipNrm, S*3.1, 0.040, 0.0, 0.0, fnm, fdt, fhd);
+          if (fLod > 0.004) plating(vShipPos + 41.0, vShipNrm, S*3.1, 0.040, mpp, 0.0, 0.0, fnm, fdt, fhd);
           /* The hatch perimeter is folded straight into the seam channel rather
              than shaded separately, because that is what it physically is: the
              gap round a door leaf is a plate joint, and every term downstream —

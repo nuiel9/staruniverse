@@ -3842,8 +3842,80 @@ void main(){
        on it — a different way of being one flat colour, not a fix for it. */
     vec3 veg = mix(uCVeg, vDark, wetK*0.90);
     veg = mix(veg, vDry, dryK*0.55);
-    // clump value, and the fine mottle that stops a clump being a blob
-    veg *= (0.80 + 0.42*n2)*(0.90 + 0.20*n3)*(0.86 + 0.28*lum);
+
+    /* Thatch, and it is the band this shader did not have.
+     *
+     * Everything above this line varies the sward at 290 m, 48 m and 9 m. A
+     * standing figure sees thirteen metres of ground in a foot-height crop, so
+     * *every one of those bands is a constant across the near field* and the
+     * only thing left modulating it was the scalar (0.86 + 0.28*lum) — a swing
+     * of about seven per cent of value on one hue. That is the whole of an
+     * independent judge's "a single flat saturated kelly green with essentially
+     * no albedo variation and no texture — a green plastic sheet over
+     * vertex-shaded hills", and it is the same structural fault the mineral
+     * block thirty lines above already diagnosed for itself: multiplying a
+     * colour by a scalar preserves every hue ratio in it, so there was no way
+     * to get anything but one green at one chroma however hard the noise was
+     * driven. Measured on the judge's own y-landed pose, four bands of ground
+     * from 47 m to 214 m came back at a mean saturation of 0.77/0.75/0.72/0.73
+     * with a hue spread of 13-19 degrees and a 3x3 local sigma of 4.0-6.5.
+     * Reference photography of grassland runs a saturation near 0.35-0.55 and a
+     * local sigma several times ours; 0.77 is not a meadow, it is baize.
+     *
+     * A sward is not one material. Standing in it you are looking at live
+     * blade, at last year's dead blade still standing in the same tussock, and
+     * at the litter and soil between them — and the dead fraction is not a
+     * darker green, it is a *different hue* about forty degrees toward straw
+     * and roughly half the chroma. That is a colour axis rather than a value
+     * axis, which is exactly what was missing, and mixing along it lowers the
+     * mean saturation and raises its spread at the same time.
+     *
+     * It is driven off "tone", which is already in a register from the mineral
+     * pivot above: the baked tile's per-clast mineral channel plus its
+     * luminance, so it is a metre-and-finer field that has a mip chain, cannot
+     * alias, and costs not one additional fetch or noise octave — which matters
+     * because this shader covers most of a landed frame and the file's own
+     * measurement is that a new per-fragment simplex here is worth about three
+     * milliseconds. It goes to 0.5 as the tile minifies, so the distance lands
+     * on a fixed half-and-half blend and the fade is invisible, the same
+     * contract every other tile-driven term in here keeps.
+     *
+     * Biased toward the thatch rather than centred, because a real sward at the
+     * end of a growing season is more dead matter than live and because the
+     * live component is deliberately left at full chroma — the argument for a
+     * saturated uCVeg further up is sound and is not being undone here. What
+     * changes is that the live blade is no longer a hundred per cent of the
+     * ground. */
+    /* And the bias is graded on the pixel, not held constant, because the
+     * *first* version of this was and it cost the distance its colour.
+     *
+     * "tone" goes to exactly 0.5 as the tile minifies — that is the contract
+     * that makes every tile-driven term in this shader fade invisibly — so a
+     * constant bias on top of it lands the far ground on a fixed thatch weight
+     * with no variation left in it. Measured at a flat 0.16: the near field did
+     * what it was asked (saturation 0.71 to 0.58, hue spread 14 to 25 degrees)
+     * and the middle distance went with it, the ground at 400 m to 1 km coming
+     * back at a hue of 70-73 degrees against 85-94 before and a saturation
+     * *spread* of 0.109-0.125 against 0.156-0.171. That is a whole landscape
+     * turned one flat straw — the same fault, a hue to the left — and worse, it
+     * threw away spread the distance already had.
+     *
+     * There is a real observation to grade it on. Standing in a sward you are
+     * looking at the *side* of the canopy: stem, litter and last year's dead
+     * blade, which is most of what a grazing view of grassland actually shows.
+     * From a kilometre away you are looking down at the *top* of the same
+     * canopy, which is this year's live leaf, and that is why a distant meadow
+     * is greener than the one you are standing in. nearK is already in a
+     * register from the metre band above — it is the same footprint gate, and
+     * it costs nothing to read twice. */
+    float gyS = dot(veg, vec3(0.2126, 0.7152, 0.0722));
+    vec3 vThatch = mix(veg, vec3(gyS*1.42, gyS*1.20, gyS*0.72), 0.70)*1.28;
+    veg = mix(veg, vThatch, clamp(tone + mix(-0.22, 0.20, nearK), 0.0, 1.0));
+    // clump value, and the fine mottle that stops a clump being a blob. The
+    // tile's luminance has left this expression: it is spent as chroma above,
+    // where it is worth several times as much, and paying it twice only put the
+    // value swing back on top of a colour swing that already carries it.
+    veg *= (0.80 + 0.42*n2)*(0.90 + 0.20*n3);
 
     /* Coverage. Patchy at the clump scale, off the steep faces, thinner on
        bedrock, and never quite total — a fraction of the soil shows through
@@ -3852,7 +3924,21 @@ void main(){
     float cov = clamp(fm*(0.72 + 0.62*n2)*(0.82 + 0.32*n3) - 0.04, 0.0, 1.0);
     cov *= 1.0 - smoothstep(0.34, 0.72, slope);
     cov *= 1.0 - bare*0.48;
-    col = mix(col, veg, cov*0.94);
+    /* And it thins at the scale you walk across, not only at the scale you fly
+       over. The three noise bands above are all coarser than a near-field crop,
+       so "cov" was a constant of about 0.94 over the whole foreground and the
+       mineral ground — which has had four separate bands of chromatic work done
+       to it in the two hundred lines above this one — was being painted out
+       everywhere at once. The same tile channel that chooses thatch chooses
+       where the litter and the trodden bare patches are, which is right: bare
+       ground and dead matter go together, and a bright chip in the tile is a
+       stone the grass is not growing on. */
+    cov *= 1.0 - 0.34*smoothstep(0.50, 1.0, tone);
+    /* 0.90, not 0.94. Six per cent of soil showing through the closed sward was
+       not enough to register against an albedo that had no other variation in
+       it; it is enough now, because what shows through is a different hue as
+       well as a different value. */
+    col = mix(col, veg, cov*0.90);
     fm = cov;
   }
 

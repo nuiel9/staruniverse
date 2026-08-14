@@ -22,6 +22,14 @@ const PRE = `g.director.stop(); g.inspect({off:true}); if(g.landed) g.liftOff({n
      empty starfield. State a shot changes has to be reset here, not by the
      shot that happens to run next. */
   g.ship.object.visible = true;
+  /* Same rule, second offender: p-fold engages the fold drive and nothing
+     disengages it. That cost nothing while p-fold was the last shot in the
+     list, and became a real fault the moment t-belt moved after it —
+     AsteroidField is handed contains(ship.absPos) AND-NOT ship.foldMode, so a
+     ship that is still folded gets an asteroid field that never populates at
+     all, and the belt shot would have come back empty for a *second*,
+     completely different reason. */
+  if (g.ship.foldMode) g.toggleFold(false);
   /* Pick a world by type priority, but never the same world twice in one run.
      Several shots share candidate types — "dry" and "alt-b" both accept desert
      and iron — so without this they both land on the system's one desert world
@@ -131,6 +139,32 @@ const SHOTS = [
       const c = g.fleet.craft.find(x=>x.path==='orbit') || g.fleet.craft[0];
       const b = g.bodies.find(x=>x.craft===c);
       if(!b) return 'SKIP: no traffic in this system';
+      /* Hold the subject still, or there is no subject.
+         This shot came back 74% empty black for a reason that has nothing to do
+         with the stand-off distance. inspect() rebuilds the camera from
+         ref.absPos in updateCamera, which runs *before* Fleet.update moves the
+         craft, so the rig is always aiming one frame behind. Measured here: the
+         courier was doing 14.5 km/s, which is 0.24 km a frame at 60 — against a
+         0.25 km stand-off, i.e. the subject leaves the shot every single frame.
+         Projected, its centre came back at NDC x = -2.8, nearly three frame
+         widths off the side, which is exactly the black rectangle that got
+         filed as "w-traffic has no traffic".
+         Slowing the path is not enough on its own either: params.center is the
+         anchor planet's live absPos, so the craft inherits the planet's own
+         0.4 km/s around the star and still drifts 0.26 of a frame width, by an
+         amount that depends on the capture machine's framerate. Pin it to a
+         cloned point instead — radius 0 makes PATHS.orbit return the centre
+         verbatim — and the craft stops dead: measured NDC (0.000, 0.000) at
+         every distance tried, i.e. dead centre and repeatable. Fleet leaves the
+         quaternion alone when the along-track sample does not move, so the hull
+         keeps the attitude it was flying at; this is a still photograph of a
+         moving thing, and it is the same thing either way.
+         q-jump rebuilds the fleet from scratch four shots later, so nothing has
+         to be put back. */
+      if(!c._held){
+        c.params = { center: c.absPos.clone(), radius: 0, rate: 0, inc: 0, phase: 0 };
+        c.path = 'orbit'; c._held = true;
+      }
       const host = g.bodies.filter(x=>x.kind==='planet')
         .sort((p,q)=>p.absPos.distanceTo(b.absPos)-q.absPos.distanceTo(b.absPos))[0];
       const V = b.absPos.constructor;
@@ -143,36 +177,22 @@ const SHOTS = [
       const az = Math.atan2(dir.x, dir.z) * 180/Math.PI;
       const el = Math.asin(dir.y) * 180/Math.PI;
       g.ship.object.visible = false;      // not overwritten by updateCamera
-      g.inspect({bodyRef:b, dist:5.5, az, el, fov:30});
+      /* dist 1.8, not 5.5. inspect scales by ref.radius, and Fleet.contacts()
+         reports radius = length * 1.5, so for a 30 m courier 5.5 was a 250 m
+         stand-off: the hull came out 17% of the frame width even once it was
+         in frame at all. Swept 5.5 / 3.2 / 2.6 / 2.2 / 1.8 / 1.5 with the hull
+         bounding box projected to NDC each time — width fractions 0.17, 0.27,
+         0.37, 0.44, 0.54, 0.64 — and took 1.8: 54% of the frame wide and 34%
+         tall, which reads as a vessel rather than as a lit speck, while still
+         leaving the planet its third of the frame. 1.5 starts crowding the
+         limb, and the near plane in inspect is 8 m so nothing here clips. */
+      g.inspect({bodyRef:b, dist:1.8, az, el, fov:30});
       g.setLayer('hud',false);` },
   {
     name: 'x-orbit', settle: 2400, js: `
       g.inspect({off:true});
       const p = g.bodies.find(x=>x.spec && x.spec.inhabited) || g.bodies.find(x=>x.kind==='planet');
       g.pose({bodyRef:p, dist:2.2, phase:134, elev:6});
-      g.setLayer('hud',false);` },
-  {
-    // Not aimed at the star. Looking straight down the key turns every rock
-    // into an evenly-lit grey lump with the light behind it — the shot that
-    // got called dirt on the lens. Swing sixty degrees off and the same rocks
-    // get a terminator, a lit face and a shadowed one, which is the only thing
-    // that says "solid body" rather than "smudge".
-    name: 't-belt', settle: 2600, js: `
-      const f = g.fields[0];
-      if(f){
-        const b = g.system.belts[0];
-        const r = (b.inner + b.outer)*0.5, a = 1.1;
-        const V = g.ship.absPos.constructor;
-        g.ship.absPos.set(Math.cos(a)*r, 0, Math.sin(a)*r);
-        g.ship.vel.set(0,0,0);
-        const toStar = g.star.absPos.clone().sub(g.ship.absPos).normalize();
-        const up = new V(0,1,0);
-        const look = toStar.clone().applyAxisAngle(up, 1.05)
-          .addScaledVector(up, -0.10).normalize();
-        g.ship.quat.setFromRotationMatrix(new (g.camera.matrix.constructor)().lookAt(
-          new V(), look, up));
-        g.origin.copy(g.ship.absPos); g.camAbs.copy(g.ship.absPos); g.camQuat.copy(g.ship.quat);
-      }
       g.setLayer('hud',false);` },
   {
     // An actual hero close-up of the hull. This used to pose a *planet* at
@@ -223,6 +243,79 @@ const SHOTS = [
       g.inspect({dist:1.7, az: Math.atan2(dir.x, dir.z)*180/Math.PI,
                  el: Math.asin(dir.y)*180/Math.PI, fov:54});
       g.setLayer('hud',false);` },
+  {
+    // Not aimed at the star. Looking straight down the key turns every rock
+    // into an evenly-lit grey lump with the light behind it — the shot that
+    // got called dirt on the lens. Swing sixty degrees off and the same rocks
+    // get a terminator, a lit face and a shadowed one, which is the only thing
+    // that says "solid body" rather than "smudge".
+    //
+    /* ...but first there has to *be* a belt, and there never was.
+       The staging below was wrapped in an if on g.fields[0], and the home
+       system Ithirka has no belts at all — generateSystem rolls one with
+       probability 0.62, and Ithirka lost the roll. So the shot was a no-op: the
+       camera stayed exactly where the shot before it had left it, and the set
+       shipped a second copy of x-orbit under the name t-belt. An independent
+       imgdiff found the two frames differed on 2.2% of pixels at mad 1.50 —
+       star jitter and film grain, nothing else — and reported, correctly, that
+       there was no asteroid belt anywhere in the frame named for one.
+       An empty `if` is the worst possible answer to "this system cannot stage
+       that": it neither skips honestly nor fixes anything. So go and find a
+       system that can. generateSystem is pure data — no meshes, no bakes — so
+       the whole galaxy can be rolled in the page in a few milliseconds. Rolled:
+       belt counts across the fourteen systems are
+       0,1,1,2,0,1,1,1,0,1,1,0,1,0 — nine of them carry one. Then jump.
+       This is why the shot sits last in the list: it is the only one that
+       changes system on its own initiative, and nothing may follow it. */
+    name: 't-belt', settle: 6200, js: `
+      const stage = () => {
+        if(!g.fields.length) return 'SKIP: no belt after all';
+        const b = g.system.belts[0];
+        /* AsteroidField keeps a dense local shell around the *ship* and only
+           populates while f.contains(ship.absPos), so standing the ship in the
+           middle of the belt torus is not a nicety, it is the whole mechanism. */
+        const r = (b.inner + b.outer)*0.5, a = 1.1;
+        const V = g.ship.absPos.constructor;
+        g.ship.absPos.set(Math.cos(a)*r, 0, Math.sin(a)*r);
+        g.ship.vel.set(0,0,0);
+        const toStar = g.star.absPos.clone().sub(g.ship.absPos).normalize();
+        const up = new V(0,1,0);
+        /* 1.8 radians off the star, not 1.05. The 1.05 above was reasoned
+           about but never seen, because the shot it was written for never
+           staged a belt. Now that there is one to photograph, swept 0.3 / 0.5 /
+           0.75 / 1.05 / 1.4 / 1.8 / 2.3 rad and measured the frame:
+             swing   mean L   px >= 40   px >= 110
+             0.30      9.6      7.7%       0.8%
+             0.75      7.3      4.0%       0.9%
+             1.05     16.6     14.1%       2.5%
+             1.40     24.6     21.4%       6.7%
+             1.80     35.0     29.5%      12.2%
+             2.30      7.2      5.7%       0.2%
+           Below about 1.4 the rocks are backlit and the auto-exposure is
+           stopping down for the star as well, so the belt is a field of dark
+           lumps — which is what "dirt on the lens" actually looks like. Past
+           2.3 the star is behind the camera, the rocks go flat and frontally
+           lit, and the exposure opens on empty sky instead. 1.8 is the peak:
+           regolith, crater rims and strata all read at arm's length and the
+           big bodies still carry a terminator. Blown pixels stay at 0.04%. */
+        const look = toStar.clone().applyAxisAngle(up, 1.8)
+          .addScaledVector(up, -0.10).normalize();
+        g.ship.quat.setFromRotationMatrix(new (g.camera.matrix.constructor)().lookAt(
+          new V(), look, up));
+        g.origin.copy(g.ship.absPos); g.camAbs.copy(g.ship.absPos); g.camQuat.copy(g.ship.quat);
+        g.setLayer('hud',false);
+        return null;
+      };
+      if (g.fields.length) return stage();
+      return import('/src/world/generate.js').then((m) => {
+        const id = g.galaxy.findIndex(s => m.generateSystem(s).belts.length > 0);
+        if (id < 0) return 'SKIP: no system in this galaxy carries a belt';
+        // hyperjump ends by playing the arrival sequence; that camera owns the
+        // frame for ten seconds and would letterbox the shot, so stop it before
+        // staging rather than leaving it to the next shot's PRE — there is no
+        // next shot.
+        return g.hyperjump(id).then(() => { g.director.stop(); return stage(); });
+      });` },
 ];
 
 const browser = await chromium.launch({
