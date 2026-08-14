@@ -45,16 +45,34 @@ export function setClock(v) { t = v; }
  * different lines of narration in them, one of them mid-slide. */
 const beats = [];
 
-/** Run fn once, `secs` of simulated time from now. */
+/** Run fn once, `secs` of simulated time from now. Fire and forget. */
 export function after(secs, fn) { beats.push({ at: t + secs, fn }); }
 
-/** The awaitable form, for a beat in the middle of an async sequence. */
-export function wait(secs) { return new Promise((r) => after(secs, r)); }
+/* Somebody is *blocked* on the clock, as opposed to merely having left
+   something scheduled on it. The difference is the whole point.
 
-/* How many beats are outstanding. Capture tooling uses this to tell "waiting
-   for the simulation" apart from "waiting for a file to load": the first wants
-   frames driven through it, the second wants time to stand still. */
-export function pendingBeats() { return beats.length; }
+   Capture tooling drives frames while a sequence is waiting for the
+   simulation, and must not while it is waiting for a file to load — stepping
+   through a genuine load ages the world by however long the machine spent
+   reading. Counting every outstanding beat conflates the two, and that is not
+   a theoretical distinction: a HUD log line schedules a six-second fade
+   through `after`, so by the middle of a capture walk there is nearly always
+   some fade pending, and a hyperjump's loadSystem got frames driven through it
+   on the strength of a fade belonging to a log line three shots earlier. It
+   showed up as q-jump, t-belt and p-fold landing on one of two outcomes, and
+   only in a full walk — shot on its own, q-jump had no stray fades pending and
+   came back identical every time, which is a good way to be told the problem
+   is fixed when it is not. */
+let waiting = 0;
+
+/** The awaitable form, for a beat in the middle of an async sequence. */
+export function wait(secs) {
+  waiting++;
+  return new Promise((r) => after(secs, () => { waiting--; r(); }));
+}
+
+/** How many sequences are blocked on the clock right now. */
+export function pendingWaits() { return waiting; }
 
 /** Advance the scene clock and fire anything now due. */
 export function tickClock(dt) {

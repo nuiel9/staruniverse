@@ -132,11 +132,17 @@ export async function frozenRun(page, expr, { max = 6000 } = {}) {
          the machine spent reading files — which is how q-jump and t-belt came
          back thirteen levels apart, and how p-fold, three shots further down
          the same boot, inherited 3.3% of a frame it never touched.
-         An outstanding beat means something is due on the clock and frames are
-         what will get us there. No outstanding beat means whatever we are
-         waiting for is not made of frames, so let it finish in its own time
-         and leave the world where it is. */
-      if (window.__beats && window.__beats() === 0) continue;
+
+         The question is whether a sequence is BLOCKED on the clock, not
+         whether anything is scheduled on it. The first version of this asked
+         the looser question and stayed broken: a HUD log line schedules a
+         six-second fade, so by the middle of a walk there is nearly always
+         some fade pending, and loadSystem got frames driven through it on the
+         strength of a fade belonging to a log line three shots earlier. That
+         is also why it only ever showed up in a full walk — shot on its own,
+         q-jump has no stray fades pending and came back identical every time,
+         which is a good way to be told the problem is fixed when it is not. */
+      if (window.__waits && window.__waits() === 0) continue;
       window.__step(1);
     }
     if (err) throw (err instanceof Error ? err : new Error(String(err)));

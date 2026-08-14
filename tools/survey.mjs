@@ -402,8 +402,15 @@ for (const s of SHOTS) {
     calls: window.__game.engine.drawCalls,
     tris: window.__game.engine.triangles,
     tgt: window.__game.target?.name,
-  })).catch(() => ({ fps: 0, px: 0, calls: 0, tris: 0, tgt: 'RELOADED MID-SHOT' }));
-  report.push(`${s.name.padEnd(20)} fps=${String(st.fps).padStart(3)} px=${st.px} calls=${String(st.calls).padStart(4)} tris=${String(Math.round(st.tris / 1000)).padStart(5)}k  ${st.tgt || ''}`);
+    /* Simulated time at the shutter. Under --frozen this is the number that
+       has to match between runs: it is a count of frames, so two walks that
+       agree on it advanced the world identically, and two that do not have
+       already diverged whatever the pixels happen to show. Cheaper and far
+       sharper than diffing images — a drift of one frame is obvious here and
+       can be invisible in a picture of a slow-moving scene. */
+    t: +window.__game.time.toFixed(6),
+  })).catch(() => ({ fps: 0, px: 0, calls: 0, tris: 0, tgt: 'RELOADED MID-SHOT', t: -1 }));
+  report.push(`${s.name.padEnd(20)} t=${String(st.t)} fps=${String(st.fps).padStart(3)} px=${st.px} calls=${String(st.calls).padStart(4)} tris=${String(Math.round(st.tris / 1000)).padStart(5)}k  ${st.tgt || ''}`);
 }
 console.log(report.join('\n'));
 if (logs.length) { console.log('--- issues ---'); console.log([...new Set(logs)].slice(0, 25).join('\n')); }

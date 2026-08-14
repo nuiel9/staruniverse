@@ -2,7 +2,7 @@ import './ui/style.css';
 import { initLang, mountToggle, t, tx, onLangChange } from './ui/i18n.js';
 import { Game } from './game/Game.js';
 import { INTRO_LINES } from './game/lore.js';
-import { tickClock, after, pendingBeats } from './core/clock.js';
+import { tickClock, after, pendingWaits } from './core/clock.js';
 import { mountDetailToggle, setStoredDetail, storedDetail } from './core/detail.js';
 import { detectQuality } from './core/Engine.js';
 
@@ -214,11 +214,11 @@ function desktopOnly() {
   if (RECORD) {
     // one frame per call, so the capture tool controls time exactly
     window.__step = (n = 1) => { for (let i = 0; i < n; i++) step(1 / RECORD); };
-    /* Lets a capture tool see whether anything is actually waiting on the
-       clock. Without it there is no way to distinguish a sequence that needs
-       frames from one that is blocked on a load, and driving frames through
-       the second makes the capture depend on how long the load took. */
-    window.__beats = pendingBeats;
+    /* Lets a capture tool see whether a sequence is actually blocked on the
+       clock. Without it there is no way to distinguish work that needs frames
+       from work that is waiting on a load, and driving frames through the
+       second makes the capture depend on how long the load took. */
+    window.__waits = pendingWaits;
     step(1 / RECORD);
   } else {
     requestAnimationFrame(tick);
