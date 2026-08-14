@@ -51,6 +51,11 @@ export function after(secs, fn) { beats.push({ at: t + secs, fn }); }
 /** The awaitable form, for a beat in the middle of an async sequence. */
 export function wait(secs) { return new Promise((r) => after(secs, r)); }
 
+/* How many beats are outstanding. Capture tooling uses this to tell "waiting
+   for the simulation" apart from "waiting for a file to load": the first wants
+   frames driven through it, the second wants time to stand still. */
+export function pendingBeats() { return beats.length; }
+
 /** Advance the scene clock and fire anything now due. */
 export function tickClock(dt) {
   t += dt;

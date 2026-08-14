@@ -125,6 +125,18 @@ export async function frozenRun(page, expr, { max = 6000 } = {}) {
           + 'blocks on async work — the two race, and the capture would not be '
           + 'reproducible. Pick one.');
       }
+      /* Advance time only while the simulation is what we are waiting for.
+         A hyperjump waits 0.42 s on the scene clock and then waits on
+         loadSystem, which is a genuine load and takes whatever it takes. Left
+         stepping through the load, the world aged by however many milliseconds
+         the machine spent reading files — which is how q-jump and t-belt came
+         back thirteen levels apart, and how p-fold, three shots further down
+         the same boot, inherited 3.3% of a frame it never touched.
+         An outstanding beat means something is due on the clock and frames are
+         what will get us there. No outstanding beat means whatever we are
+         waiting for is not made of frames, so let it finish in its own time
+         and leave the world where it is. */
+      if (window.__beats && window.__beats() === 0) continue;
       window.__step(1);
     }
     if (err) throw (err instanceof Error ? err : new Error(String(err)));
