@@ -842,6 +842,16 @@ th.dk-dev{font-size:var(--t-min);letter-spacing:.16em}
   border:1px solid var(--line-s);color:rgba(168,204,222,.62);transition:.15s}
 .lang button:hover{color:var(--cy)}
 .lang button.on{color:#04121a;background:var(--cy);border-color:var(--cy)}
+/* The detail tier sits under the language, and deliberately reads quieter than
+   it: language is the one thing the title card asks of you, detail is a thing
+   it offers. Same control, no fill on the selected chip, so the eye goes to
+   WAKE and to the language row first and finds this only when it is looking
+   for it. */
+.lang.detail{margin-top:9px}
+.lang.detail button{padding:4px 10px;opacity:.8}
+.lang.detail button.on{color:var(--cy);background:none;border-color:rgba(143,228,255,.45);opacity:1}
+.boot-detail-note{margin-top:7px;font-size:var(--t-min);letter-spacing:.06em;
+  color:rgba(168,204,222,.38);text-align:center}
 /* In flight the same control is a solid cyan chip in the top-left corner — a
    filled swatch against black, which made the least consequential switch in
    the game the brightest object in the frame, brighter than the target

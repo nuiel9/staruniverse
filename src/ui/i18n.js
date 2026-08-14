@@ -48,6 +48,15 @@ const STRINGS = {
   'boot.wake': ['WAKE', 'ตื่น'],
   'boot.legal': ['requires WebGL2 · headphones recommended',
     'ต้องใช้ WebGL2 · แนะนำให้ใส่หูฟัง'],
+  /* The detail tier. No heading: the hint below the row says what the three
+     words are for, which "DETAIL" on its own would not. */
+  'boot.detail.low': ['LOW', 'ต่ำ'],
+  'boot.detail.medium': ['MEDIUM', 'กลาง'],
+  'boot.detail.high': ['HIGH', 'สูง'],
+  'boot.detail.hint': ['lower detail for a smoother frame rate',
+    'ลดรายละเอียดเพื่อให้ภาพลื่นขึ้น'],
+  'boot.detail.reload': ['reloading at the new detail level…',
+    'กำลังโหลดใหม่ตามระดับรายละเอียดที่เลือก…'],
 
   /* ----------------------------------------------------------- the dock */
   'dock.berth': ['BERTH GRANTED · MARKET LINK OPEN', 'ได้รับท่าจอด · เชื่อมต่อตลาดแล้ว'],

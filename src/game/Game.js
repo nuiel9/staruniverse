@@ -46,6 +46,7 @@ import { Directives, UPGRADES } from './directives.js';
 import { Director, SEQUENCES } from './Director.js';
 import { Encounters } from './encounters.js';
 import { seededRandom, wait as waitClock } from '../core/clock.js';
+import { TIERS, storedDetail } from '../core/detail.js';
 
 const ORBIT_TIME = 1;            // orbit rates are already tuned in generate.js
 const TINE_COUNT = 7;
@@ -192,10 +193,18 @@ void main(){
 
 export class Game {
   constructor(canvas, onProgress) {
-    // ?q=low|medium|high forces a tier, so the reduced-shader paths that only
-    // phones would otherwise hit can be verified on a desktop.
+    /* URL, then the player's choice, then the guess.
+       ?q=low|medium|high forces a tier, so the reduced-shader paths that only
+       phones would otherwise hit can be verified on a desktop — and it stays
+       ahead of the stored preference on purpose, because that is what the
+       capture tooling passes, and a preference left in a profile silently
+       re-tiering a review capture would have a judge comparing two different
+       renderers while being told they were the same one.
+       detectQuality is a reasonable guess and still the default, but it is a
+       guess: the same core count means something different with a discrete GPU
+       behind it than without one. See src/core/detail.js. */
     const forced = new URLSearchParams(location.search).get('q');
-    this.quality = ['low', 'medium', 'high'].includes(forced) ? forced : detectQuality();
+    this.quality = TIERS.includes(forced) ? forced : (storedDetail() || detectQuality());
     this.engine = new Engine(canvas, this.quality);
     this.input = new Input(canvas);
     this.onProgress = onProgress || (() => { });

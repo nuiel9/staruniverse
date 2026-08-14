@@ -3,6 +3,8 @@ import { initLang, mountToggle, t, tx, onLangChange } from './ui/i18n.js';
 import { Game } from './game/Game.js';
 import { INTRO_LINES } from './game/lore.js';
 import { tickClock, after, pendingBeats } from './core/clock.js';
+import { mountDetailToggle, setStoredDetail, storedDetail } from './core/detail.js';
+import { detectQuality } from './core/Engine.js';
 
 const bootEl = document.getElementById('boot');
 const fill = document.getElementById('bootFill');
@@ -55,6 +57,37 @@ function desktopOnly() {
      switching after the fact would leave the title card in the wrong one. */
   initLang();
   mountToggle(document.getElementById('bootLang'));
+
+  /* The detail tier, beside the language. Both are choices the title card is
+     the right place to ask for: they are settled once, before anything has
+     been staked on them, and the answer changes how the whole thing is built.
+     The tier is read back out of storage by Game's constructor rather than
+     passed in, so the URL override the capture tooling uses keeps winning. */
+  let detailPaint = null;
+  const detailNote = document.getElementById('bootDetailNote');
+  /* What the buttons show before anything is built: the player's choice if
+     they have made one, otherwise the same guess Game will make. Deliberately
+     not read off `game`, which does not exist yet — and would throw rather
+     than read undefined if it were touched here. */
+  const shownDetail = () => storedDetail() || detectQuality();
+  const mountDetail = () => {
+    detailPaint = mountDetailToggle(
+      document.getElementById('bootDetail'), shownDetail(),
+      (tier) => {
+        if (!setStoredDetail(tier)) return;   // storage refused: leave it alone
+        /* Reload rather than pretend. Nearly everything a tier touches is
+           decided at construction — the terrain's step counts are compiled
+           into the shader, the asteroid field's buffers are sized once, planet
+           LOD meshes are built up front — so there is no honest way to move
+           between tiers in place, and a control that silently applied to half
+           the scene would be worse than one that takes a moment. */
+        if (detailNote) detailNote.textContent = t('boot.detail.reload');
+        setTimeout(() => location.reload(), 60);
+      },
+      (id) => t(`boot.detail.${id}`));
+    if (detailNote && !detailNote.textContent) detailNote.textContent = t('boot.detail.hint');
+  };
+  mountDetail();
   const paintBoot = () => {
     const sub = document.getElementById('bootSub');
     const legal = document.getElementById('bootLegal');
@@ -62,6 +95,9 @@ function desktopOnly() {
     if (sub) sub.textContent = t('boot.sub');
     if (legal) legal.textContent = t('boot.legal');
     if (start) start.textContent = t('boot.wake');
+    // the tier buttons carry translated labels, so they repaint with the rest
+    if (detailPaint) detailPaint(shownDetail());
+    if (detailNote) detailNote.textContent = t('boot.detail.hint');
     /* The two panel headings that live in the markup rather than in a
        render(): the archive and the star map both paint their own bodies but
        inherit their title bar from index.html. */
