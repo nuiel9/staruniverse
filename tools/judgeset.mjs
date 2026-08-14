@@ -210,7 +210,8 @@ for (const [name, js] of INTERFACES) {
   if (!want(name)) continue;
   execFileSync('node', ['tools/probe.mjs',
     `(()=>{ ${js} return null; })()`,
-    '--shot', `${OUT}/${name}.png`, '--settle', '2600', '--w', '1600', '--h', '900', '--dpr', '2'],
+    '--shot', `${OUT}/${name}.png`, '--settle', '2600', '--frozen',
+    '--w', '1600', '--h', '900', '--dpr', '2'],
   { stdio: 'inherit' });
 }
 

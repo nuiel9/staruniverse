@@ -20,10 +20,17 @@ import fs from 'node:fs';
 const args = process.argv.slice(2);
 const opt = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : d; };
 const ONLY = opt('only', null);
-/* Not zero by default only because a driver is allowed to be non-deterministic
-   in the last bit of a filtered texture fetch. Anything the eye could see is
-   far above this. */
-const THR = +opt('thr', 0.02);
+/* Zero, and it has to be zero.
+   The first version of this allowed 0.02% for "driver noise in the last bit of
+   a filtered texture fetch", which sounds reasonable and was wrong. It passed
+   z-landed-dusk at 0.018% — and that 0.018% was a real defect: two runs had
+   simulated a different number of frames, because the set-piece drove frames
+   while the settle pump was also driving them, and whichever won came down to
+   the wall clock. Same pinned hour, same camera matrix to the last digit, 969
+   pixels of foliage in different places. A tolerance is a place for exactly
+   that kind of fault to live, so there isn't one. Raise it only with evidence
+   that a specific frame is non-deterministic below the renderer. */
+const THR = +opt('thr', 0);
 
 const runs = ['a', 'b'].map((tag) => `/tmp/reprocheck-${tag}`);
 for (const dir of runs) fs.rmSync(dir, { recursive: true, force: true });

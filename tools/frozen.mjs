@@ -66,7 +66,16 @@ export async function frozenBoot(page) {
        the same 1/fps from the same start, so every run exits at the same step
        count and the same float value. */
     let guard = 0;
-    while (window.__game.time < canon && guard++ < 10000) window.__step(1);
+    while (window.__game.time < canon) {
+      /* Say so rather than settling for whatever instant we reached. A boot
+         that stopped advancing produces a plausible-looking frame at the wrong
+         moment, and this set has shipped enough of those. */
+      if (guard++ > 10000) {
+        throw new Error(`the clock stopped advancing at t=${window.__game.time} `
+          + `(wanted ${canon}) — the game is not stepping`);
+      }
+      window.__step(1);
+    }
   }, { fps: RECORD_FPS, canon: CANON_BOOT_T });
 }
 
@@ -77,19 +86,45 @@ export async function frozenBoot(page) {
  * waits on `hyperjump(id)`, which only completes as the arrival sequence is
  * updated. Awaiting that with nothing stepping is a deadlock, so pump frames
  * until it settles. The frame at which it resolves is a property of the
- * sequence, not of the machine, so this stays deterministic: check *after*
- * yielding, so a synchronous set-piece costs no extra frames at all.
+ * sequence, not of the machine, so that much stays deterministic.
+ *
+ * The rule that makes it deterministic is: EITHER the set-piece drives frames
+ * (by awaiting `__frame`) OR this pump does. Never both.
+ *
+ * Both at once is a race, and it cost real measurements before the rule went
+ * in. z-landed-dusk awaits eight frames while searching for its framing; the
+ * pump yields on a macrotask between steps; whether the search's await or the
+ * pump's timer won came down to the wall clock. Two captures of it simulated
+ * 9.567 s and 9.467 s — three frames apart — and came back with 969 pixels of
+ * foliage in different places, while every other frame in the set was
+ * byte-identical. The state dump is unambiguous: same pinned landed.t, same
+ * camera matrix to the last digit, different g.time.
+ *
+ * So `__frame` resolves on a microtask rather than a real animation frame, and
+ * microtasks drain completely before this pump's timer can fire — a set-piece
+ * that drives its own frames runs to completion having stepped exactly the
+ * frames it asked for, and the pump adds none. A set-piece that instead blocks
+ * on genuine async work never touches `__frame`, and the pump is the only
+ * thing stepping. A set-piece that tried to do both would be a race again, so
+ * it is refused by name rather than left to drift.
  */
 export async function frozenRun(page, expr, { max = 6000 } = {}) {
   return page.evaluate(async ({ src, max: cap }) => {
     const g = window.__game;
     let done = false, val, err;
+    const drove = () => (window.__frameCount || 0);
+    const before = drove();
     // eslint-disable-next-line no-new-func
     Promise.resolve().then(() => new Function('g', `return (${src})`)(g))
       .then((v) => { val = v; done = true; }, (e) => { err = e; done = true; });
     for (let i = 0; i < cap; i++) {
       await new Promise((r) => setTimeout(r, 0));
       if (done) break;
+      if (drove() !== before) {
+        throw new Error('this set-piece both drives frames with __frame and '
+          + 'blocks on async work — the two race, and the capture would not be '
+          + 'reproducible. Pick one.');
+      }
       window.__step(1);
     }
     if (err) throw (err instanceof Error ? err : new Error(String(err)));
@@ -112,12 +147,19 @@ export async function frozenSettle(page, ms) {
  * the search would silently measure all eight days through one stale camera and
  * pick garbage. Set-pieces should reach for `window.__frame` and fall back to
  * rAF when it is absent, so they work in both modes.
+ *
+ * It deliberately does NOT wait for a real animation frame. `__step` renders
+ * synchronously, so by the time it returns the world has already moved and
+ * there is nothing left to wait for — and resolving on a microtask instead is
+ * what keeps the pump in frozenRun from interleaving steps of its own. See the
+ * one-driver rule there.
  */
 export async function installHelpers(page) {
   await page.evaluate(() => {
+    window.__frameCount = 0;
     window.__frame = async () => {
+      window.__frameCount++;
       if (window.__step) window.__step(1);
-      await new Promise((r) => requestAnimationFrame(r));
     };
   });
 }
