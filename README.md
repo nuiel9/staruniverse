@@ -339,24 +339,35 @@ than milliseconds and the timings every call site was tuned with survive.
 npm run reprocheck  # build the set twice and diff it frame by frame
 ```
 
-Two rules came out of getting this wrong repeatedly, and both are load-bearing.
-Either a set-piece drives frames or the settle pump does, never both — they
-race, and `z-landed-dusk` simulated 9.567 s in one run and 9.467 s in the other
-because of it. And time advances only while the simulation is what is being
-waited for: stepping frames through a genuine `loadSystem` aged the world by
-however long the machine spent reading files.
+Two rules came out of getting this wrong, and both are load-bearing. Either a
+set-piece drives frames or the settle pump does, never both — they race, and
+`z-landed-dusk` simulated 9.567 s in one run and 9.467 s in the other because
+of it. And frames are stepped only while a sequence is *blocked* on the clock,
+not merely while something is scheduled on it: a HUD log line schedules a
+six-second fade, so by mid-walk there is nearly always one pending, and a
+hyperjump's `loadSystem` had frames driven through it on the strength of a fade
+belonging to a log line three shots earlier. That aged the world by however
+long the machine spent reading files, and cost `q-jump`, `t-belt` and `p-fold`
+— the last of which merely follows the other two in the same boot.
 
-**Status, honestly.** 21 of the 24 frames reproduce byte-identically across
-independent builds. The three that carry a hyperjump — `q-jump`, `t-belt`, and
-`p-fold`, which merely follows them in the same boot — still land on one of two
-outcomes. Two builds inside a single `reprocheck` run agreed on all 24, which
-is what a passing run looks like when a coin lands the same way twice; a later
-independent build disagreed on exactly those three, with diffs identical to a
-known earlier failure. The likely remaining cause is that a hyperjump writes
-HUD log lines, each of which schedules a six-second fade beat, and the pump
-steps while *any* beat is outstanding — so the fix above stops it stepping when
-nothing is due and not when something unrelated is. Do not use those three
-frames to judge a change until that is closed.
+All 24 frames now reproduce byte-identically. Worth knowing how that was
+established, because the obvious check is not sufficient: two builds inside a
+single `reprocheck` run agreeing proves less than it appears to, and once
+reported a clean 24/24 while the jump frames were still landing on one of two
+outcomes — a coin landing the same way twice. The claim rests on three
+independent sessions agreeing on the *simulated instant of every shot*, to six
+decimals and always an exact multiple of 1/30, plus frames byte-identical
+across separate runs. Frame count is the sharper instrument: a one-frame drift
+is unmistakable there and can be invisible in a picture of a slow scene, which
+is why `survey` reports `t=` per shot.
+
+One more failure mode is worth naming, because it wasted a search. A capture
+can fail by producing a *frame*: a build came back with `y-landed` as a sheet
+of solid magenta, and `probe` printed `fps=60 calls=70` beside it exactly as it
+would for a good one, while `levels.mjs` recorded p1, p50 and p99 all equal to
+105. Nobody reads a table looking for `p1 == p99`. `tools/flatframe.mjs` now
+checks every shot has more than a level of range in it and says so where the
+capture happens.
 
 The capture tools drive `npm run dev` and address `localhost:5173` literally.
 If Vite says *"Port 5173 is in use, trying another one"* and serves 5174, then
