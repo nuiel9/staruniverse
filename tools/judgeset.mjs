@@ -40,7 +40,21 @@ const FROM_SURVEY = [
 // presented for judging beside the real ones.
 if (!ONLY) {
   console.log('— survey —');
-  fs.rmSync('shots', { recursive: true, force: true });
+  /* The survey's own frames, and only those.
+     This used to be rmSync('shots'), which is right when the review set is
+     being rebuilt in place and destructive when it is not: a build pointed
+     somewhere else with --out still deleted shots/judge on its way past. That
+     is how a review set that had just been handed over was wiped by a run that
+     had no business touching it — and the run reported success, because from
+     its own point of view nothing had gone wrong.
+     The stale-frame hazard the wipe exists for is only about the PNGs the
+     survey itself writes, which are the files sitting directly in shots/. Take
+     those, leave the directories alone, and a build writing elsewhere cannot
+     reach into a set it was not asked to touch. */
+  fs.mkdirSync('shots', { recursive: true });
+  for (const f of fs.readdirSync('shots', { withFileTypes: true }).filter((e) => e.isFile())) {
+    if (f.name.endsWith('.png')) fs.rmSync(`shots/${f.name}`, { force: true });
+  }
 }
 fs.mkdirSync(OUT, { recursive: true });
 /* The survey is a single boot that walks every set-piece in order, so under

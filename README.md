@@ -180,6 +180,18 @@ dither) → FXAA.
 **Performance** holds 60fps by trading resolution, never features: the engine
 watches frame time and moves the render scale between 0.62× and 2×.
 
+That runs inside a **detail tier** — `LOW` / `MEDIUM` / `HIGH`, on the title
+card under the language. The tier sets the budget (supersample and resolution
+ceiling, the streak pass, terrain step counts, planet LOD thresholds, asteroid
+and mote counts, sky bake resolution, star count) and the automatic controller
+trades pixels inside it. It used to be guessed from `deviceMemory` and core
+count, which is still the default and still only a guess: the same core count
+means something different with a discrete GPU behind it. Choosing one reloads,
+because nearly everything a tier touches is decided at construction — terrain
+step counts are compiled into the shader, asteroid buffers are sized once. The
+`?q=low|medium|high` override still wins over a stored choice, because that is
+what the capture tooling passes.
+
 ---
 
 ## Layout
@@ -187,6 +199,8 @@ watches frame time and moves the render scale between 0.62× and 2×.
 ```
 src/
   core/       Engine (renderer, quality tiers, frame loop), Input
+              clock — the scene clock every animation phase runs on, and the
+              one seeded random source; detail — the player's tier
   gfx/        PostFX, Sky (nebula cubemap + HDR star field), cube baking,
               greeble (the shared construction + surfacing kit), GLSL
   world/      generate (seeded universe), Planet, Star, Surface (the ground),
@@ -259,6 +273,16 @@ npm run expedition  # surface sites, the rover, salvage, the ground reading
 npm run lang        # every written string has a translation (no browser needed)
 ```
 
+Three more run against `npm run dev` rather than the built bundle, because they
+import source modules or drive the title card:
+
+```
+npm run fieldcheck  # the JS twin of the height field agrees with the GLSL
+npm run treecheck   # and the tree acceptance test, per instance
+npm run sitecheck   # site placement and reachability, across systems
+npm run detailcheck # picking a tier reloads into a genuinely cheaper world
+```
+
 They are written to be strict about the things that are easy to get quietly
 wrong — that a seam depletes by exactly what was taken, that eleven tonnes of
 lucent is not twelve, that a past price is still the same price when asked
@@ -273,7 +297,7 @@ independent critic said the frames stood beside Starfield's. That loop is
 still here, and now covers this fork's interfaces too:
 
 ```
-npm run judge       # ~25 frames into shots/judge/, plus tone statistics
+npm run judge       # 24 frames into shots/judge/, plus tone statistics
 ```
 
 Then hand `shots/judge/` and [`tools/JUDGE.md`](tools/JUDGE.md) to a reviewer
@@ -282,6 +306,57 @@ is deliberately adversarial and is not to be softened to pass: editing the
 wording instead of the game is the tell. Interface frames get a second pass on
 legibility alone, because a panel can be beautiful and unreadable — this
 project has shipped that mistake and had to undo it twice.
+
+#### Frames that mean something twice
+
+A judged frame exists to be compared against another revision of itself, which
+only works if the two differ by the thing that changed and by nothing else.
+For a long time they did not. `y-landed` came back 6.8% different *from
+itself* between two runs and 92% against the frame that had been shipped for
+judging; set-wide, `e-barren` reached 42% and `m-derelict` 37%. A reviewer
+comparing those was reading a different world, not a different renderer.
+
+Three things were moving, and only the first was in the tools. Settles were
+measured in milliseconds, so a capture sampled whatever frame rate the machine
+produced that minute — and every clock rides on that, 3.2 seconds being 2.2
+degrees of sun. Dynamic resolution reacts to measured fps, so a loaded machine
+rendered at a different pixel ratio, changing sharpness and aliasing
+everywhere. And the world itself was not reproducible: six animation phases
+read `performance.now()` and four scatters called `Math.random()`, including
+`Planet.spin` — so **every planet started at a different longitude on every
+page load**, quietly breaking the promise `generate.js` opens with.
+
+`src/core/clock.js` is the answer to the third: one simulated clock advanced by
+the frame's own `dt`, and one seeded generator. Nothing in a rendered frame
+calls `performance.now()` or `Math.random()` any more. Audio is exempt — it
+makes no pixels, and a synth line that repeats note-for-note every session is
+worse. `tools/frozen.mjs` is the answer to the first two, borrowing the
+existing `?record=N` mode: one frame per `__step` at exactly 1/N of a second,
+with the resolution controller off, so a settle is a number of *frames* rather
+than milliseconds and the timings every call site was tuned with survive.
+
+```
+npm run reprocheck  # build the set twice and diff it frame by frame
+```
+
+Two rules came out of getting this wrong repeatedly, and both are load-bearing.
+Either a set-piece drives frames or the settle pump does, never both — they
+race, and `z-landed-dusk` simulated 9.567 s in one run and 9.467 s in the other
+because of it. And time advances only while the simulation is what is being
+waited for: stepping frames through a genuine `loadSystem` aged the world by
+however long the machine spent reading files.
+
+**Status, honestly.** 21 of the 24 frames reproduce byte-identically across
+independent builds. The three that carry a hyperjump — `q-jump`, `t-belt`, and
+`p-fold`, which merely follows them in the same boot — still land on one of two
+outcomes. Two builds inside a single `reprocheck` run agreed on all 24, which
+is what a passing run looks like when a coin lands the same way twice; a later
+independent build disagreed on exactly those three, with diffs identical to a
+known earlier failure. The likely remaining cause is that a hyperjump writes
+HUD log lines, each of which schedules a six-second fade beat, and the pump
+steps while *any* beat is outstanding — so the fix above stops it stepping when
+nothing is due and not when something unrelated is. Do not use those three
+frames to judge a change until that is closed.
 
 The capture tools drive `npm run dev` and address `localhost:5173` literally.
 If Vite says *"Port 5173 is in use, trying another one"* and serves 5174, then
@@ -296,7 +371,13 @@ node tools/probe.mjs "<js>" --shot out.png     # one expression, one frame
 node tools/sheet.mjs a.png b.png --out s.png   # contact sheet — judge a set at once
 node tools/levels.mjs shots/*.png              # tone statistics per frame
 node tools/judgeset.mjs                        # rebuild the review set in shots/judge/
+node tools/reprocheck.mjs                      # build it twice, diff it frame by frame
+node tools/detailcheck.mjs                     # the detail tier, end to end
+node tools/probe.mjs "<js>" --shot out.png --frozen   # deterministic single frame
 ```
+
+`--frozen` is worth reaching for on any capture that will be compared against
+another one, which is most of them.
 
 `levels.mjs` is the one that stops arguments. "It looks flat" is not
 actionable; "0.00% of pixels clip and the 99th percentile is 165" is, and that
