@@ -212,7 +212,14 @@ const SHOTS = [
       g.setLayer('hud',false);` },
   { name: 'n-map', settle: 1200, js: `g.setLayer('hud',true); g.starmap.show();` },
   { name: 'o-codex', settle: 1200, js: `g.starmap.close(); g.bodies.slice(0,6).forEach(b=>g.completeScan(b)); g.codex.show();` },
-  { name: 'q-jump', settle: 5200, js: `g.codex.close(); g.starmap.close(); g.setLayer('hud',false); g.hyperjump(3);` },
+  /* Returned, not fired and forgotten. Left un-awaited the jump's own async
+     work — a beat, then loadSystem — was still in flight when the settle
+     started, so the settle's frames and the arrival's continuations
+     interleaved on the wall clock: 0.243% of pixels and 109 levels between two
+     builds. Returning it makes the settle pump wait for the jump to land, the
+     way t-belt already does, and t-belt is the one jump frame that has been
+     exact in every run. */
+  { name: 'q-jump', settle: 5200, js: `g.codex.close(); g.starmap.close(); g.setLayer('hud',false); return g.hyperjump(3);` },
   {
     name: 'r-alt-a', settle: 1900, js: `
       const b = g.pick(['lava','toxic','ocean','ice']);

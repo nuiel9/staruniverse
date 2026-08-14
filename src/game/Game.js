@@ -45,7 +45,7 @@ import { CANTOS, LOGS, INTRO_LINES, OWN_LOG } from './lore.js';
 import { Directives, UPGRADES } from './directives.js';
 import { Director, SEQUENCES } from './Director.js';
 import { Encounters } from './encounters.js';
-import { seededRandom } from '../core/clock.js';
+import { seededRandom, wait as waitClock } from '../core/clock.js';
 
 const ORBIT_TIME = 1;            // orbit rates are already tuned in generate.js
 const TINE_COUNT = 7;
@@ -4131,5 +4131,10 @@ export class Game {
 }
 
 function frame() { return new Promise((r) => requestAnimationFrame(() => r())); }
-function wait(ms) { return new Promise((r) => setTimeout(r, ms)); }
+/* Was `new Promise(r => setTimeout(r, ms))`. A hyperjump is a beat in the
+   game, so it advances with the game: on a wall-clock timer it kept running
+   through a hidden tab, and under a stepped capture it resumed after however
+   many frames the machine happened to fit into 420 ms — which is what left
+   q-jump 109 levels different between two builds of the review set. */
+function wait(ms) { return waitClock(ms / 1000); }
 function romanize(n) { return ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'][n] || String(n); }

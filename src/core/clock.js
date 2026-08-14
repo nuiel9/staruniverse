@@ -48,6 +48,9 @@ const beats = [];
 /** Run fn once, `secs` of simulated time from now. */
 export function after(secs, fn) { beats.push({ at: t + secs, fn }); }
 
+/** The awaitable form, for a beat in the middle of an async sequence. */
+export function wait(secs) { return new Promise((r) => after(secs, r)); }
+
 /** Advance the scene clock and fire anything now due. */
 export function tickClock(dt) {
   t += dt;
