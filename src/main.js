@@ -3,6 +3,7 @@ import { initLang, mountToggle, t, tx, onLangChange } from './ui/i18n.js';
 import { Game } from './game/Game.js';
 import { INTRO_LINES } from './game/lore.js';
 import { tickClock, after, pendingWaits } from './core/clock.js';
+import { planFrame } from './core/frame.js';
 import { mountDetailToggle, setStoredDetail, storedDetail } from './core/detail.js';
 import { detectQuality } from './core/Engine.js';
 
@@ -171,18 +172,26 @@ function desktopOnly() {
      intended speed however long the grab took. */
   const RECORD = +(new URLSearchParams(location.search).get('record') || 0);
   let last = performance.now();
-  const MAX_DT = 1 / 15;
+
+  function advance(dt) {
+    /* One clock for everything that moves. Panels, rings, lamps and the
+       cabin's own shader time used to read performance.now() directly, which
+       meant they ignored this dt entirely — they ran at wall-clock speed
+       through a stepped capture and kept running while the tab was hidden.
+       See src/core/clock.js. */
+    tickClock(dt);
+    if (game.started) game.update(dt);
+    else game.updateIdle?.(dt);
+  }
 
   function step(dt) {
     try {
-      /* One clock for everything that moves. Panels, rings, lamps and the
-         cabin's own shader time used to read performance.now() directly, which
-         meant they ignored this dt entirely — they ran at wall-clock speed
-         through a stepped capture and kept running while the tab was hidden.
-         See src/core/clock.js. */
-      tickClock(dt);
-      if (game.started) game.update(dt);
-      else game.updateIdle?.(dt);
+      /* Space clamps, the ground catches up in fixed steps — see
+         src/core/frame.js for why the two differ and why the ground cannot
+         simply be given a bigger step. A stepped capture is untouched:
+         ?record=30 calls step with exactly 1/30, which the ground plans as a
+         single 1/30 sub-step, the same one advance it always made. */
+      for (const h of planFrame(dt, !!game.landed)) advance(h);
       game.engine.time = game.time;
       game.engine.dt = dt;
       // the cabin is a second pass with its own camera; see Engine.render
@@ -204,10 +213,10 @@ function desktopOnly() {
 
   function tick(now) {
     requestAnimationFrame(tick);
-    let dt = (now - last) / 1000;
+    const dt = (now - last) / 1000;
     last = now;
-    if (dt > MAX_DT) dt = MAX_DT;
     if (document.hidden) return;
+    // step() owns the clamping now: it differs between space and the ground
     step(dt);
   }
 

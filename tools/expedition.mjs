@@ -308,6 +308,14 @@ const reach = await page.evaluate(async (MAX_FWD) => {
     body: body.name, range: m.range, dist: Math.round(dist),
     seconds: Math.round(seconds), arrived: dist <= m.reach,
     charge: +R.charge.toFixed(2),
+    /* And whether the pack can still get home, which this check measured and
+       never asked about. It reset R.charge to 1 before driving — right, since
+       that is what a deployed rover has — and then reported the remainder as
+       a statistic beside the verdict rather than as part of it. Two markers in
+       six systems spent over half the pack one-way, so arriving was the end of
+       the trip; the suite watched that happen and called it a pass. */
+    canReturn: R.canReturn(),
+    homeM: Math.round(Math.hypot(R.pos.x, R.pos.z)),
     flatSecs: Math.round(flatSecs), budgetSecs: Math.round(budget),
     ratio: +(seconds / flatSecs).toFixed(2),
   };
@@ -353,6 +361,16 @@ check('a Hush marker is drivable to in a reasonable time', !reach.skipped && rea
   reach.skipped || `${reach.body} ${reach.range} m: ${reach.seconds} s driven vs `
   + `${reach.flatSecs} s flat-out (${reach.ratio}x), budget ${reach.budgetSecs} s, `
   + `${Math.round(reach.charge * 100)}% pack left`);
+
+/* Getting there is half the claim. A marker is the only evidence in the game
+   that has to be fetched in person, so it is the one site a player will drive
+   at whatever the readout says — and a marker sited past a round trip is not a
+   risk they chose, it is a place the pack could never have brought them back
+   from. See MARKER_RANGE_MAX in src/world/Sites.js for the bound and how it
+   was derived. */
+check('and the pack can still get home from it', !reach.skipped && reach.canReturn,
+  reach.skipped || `${reach.body}: ${Math.round(reach.charge * 100)}% left at `
+  + `${reach.homeM} m out, ${Math.round((1 - reach.charge) * 100)}% spent getting there`);
 
 // ------------------------------------------------ what the ground is worth
 const found = await page.evaluate(() => {

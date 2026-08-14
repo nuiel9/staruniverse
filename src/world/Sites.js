@@ -122,6 +122,37 @@ const REACH = { seam: 70, wreck: 55, marker: 45, survivor: 55 };
 const RANGE_MIN = 700;
 const RANGE_MAX = 6200;
 
+/* Markers come home again.
+ *
+ * A Hush marker is the one thing on the ground you cannot get from the
+ * cockpit, so it is the one site a player will drive at whatever the readout
+ * says — and the pack does not care how badly they want it. Measured by
+ * driving at the marker on twenty-three worlds across six systems: two of them
+ * spent over half the pack one-way, which means arriving and being unable to
+ * get back. Not a story about a risk taken; a site placed where the return was
+ * never possible.
+ *
+ * PACK_RANGE is 14 km and the drain is metres of route cost, so a round trip
+ * has to fit 14 km including whatever the terrain adds. On the same runs the
+ * cost came out 1.2 to 1.4 times the straight-line range. Take 1.45 to leave
+ * room past what was measured, and keep the same 1.06 margin `canReturn` uses
+ * to decide the readout is not lying:
+ *
+ *     range <= 14000 / (2 * 1.45 * 1.06) = 4554
+ *
+ * Rounded down to 4500. This clamps the rolled value rather than narrowing the
+ * roll, which matters more than it looks: `place` must burn exactly the same
+ * number of rnd() draws whatever it decides, because `_wreckCountOf` replays
+ * this sequence and one extra draw moves the survivor to a different world.
+ * A marker that already rolled inside the cap does not move at all.
+ *
+ * Only markers. Seams and wrecks may still sit out past a round trip, and the
+ * chart says so — it draws the reachable ring and the get-back ring separately,
+ * and that choice is the player's to make. The marker is the one where there
+ * is no choice, because it is the only evidence in the game that has to be
+ * fetched in person. */
+const MARKER_RANGE_MAX = 4500;
+
 const WRECK_NAMES = ['CASTELLAN', 'MERIDIAN', 'FALLOW', 'ARGENT', 'TIDE OF ASH',
   'PATIENT', 'NINE SISTERS', 'COLD HARBOUR', 'REDOUBT', 'LAST WORD'];
 
@@ -167,7 +198,10 @@ export class Sites {
          and no site moves; only the ~1-in-721 that rolled the top of the range
          reads 0 now instead of 360. */
       const bearing = Math.round(rnd() * 360) % 360;
-      const range = Math.round(RANGE_MIN + rnd() * (RANGE_MAX - RANGE_MIN));
+      // Roll first, clamp after: the draw count is load-bearing. See
+      // MARKER_RANGE_MAX.
+      const rolled = Math.round(RANGE_MIN + rnd() * (RANGE_MAX - RANGE_MIN));
+      const range = kind === 'marker' ? Math.min(rolled, MARKER_RANGE_MAX) : rolled;
       const a = bearing * Math.PI / 180;
       return {
         kind, i, bearing, range,

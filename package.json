@@ -11,6 +11,7 @@
     "treecheck": "node tools/treecheck.mjs",
     "sitecheck": "node tools/sitecheck.mjs",
     "detailcheck": "node tools/detailcheck.mjs",
+    "framecheck": "node tools/framecheck.mjs",
     "smoke": "node tools/smoke.mjs",
     "trade": "node tools/trade.mjs",
     "nebula": "node tools/nebula.mjs",
