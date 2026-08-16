@@ -195,7 +195,23 @@ const STRINGS = {
   'gm.stowed': ['rover stowed · deploy with R', 'ยานสำรวจเก็บอยู่ · กด R เพื่อนำออก'],
   'gm.beyond': ['no return', 'ไปแล้วกลับไม่ได้'],
   'gm.empty': ['Nothing surveyed here.', 'ยังไม่มีอะไรถูกสำรวจที่นี่'],
-  'gm.steep': ['STEEP — GOING AROUND IS FASTER', 'ชันมาก — อ้อมไปเร็วกว่า'],
+  /* States the fact, and stops short of advice it cannot back.
+     This read "GOING AROUND IS FASTER", which the game asserted from the grade
+     alone and never measured — and measurement says it is usually false. Two
+     planners were built to make it true: a fan of candidate headings scored by
+     a two-leg estimate, which recommended a slower route in a sixth to a
+     quarter of cases, the worst by 82 seconds; and a proper Dijkstra cost-to-go
+     field over a baked height grid, which drove 36 runs to a median of 0.09
+     minutes SLOWER than pointing straight at the target, because a 145 m grid
+     optimises a world the rover does not drive and following it cell by cell
+     makes the rover weave.
+     What the measurements did establish is that the straight line is fine:
+     every marker arrives from every bearing tested. So the advice was not just
+     unproven, it was steering players off a route that works — reported as a
+     marker that could never be reached, with the traces showing a circle held
+     at constant range while the pack drained. The warning's real job is to say
+     why the rover slowed down, and it can do that honestly. */
+  'gm.steep': ['STEEP — SLOW GOING', 'ชันมาก — ไปได้ช้า'],
   'gm.note': ['inner ring is there and back · outer is one way',
     'วงในคือไปกลับได้ · วงนอกคือไปได้อย่างเดียว'],
   /* The shading is the only thing on this chart that is about the ground
