@@ -106,6 +106,52 @@ for (const s of R.stations) {
 }
 ok(R.stations.length >= 5, 'every station was tested', `${R.stations.length} stations`);
 
+/* ---- and the star chart comes out of the table it is projected from.
+ *
+ * This is the invariant that was actually broken once: the table's position was
+ * written down in two files, the table moved to starboard, and the chart stayed
+ * at x 0 — a projection hanging over open deck with no projector under it,
+ * its rings sweeping through the airlock hatch. Nothing errored. It took an
+ * outside eye to notice, and then a second look to establish it had been fixed,
+ * because the table's own cyan rim reads as orbit rings from close range and
+ * is easy to mistake for the chart.
+ *
+ * So the guard is arithmetic rather than judgement: the deployed volume has to
+ * be centred on the table and fit inside the room. */
+const holo = await page.evaluate(async () => {
+  const g = window.__game;
+  g.mode = 'pilot';
+  g.starmap.show();
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  const root = g.starmap.root || g.starmap.group;
+  root.updateWorldMatrix(true, true);
+  const V = g.origin.constructor;
+  let mn = [9, 9, 9], mx = [-9, -9, -9];
+  root.traverse((o) => {
+    if (!o.visible || !o.geometry) return;
+    o.geometry.computeBoundingBox?.();
+    const bb = o.geometry.boundingBox; if (!bb) return;
+    for (let i = 0; i < 8; i++) {
+      const v = new V(i & 1 ? bb.max.x : bb.min.x, i & 2 ? bb.max.y : bb.min.y,
+        i & 4 ? bb.max.z : bb.min.z).applyMatrix4(o.matrixWorld);
+      const c = [v.x, v.y, v.z];
+      for (let k = 0; k < 3; k++) { if (c[k] < mn[k]) mn[k] = c[k]; if (c[k] > mx[k]) mx[k] = c[k]; }
+    }
+  });
+  const t = g.interior.navTable.position;
+  return { mn, mx, table: [t.x, t.z],
+    centre: [(mn[0] + mx[0]) / 2, (mn[2] + mx[2]) / 2] };
+});
+
+console.log('\n— the chart sits on the table it comes out of —');
+const offX = Math.abs(holo.centre[0] - holo.table[0]);
+const offZ = Math.abs(holo.centre[1] - holo.table[1]);
+ok(offX < 0.25 && offZ < 0.25, 'the projection is centred over the projector',
+  `off by ${offX.toFixed(2)} m across, ${offZ.toFixed(2)} m along`);
+ok(holo.mn[0] > -1.68 && holo.mx[0] < 1.68, 'and does not reach through the hull',
+  `x ${holo.mn[0].toFixed(2)} .. ${holo.mx[0].toFixed(2)} inside +/-1.68`);
+ok(holo.mx[1] < 2.30, 'nor through the ceiling', `top at y ${holo.mx[1].toFixed(2)}`);
+
 console.log(`\n${pass}/${pass + fail} ok`);
 await browser.close();
 process.exit(fail ? 1 : 0);
