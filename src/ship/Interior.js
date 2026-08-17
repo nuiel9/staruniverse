@@ -2053,6 +2053,115 @@ export function buildInterior(assets = {}) {
     contact(1.44, 6.02, 0.58, 0.58, 0.8);                        // netcargo
     contact(0, -4.9, 0.72, 0.80, 0.9);                           // the pilot column
 
+    /* ================================================== CEILING PANELS ====
+     *
+     * Above the habitat there was nothing but structure: I-beams, corrugated
+     * deck plate seen from underneath, and unfaired conduit — a cargo-bay
+     * roof, and the single loudest thing in the room still saying freighter.
+     * It was also where the dark lived: a third of the frame sat below level
+     * 16 and most of it was up there.
+     *
+     * A ceiling is what turns a hull into a room. These are fitted panels in
+     * the bays BETWEEN the ribs, not one sheet over the lot: the ribs stay
+     * proud and keep reading as structure, which is what every reference
+     * interior does — a finished surface with the frame still legible through
+     * it. Set 0.17 below the apex so the beams and conduit survive above and
+     * are glimpsed rather than displayed.
+     *
+     * Slightly narrower than the hull at this height so the wall curve is not
+     * fought, and the gap it leaves at each side is where the cove light
+     * already runs — the panel now has something to bounce off, which is most
+     * of what a soft ceiling is. */
+    {
+      const CEIL_Y = H - 0.17;
+      const CEIL_HW = HW - 0.42;
+      const RIB_GAP = 0.085;              // the rib stays visible between bays
+      for (let z = 1.1; z < 6.9; z += 1.15) {
+        const z0 = z + RIB_GAP, z1 = z + 1.15 - RIB_GAP;
+        add(box(CEIL_HW * 2, 0.055, z1 - z0, M.panel, 0, CEIL_Y, (z0 + z1) / 2, 0.02));
+        /* A shallow return at each edge, so the panel reads as a fitted tray
+           rather than a board floating under the beams. */
+        for (const sx of [-1, 1]) {
+          add(box(0.05, 0.11, z1 - z0, M.panel, sx * CEIL_HW, CEIL_Y - 0.05, (z0 + z1) / 2, 0.015));
+        }
+      }
+    }
+
+    /* ================================================= THE DOMESTIC BAY ====
+     *
+     * There was not one domestic object anywhere in this ship. Crates, a
+     * keyboard and a drill are equipment; none of them say anyone lives here,
+     * and the Long Margin is a survey vessel whose crew have been out for
+     * years. It is also the difference an outside review put last and largest
+     * between this cabin and the interiors it is aimed at: "habitat" versus
+     * "corridor with the lights on".
+     *
+     * Put under the observation port on purpose. A bench beneath the one
+     * window is the most human thing a small ship can have, it needs no new
+     * floor space, and it gives the port a reason to be where it is. Kept
+     * against the starboard wall so the walkway is untouched — tools/
+     * cabincheck.mjs is what says that is still true, including that the port
+     * itself can still be reached. */
+    {
+      const SB = HW - 0.38;               // against the starboard wall
+      const bz = 4.35;                    // centred under the port
+
+      /* Upholstery, and it has to be LIGHT.
+         The first pass built this from M.dark and M.seat, which are the two
+         darkest materials in the ship, and set it in the corner with the least
+         light in the room — so a bench, a table and a throw came out as one
+         unreadable slab. Every reference interior does the opposite: the couch
+         is the brightest, most saturated thing in frame, because soft
+         furnishing is where a grey ship is allowed to have a colour. */
+      const fabric = M.seat.clone();
+      fabric.color.setHex(0x9c4436, 'srgb');    // oxide red, the ship's one textile
+      fabric.roughness = 0.95;
+      const fabricDim = fabric.clone();
+      fabricDim.color.setHex(0x7a3a30, 'srgb');
+
+      // bench: plinth, cushion, and a back rail against the hull
+      /* A plinth that catches light. In liner it went dark under the cushion —
+         the lamp above is shadowed by the seat itself — and a bright red slab
+         over an unlit base reads as furniture floating a foot off the deck.
+         Panel is the lightest surface in the room and it grounds it. */
+      add(box(0.62, 0.34, 1.45, M.panel, SB - 0.02, DECK_TOP + 0.17, bz, 0.02));
+      add(box(0.60, 0.16, 1.40, fabric, SB - 0.02, DECK_TOP + 0.42, bz, 0.06));
+      add(box(0.10, 0.44, 1.40, fabricDim, SB + 0.26, DECK_TOP + 0.68, bz, 0.06));
+      // a throw over one end, folded: cloth is the cheapest signal of habitation
+      add(box(0.52, 0.08, 0.40, fabricDim, SB - 0.06, DECK_TOP + 0.53, bz + 0.48, 0.04));
+
+      /* And a lamp over it. A reading light above the one window is what makes
+         a bench a place to sit rather than a shelf, and this corner had no
+         practical of its own — the nearest was four metres forward. */
+      const benchLamp = new THREE.PointLight(0xffd2a0, 3.4, 2.5, 2.0);
+      benchLamp.position.set(SB - 0.30, 1.98, bz);
+      benchLamp.layers.set(INTERIOR_LAYER);
+      add(benchLamp);
+
+      // a low table in front of it, with a mug left on it
+      add(box(0.46, 0.05, 0.60, M.panel, SB - 0.62, DECK_TOP + 0.44, bz, 0.02));
+      add(box(0.07, 0.36, 0.07, M.rail, SB - 0.62, DECK_TOP + 0.26, bz, 0.01));
+      add(box(0.07, 0.09, 0.07, M.liner, SB - 0.70, DECK_TOP + 0.51, bz - 0.14, 0.03));
+
+      /* A planter. Nothing in this ship is alive, and one green thing in a
+         grey room does more for "people live here" than another crate does. */
+      const leafMat = M.accent.clone();
+      leafMat.color.setHex(0x4d6b3a, 'srgb');
+      leafMat.roughness = 0.85;
+      add(box(0.30, 0.26, 0.30, M.liner, -HW + 0.46, DECK_TOP + 0.13, 1.35, 0.04));
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7) * Math.PI * 2;
+        const m = box(0.055, 0.30 + (i % 3) * 0.09, 0.16, leafMat,
+          -HW + 0.46 + Math.sin(a) * 0.10, DECK_TOP + 0.44 + (i % 3) * 0.05,
+          1.35 + Math.cos(a) * 0.10, 0.02);
+        m.rotation.set(Math.cos(a) * 0.28, a, Math.sin(a) * 0.28);
+      }
+
+      contact(SB - 0.02, bz, 0.55, 0.95, 0.9);          // the bench
+      contact(SB - 0.62, bz, 0.34, 0.42, 0.75);         // the table
+      contact(-HW + 0.46, 1.35, 0.30, 0.30, 0.85);      // the planter
+    }
+
     /* ---- the archive screen lights the room it is in.
        It is the largest emissive surface in the habitat and it was lighting
        nothing: not the keyboard deck 40 cm under it, not the wall behind it,
@@ -2276,6 +2385,8 @@ export function buildInterior(assets = {}) {
          resonance chamber, the port and half the lockers out of the ship, and
          nothing in play.mjs walks that far so nothing caught it. */
       [1.05, 1.85, 1.05, 2.30],      // crates
+      [1.35, 2.05, 3.55, 5.15],      // the bench under the port
+      [-2.05, -1.35, 1.15, 1.55],    // the planter
       /* Netted freight in the aft starboard corner. It hugs the wall — the
          habitat's half-width is 1.68 and the resonance chamber's station puts
          the player at (0, 5.85), so expanded by the 0.30 collision radius this
