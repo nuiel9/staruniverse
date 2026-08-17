@@ -795,6 +795,30 @@ export function dressInterior(mat, o = {}) {
      the owner meant by hierarchy. */
   const markFloor = (o.markFloor ?? 0.16).toFixed(3);
   const sheenKill = (o.sheenKill ?? 0.5).toFixed(3);
+  /* `tone` re-values a surface AFTER all its baked detail has been applied.
+   *
+   * The cabin's surfacing is baked: panel_albedo.webp and its normal and ORM
+   * come out of tools/interior_bake, which is Blender, which is not something
+   * every machine that touches this repo will have. So the base colour is not
+   * where the look lives — lifting M.panel's diffuse from 0x827b70 to a pale
+   * bone moved 0.8% of the frame, because the map dominates it and then wear,
+   * grime, seams and hand-shadow multiply it down again.
+   *
+   * The maps carry DETAIL, which is the expensive half and is worth keeping.
+   * Value and hue are cheap to move, and moving them last means every seam,
+   * scuff and dust band survives at its own relative strength. So this is a
+   * gain and a tint applied at the very end of the albedo block: it re-values
+   * a surface without re-baking it, which is the only way to change this
+   * cabin's palette on a machine with no Blender on it. */
+  const toneGain = (o.toneGain ?? 1).toFixed(3);
+  /* And a floor under it. Gain alone cannot make bone out of grimed alloy:
+     multiplying a value near zero leaves it near zero, so a surface that the
+     wear and hand-shadow passes have driven dark stays dark however hard it is
+     scaled. The reference interiors have a LIFTED albedo — their darkest wall
+     is still a light grey — which is a floor, not a multiplier. */
+  const toneLift = (o.toneLift ?? 0).toFixed(4);
+  const toneTint = o.toneTint
+    ? `vec3(${o.toneTint.map((v) => v.toFixed(3)).join(',')})` : 'vec3(1.0)';
   const bounce = (o.bounce ?? 1.0).toFixed(3);
   const et = o.edgeTint || [0.66, 0.68, 0.71];
   const edgeTint = `vec3(${et.map((v) => v.toFixed(3)).join(',')})`;
@@ -966,6 +990,14 @@ ${micro > 0 ? /* glsl */`
           // and the greasy shadow round anything held
           diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb*vec3(0.76,0.73,0.68),
                                  clamp(si_hand*0.40, 0.0, 0.40));
+
+          /* ---- re-value, after every baked detail and before the micro scale.
+             Last, so the detail above is preserved at its own relative
+             strength rather than being flattened by a brighter starting
+             point. See the tone options. */
+          diffuseColor.rgb = clamp(diffuseColor.rgb * ${toneGain} * ${toneTint}
+                                   + ${toneLift} * ${toneTint},
+                                   vec3(0.0), vec3(1.0));
 
           /* ---- and the centimetre scale on top of all of it.
              Both terms are written so that the *mean* of the map leaves the
@@ -1814,6 +1846,12 @@ export function makeInteriorMaterials(assets = {}) {
   }), {
     tex, set: 'panel', wear: 0.75, grime: 0.55, bump: 1.0, bare: 0.45,
     dust: 0.6, hands: 0.35, edgeTint: [0.72, 0.73, 0.75],
+    /* Bone, and warm. The references this is aimed at are bright because
+       their WALLS are bright — the decks under them stay dark, which is what
+       stops a light room reading as a washed one. So the value structure is
+       the point, not the brightness: panelling up, deck and graphite left
+       exactly where they are. */
+    toneGain: 1.55, toneLift: 0.185, toneTint: [1.03, 1.00, 0.95],
     roughLo: 0.62, roughHi: 0.97, sheenKill: 0.55,
     microTile: 0.28, key: 'panel',
   });
@@ -1824,6 +1862,8 @@ export function makeInteriorMaterials(assets = {}) {
   }), {
     tex, set: 'panel', wear: 0.9, grime: 0.7, bump: 1.1, bare: 0.5,
     dust: 0.7, hands: 0.25, edgeTint: [0.66, 0.69, 0.72],
+    // the shell behind the panelling: lifted less, so it still reads as raw
+    toneGain: 1.34, toneLift: 0.125, toneTint: [1.00, 1.01, 0.99],
     roughLo: 0.66, roughHi: 0.99, sheenKill: 0.6,
     microTile: 0.32, microWear: 1.15, key: 'hull',
   });
