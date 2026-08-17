@@ -30,7 +30,18 @@ import { t, onLangChange } from '../ui/i18n.js';
    and the same dots given depth read as a volume.
    ========================================================================== */
 
-const TABLE = new THREE.Vector3(0, 1.17, 2.6);
+/* Where the projection stands, above the table it comes out of.
+ *
+ * This used to hard-code the table's position, which is the same number
+ * written down in two files — and the day the table moved, only one of them
+ * changed. The starmap stayed behind at x 0 while the table went to starboard,
+ * leaving a chart hanging over open deck with no projector under it and its
+ * orbit rings passing through the airlock hatch. Nothing errored; it just
+ * looked absurd, and it took an outside eye to notice.
+ *
+ * So only the height above the table lives here now. Where the table IS comes
+ * from the table. */
+const TABLE_Y = 1.17;
 const SCALE = 0.0080;        // light-years -> metres on the table
 const LIFT = 0.235;          // vertical spread of the volume
 const DISC = 0.50;           // radius of the base grid
@@ -215,7 +226,13 @@ export class HoloMap {
     });
 
     const g = new THREE.Group();
-    g.position.copy(TABLE);
+    // the table's own position, so the two can never disagree again
+    g.position.set(0, TABLE_Y, 2.6);
+    if (interior.navTable) {
+      g.position.x = interior.navTable.position.x;
+      g.position.z = interior.navTable.position.z;
+    }
+    this.table = g.position.clone();      // for anyone who needs to look at it
     g.scale.setScalar(0.001);
     g.visible = false;
     this.root = g;
@@ -597,8 +614,11 @@ export class HoloMap {
     // the upper third and gave the bottom half of the frame to the rim.
     // Far enough back that the whole containment fits the frame: at 0.98 m the
     // 1.25 m volume overflowed both edges, which is its own kind of illegible.
-    out.pos.set(0.10, 1.46, 1.34);
-    out.look.copy(TABLE).add(new THREE.Vector3(0.02, LIFT * 0.52, 0.02));
+    /* Relative to the table, not to the ship's centreline. Written absolute,
+       this framed a chart that was no longer there the moment the table moved
+       — the same duplicated-position bug as TABLE above, one viewpoint later. */
+    out.pos.set(this.table.x + 0.10, 1.46, this.table.z - 1.26);
+    out.look.copy(this.table).add(new THREE.Vector3(0.02, LIFT * 0.52, 0.02));
     return out;
   }
 

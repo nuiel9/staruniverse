@@ -1543,7 +1543,17 @@ export function buildInterior(assets = {}) {
 
   // ---- navigation table
   const nav = new THREE.Group();
-  nav.position.set(0, 0, 2.6);
+  /* Off the centreline, to starboard.
+     Dead centre, the table split the habitat into two thin lanes and every
+     trip aft was a squeeze past its skirt — the floor plan of a corridor with
+     an obstacle in it. Set against the starboard side it becomes a station you
+     stand at, with one honest walkway down the port side and the archive
+     facing it across the room. The skirt is r 0.80 and the walkable half-width
+     here is 1.68, so at 0.62 the table's outboard edge sits 0.26 m off the
+     starboard limit and the port lane opens to 1.06 m — three and a half times
+     the 0.30 m collision radius, where before there were two lanes of 0.22.
+     tools/cabincheck.mjs is what says that is still true after any edit. */
+  nav.position.set(0.62, 0, 2.6);
   add(nav);
   nav.add(cyl(0.26, 0.40, 0.62, 28, M.dark, 0, 0.31, 0));
   /* The top is an *annulus*, not a disc. It was a capped cylinder, so the
@@ -1639,8 +1649,8 @@ export function buildInterior(assets = {}) {
   mergeStatic(nav);
   stations.push({
     id: 'nav', label: 'STELLAR CARTOGRAPHY', hint: 'Plot a fold',
-    pos: new THREE.Vector3(0, 1.0, 1.55), radius: 1.15,
-    look: new THREE.Vector3(0, 1.1, 2.6),
+    pos: new THREE.Vector3(0.62, 1.0, 1.55), radius: 1.15,
+    look: new THREE.Vector3(0.62, 1.1, 2.6),
     holo: nav,
   });
 
@@ -1663,11 +1673,20 @@ export function buildInterior(assets = {}) {
      What stays here is what the kit cannot carry: the live canvas, and
      everything that lights up. */
   const archX = -HW + 0.30;
+  /* The archive used to sit at z 0.95, level with the nav table and hard up
+     against the corridor mouth, which made the habitat read as a passage with
+     fittings on the walls rather than as a room. Moved aft to face the table
+     across the floor, it closes the working bay and leaves the port side
+     forward of it clear to walk. Everything the console owns keys off this,
+     including its screen and the `A()` helper below, so the console, the glass
+     and the lamps travel together rather than one of them being left behind at
+     the old number. */
+  const archZ = 3.40;
   if (haveKit) {
-    placeKit('archive', archX, 0, 0.95, Math.PI / 2);
+    placeKit('archive', archX, 0, archZ, Math.PI / 2);
   } else {
     const arch = new THREE.Group();
-    arch.position.set(archX, 0, 0.95);
+    arch.position.set(archX, 0, archZ);
     arch.rotation.y = Math.PI / 2;
     add(arch);
     arch.add(box(1.15, 0.85, 0.12, M.panel, 0, 1.35, 0));
@@ -1677,7 +1696,7 @@ export function buildInterior(assets = {}) {
   /* `spillZ` is the standoff from the canvas to the front of the bezel, which
      is `face + lip` in screen_bay() — 0.037 on the archive's bay. It was 0.006,
      which put the spill quad inside the bezel that is meant to be washed. */
-  scr('archive', 0.98, 0.62, archX + 0.06, 1.36, 0.95, 0, Math.PI / 2, 0,
+  scr('archive', 0.98, 0.62, archX + 0.06, 1.36, archZ, 0, Math.PI / 2, 0,
     { res: 768, spill: 0.055, spillZ: haveKit ? 0.038 : 0.006, spillGain: 1.0 });
   pl(-HW + 0.62, 1.52, 0.95, 0x9fd8ff, 3.4, 1.9);
   if (haveKit) {
@@ -1690,7 +1709,7 @@ export function buildInterior(assets = {}) {
        becomes world +X. `sbox` takes world extents, so anything that runs
        across the console is long in *z* here. Getting this backwards puts a
        160 mm strip through the wall instead of along the fascia. */
-    const A = (lx, ly, lz) => [archX + lz, ly, 0.95 - lx];
+    const A = (lx, ly, lz) => [archX + lz, ly, archZ - lx];
     // card reader throat, in the mouth the kit cuts at (0.408, 1.610)
     add(sbox(0.004, 0.014, 0.130, emissive(0x8fd8ff, 1.4), ...A(0.408, 1.610, 0.008)));
     // the slate dock's shelf light, and the two slates left charging in it
@@ -1716,8 +1735,8 @@ export function buildInterior(assets = {}) {
   }
   stations.push({
     id: 'archive', label: 'ARCHIVE', hint: 'Review discoveries and records',
-    pos: new THREE.Vector3(-HW + 1.15, 1.0, 0.95), radius: 1.0,
-    look: new THREE.Vector3(-HW + 0.3, 1.35, 0.95),
+    pos: new THREE.Vector3(-HW + 1.15, 1.0, archZ), radius: 1.0,
+    look: new THREE.Vector3(-HW + 0.3, 1.35, archZ),
   });
 
   /* ---- resonance chamber, aft bulkhead.
@@ -2101,7 +2120,7 @@ export function buildInterior(assets = {}) {
          observation port are both back there, and both are stations the game
          asks the player to walk to. Sized to the geometry, the lane is
          0.22 m wide and continuous the length of the habitat. */
-      [-0.86, 0.86, 1.76, 3.44],     // nav table
+      [-0.24, 1.48, 1.76, 3.44],     // nav table, off-centre to starboard
       [-2.05, -1.72, 2.85, 6.35],    // lockers
       /* No blocker for the archive console, deliberately. Its front face is at
          x -1.43 and the habitat volume already stops the player's centre at
