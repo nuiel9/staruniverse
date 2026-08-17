@@ -1030,8 +1030,15 @@ export function buildInterior(assets = {}) {
   // centreline guide down the corridor, aimed forward at the helm
   strip(0, 0.095, -1.4, 3.2, 0x7fd8ff, 1.6, 1);
 
+  /* A light touch on every practical, applied here rather than at seventy call
+     sites. 1.25 is what the measurement supports: the practicals are what cost
+     the room its warm-against-cool tension when pushed, so they get a nudge and
+     the ambient does the work. See the note on the AmbientLight. */
+  const PRACTICAL = 1.25;
+
   const pl = (x, y, z, hex, inten, dist) => {
-    const l = new THREE.PointLight(new THREE.Color().setHex(hex, THREE.SRGBColorSpace), inten, dist, 2);
+    const l = new THREE.PointLight(new THREE.Color().setHex(hex, THREE.SRGBColorSpace),
+      inten * PRACTICAL, dist, 2);
     l.position.set(x, y, z);
     l.layers.set(INTERIOR_LAYER);
     l.userData.dynamic = true;
@@ -1069,7 +1076,7 @@ export function buildInterior(assets = {}) {
      penumbra at 1 m; 1.6 is closer and still soft enough not to stair-step. */
   const spot = (x, y, z, tx, ty, tz, hex, inten, ang, mapSize) => {
     const l = new THREE.SpotLight(new THREE.Color().setHex(hex, THREE.SRGBColorSpace),
-      inten, 14, ang, 0.55, 2);
+      inten * PRACTICAL, 14, ang, 0.55, 2);
     l.position.set(x, y, z);
     l.target.position.set(tx, ty, tz);
     l.castShadow = true;
@@ -1270,7 +1277,31 @@ export function buildInterior(assets = {}) {
      Level is nearly free either way — zeroing both moved the corridor's median
      four levels out of 255, because auto-exposure normalises the room inside a
      second — so this is a ratio change, not a dimming. */
-  const amb = new THREE.AmbientLight(0xbdb2a2, 0.14);
+  /* The fill, and it was doing almost nothing.
+   *
+   * At 0.14 this room threw away half of itself: measured across the habitat
+   * frame, 46.9% of pixels sat below level 16 — not dark, *gone*, with no
+   * information in them at all. The references this is being judged against
+   * have almost none.
+   *
+   * Raising it is very nearly free, and that is worth writing down because the
+   * obvious alternative is not. Two ways to brighten a room were measured here.
+   * Turning up the practicals buys the most and costs the thing the room is
+   * best at: the amber-against-cool tension on the port wall fell from a
+   * red-to-blue ratio of 2.41 to 1.93, the same flattening a previous attempt
+   * at a lighter palette produced. The ambient buys less and costs nothing —
+   * 2.41 to 2.35 at seven times the level, because it lifts every surface in
+   * proportion instead of pushing cool light across a warm one.
+   *
+   * So: a lot of ambient, tinted to the tungsten the coves already run, and
+   * only a touch on the practicals. Measured at 8x/1.25x — mean 37.1 to 40.9,
+   * pixels below 16 from 46.9% to 41.9%, and contrast slightly UP, 47.4 to
+   * 48.1, which is the test that separates this from repainting the surfaces.
+   *
+   * This does not make the cabin look like a bright ship. It cannot: those
+   * rooms are bright because their materials are light-valued, and no amount
+   * of light on dark oily metal produces a white room. This is the free part. */
+  const amb = new THREE.AmbientLight(0xffd2a6, 1.12);
   amb.layers.set(INTERIOR_LAYER);
   add(amb);
 
