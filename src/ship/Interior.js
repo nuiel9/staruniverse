@@ -399,6 +399,62 @@ export function buildInterior(assets = {}) {
 
   const add = (m) => { root.add(m); return m; };
 
+  /* ---- contact patches: what makes furniture sit on the floor.
+   *
+   * The cabin casts real shadows — eight lights, and the ceiling beams throw
+   * hard bands across the walkway — and yet every piece of furniture in it
+   * reads as pasted onto the deck rather than resting on it. That is not a
+   * missing shadow, it is the shadows working as configured: `shadow.radius`
+   * is 1.6 and normalBias is derived per light at about 10 mm, both of which
+   * are correct for the room and both of which push the darkening away from
+   * exactly the millimetre where an object meets the floor. Tightening either
+   * to recover the contact brings back the acne they were set to prevent.
+   *
+   * So the contact is drawn rather than traced: a soft dark ellipse laid on
+   * the deck under each large object, which is what the shadow would do at the
+   * contact if it had the resolution. Cheap — one texture shared by all of
+   * them, and transparent, so mergeStatic leaves them alone anyway.
+   */
+  const CONTACT_TEX = (() => {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const x = c.getContext('2d');
+    const gr = x.createRadialGradient(64, 64, 4, 64, 64, 62);
+    /* Not linear: real contact occlusion falls off fast near the object and
+       then lingers. A straight ramp reads as a painted disc. */
+    gr.addColorStop(0.00, 'rgba(0,0,0,0.85)');
+    gr.addColorStop(0.35, 'rgba(0,0,0,0.55)');
+    gr.addColorStop(0.70, 'rgba(0,0,0,0.16)');
+    gr.addColorStop(1.00, 'rgba(0,0,0,0)');
+    x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    return t;
+  })();
+  /* Normal blending over a black texture whose alpha IS the occlusion, rather
+     than multiply. Multiply wants white where it should leave the floor alone,
+     so a black-to-transparent ramp fights it — and three rejects it outright
+     without premultipliedAlpha. Straight alpha over black darkens by exactly
+     the gradient, which is what a contact shadow is. */
+  const CONTACT_MAT = new THREE.MeshBasicMaterial({
+    map: CONTACT_TEX, transparent: true, opacity: 1, color: 0x000000,
+    depthWrite: false, toneMapped: false,
+  });
+  /** A contact shadow on the deck: centre, and the radii it reaches to. */
+  const contact = (x, z, rx, rz = rx, strength = 1) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(rx * 2, rz * 2), CONTACT_MAT);
+    if (strength !== 1) {
+      m.material = CONTACT_MAT.clone();
+      m.material.opacity = strength;
+    }
+    m.rotation.x = -Math.PI / 2;
+    // 6 mm proud of the deck: under the plate's own relief, over its coplanar z-fight
+    m.position.set(x, DECK_TOP + 0.006, z);
+    m.renderOrder = 2;
+    m.userData.noShadow = true;
+    return add(m);
+  };
+
   // Shells are viewed from the inside, so they need their own back-faced
   // materials — flipping `side` on the shared ones would invert every box too.
   M.hullShell = dressedVariant(M.hull, { side: THREE.DoubleSide });
@@ -1937,6 +1993,36 @@ export function buildInterior(assets = {}) {
     placeKit('crate_a', 1.50, DECK_TOP, 1.40, 0.5);
     placeKit('crate_b', 1.35, DECK_TOP, 1.95, -0.7);
     placeKit('crate_b', 1.55, DECK_TOP + 0.36, 1.40, 1.2);
+
+    /* Where each of these sits on the floor. Radii are the object's own
+       footprint plus a little, because a contact that stops at the silhouette
+       reads as a decal and one that spreads past it reads as dirt. */
+    contact(nav.position.x, nav.position.z, 1.05, 1.05, 0.95);   // nav table skirt
+    contact(archX + 0.34, archZ, 0.62, 0.86, 0.9);               // archive console
+    contact(0, 5.85, 0.95, 0.95, 0.8);                           // resonance chamber
+    contact(1.50, 1.65, 0.62, 0.72, 0.85);                       // the crate stack
+    contact(1.44, 6.02, 0.58, 0.58, 0.8);                        // netcargo
+    contact(0, -4.9, 0.72, 0.80, 0.9);                           // the pilot column
+
+    /* ---- the archive screen lights the room it is in.
+       It is the largest emissive surface in the habitat and it was lighting
+       nothing: not the keyboard deck 40 cm under it, not the wall behind it,
+       not its own frame. A monitor that bright in a room this dark should be
+       the local key, and a glowing rectangle that casts no light is the single
+       clearest tell that a scene is faked. Cool, because the screen is. */
+    const scrLamp = new THREE.PointLight(0x9fd0ff, 2.6, 2.6, 2.0);
+    scrLamp.position.set(archX + 0.42, 1.36, archZ);
+    add(scrLamp);
+
+    /* ---- and a fixture over the working bay.
+       The habitat still read as a corridor because its light ran the length of
+       it in one row, the same axis as the floor plating. A pool hung between
+       the table and the console is what makes the two of them a place rather
+       than two objects parked on opposite walls. */
+    const bayLamp = new THREE.SpotLight(0xffe3c0, 12, 4.2, 0.85, 0.55, 1.6);
+    bayLamp.position.set((nav.position.x + archX + 0.34) / 2, 2.28, (nav.position.z + archZ) / 2);
+    bayLamp.target.position.set(bayLamp.position.x, 0, bayLamp.position.z);
+    add(bayLamp); add(bayLamp.target);
 
     /* ---- and what the ledger has bought.
      *
