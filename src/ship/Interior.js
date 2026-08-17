@@ -1999,7 +1999,14 @@ export function buildInterior(assets = {}) {
        reads as a decal and one that spreads past it reads as dirt. */
     contact(nav.position.x, nav.position.z, 1.05, 1.05, 0.95);   // nav table skirt
     contact(archX + 0.34, archZ, 0.62, 0.86, 0.9);               // archive console
-    contact(0, 5.85, 0.95, 0.95, 0.8);                           // resonance chamber
+    /* No contact under the resonance chamber. It cost the brightest reflection
+       pool in the room 26% of its brightness, and it was backwards besides: the
+       chamber is a self-illuminated device that throws cyan onto the bulkhead
+       while the deck beneath it took no blue at all, so the decal had a glowing
+       machine casting a shadow and no light. It gets a light instead. */
+    const resGlow = new THREE.PointLight(0x39c8ea, 1.5, 2.2, 2.0);
+    resGlow.position.set(0, 0.75, 5.85);
+    add(resGlow);
     contact(1.50, 1.65, 0.62, 0.72, 0.85);                       // the crate stack
     contact(1.44, 6.02, 0.58, 0.58, 0.8);                        // netcargo
     contact(0, -4.9, 0.72, 0.80, 0.9);                           // the pilot column
@@ -2010,7 +2017,14 @@ export function buildInterior(assets = {}) {
        not its own frame. A monitor that bright in a room this dark should be
        the local key, and a glowing rectangle that casts no light is the single
        clearest tell that a scene is faked. Cool, because the screen is. */
-    const scrLamp = new THREE.PointLight(0x9fd0ff, 2.6, 2.6, 2.0);
+    /* A screen's worth of light, not a room's.
+       At range 2.6 this reached the far bulkhead and lifted the whole port wall
+       cool, rinsing the rusty amber that was the best-looking surface in the
+       render — measured, its red-to-blue ratio fell from 2.6 to 1.5 — while the
+       screen's own bezel stayed warm and dark, which is the opposite of what a
+       display does. A real panel blows out its own hood and dies inside a
+       metre. */
+    const scrLamp = new THREE.PointLight(0x9fd0ff, 1.15, 1.05, 2.0);
     scrLamp.position.set(archX + 0.42, 1.36, archZ);
     add(scrLamp);
 
@@ -2019,7 +2033,10 @@ export function buildInterior(assets = {}) {
        it in one row, the same axis as the floor plating. A pool hung between
        the table and the console is what makes the two of them a place rather
        than two objects parked on opposite walls. */
-    const bayLamp = new THREE.SpotLight(0xffe3c0, 12, 4.2, 0.85, 0.55, 1.6);
+    /* Tighter and stronger. At angle 0.85 over 4.2 m it spread its twelve
+       units across the whole floor and moved the bay by 6% — light with no
+       shape, which is not a pool and did not zone anything. */
+    const bayLamp = new THREE.SpotLight(0xffe3c0, 26, 3.6, 0.62, 0.42, 1.7);
     bayLamp.position.set((nav.position.x + archX + 0.34) / 2, 2.28, (nav.position.z + archZ) / 2);
     bayLamp.target.position.set(bayLamp.position.x, 0, bayLamp.position.z);
     add(bayLamp); add(bayLamp.target);
