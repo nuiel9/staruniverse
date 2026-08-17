@@ -46,6 +46,11 @@ import { Directives, UPGRADES } from './directives.js';
 import { Director, SEQUENCES } from './Director.js';
 import { Encounters } from './encounters.js';
 import { seededRandom, wait as waitClock } from '../core/clock.js';
+
+/* What an emergency lift costs, as a fraction of the tank. A sixth is enough
+   to be a decision — you will feel it at the next jump — and far short of
+   stranding the ship in turn, which would trade one dead end for a worse one. */
+const RECALL_FUEL = 1 / 6;
 import { TIERS, storedDetail } from '../core/detail.js';
 
 const ORBIT_TIME = 1;            // orbit rates are already tuned in generate.js
@@ -904,12 +909,15 @@ export class Game {
          ground that changes how far you can go, so it gets its own key rather
          than another meaning for E. */
       if (!uiOpen && input.tappedCode('KeyR') && !this.transition) this.toggleRover();
+      // H brings the ship to you, and only when the pack cannot. See recall().
+      if (!uiOpen && input.tappedCode('KeyH') && !this.transition) this.recall();
       if (this.groundmap.open) this.groundmap.draw();
       /* The drone. Held, not tapped: extraction is work you stand there for,
          and a seam that emptied on a single keypress would be a loot box. */
       this.updateDrone(dt, input.held('scan'));
       if (this.landed.driving) {
         this.rover.update(dt, input, uiOpen);
+        this._roverReturnWatch();
         this._roverArrival();
       }
       // The crew controller runs on the ground too — the main update returns
@@ -1119,6 +1127,47 @@ export class Game {
     return { x: 0, z: 0 };
   }
 
+  /* The ship comes and gets you, when the pack no longer can.
+   *
+   * Until this existed, a flat pack away from the ship was the end of the run
+   * and nothing said so. Stow refuses past about two hundred metres, lift-off
+   * is blocked while driving, and E works the site rather than letting you out,
+   * so a rover at zero charge could not move, be put away, be left, or be
+   * escaped. Measured, not inferred: at 311 m out with an empty pack, every
+   * exit refused and the rover moved four metres, which was the chassis
+   * settling. That is a soft-lock, and it was reported as one — "i can't back
+   * to the ship".
+   *
+   * Deliberately not a taxi. It is refused while the pack can still bring you
+   * home, so the point of no return keeps meaning something: the choice to
+   * drive past half a charge is still a choice you can get wrong, it just no
+   * longer ends the save. What it costs is lucent, which is the resource that
+   * makes the ship move, and the rover comes back with its load and an empty
+   * pack — you lose the drive, not the run. */
+  recall() {
+    const L = this.landed;
+    if (!L || !L.driving || this.transition) return;
+    if (this.rover.canReturn()) {
+      this.hud.log(T('g.recallNotYet'), 'hi');
+      this.audio.ping('deny');
+      return;
+    }
+    const cost = this.ship.fuelCap * RECALL_FUEL;
+    if (this.ship.fuel < cost) {
+      this.hud.log(T('g.recallNoFuel', { '%N': Math.ceil(cost) }), 'hi');
+      this.audio.ping('deny');
+      return;
+    }
+    this.ship.fuel -= cost;
+    /* Put the rover under the ship and stow it through the ordinary path, so
+       the cargo transfer and the "left behind" accounting are the same ones
+       that run when you drive home yourself. */
+    this.rover.pos.x = 0; this.rover.pos.z = 0;
+    this.rover.speed = 0;
+    this.hud.log(T('g.recalled', { '%N': Math.ceil(cost) }), 'ok');
+    this.toggleRover();
+  }
+
   /** Out of the bay, or back into it. Only from the ship: a rover you could
    *  summon to wherever you had stranded it would make the charge meaningless. */
   toggleRover() {
@@ -1146,6 +1195,18 @@ export class Game {
     L.driving = true;
     this.hud.log(T('g.roverOut'), 'ok');
     this.audio.ping('ui');
+  }
+
+  /* Crossing the point of no return is worth saying, once.
+     It is the only moment on the ground where a decision becomes irreversible,
+     and until now nothing marked it: the chart drew the two rings and left the
+     player to notice which side of one they were on. A player who does not
+     notice finds out by being stranded. */
+  _roverReturnWatch() {
+    const can = this.rover.canReturn();
+    if (can === this._canReturn) return;
+    this._canReturn = can;
+    if (!can) { this.hud.log(T('g.noReturn'), 'hi'); this.audio.ping('deny'); }
   }
 
   /** Arriving somewhere is worth saying once, and only once. */

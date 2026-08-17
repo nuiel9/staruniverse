@@ -272,6 +272,12 @@ body:has(.panel:not(.hidden)) #narrStack{opacity:0}
   clip-path:polygon(0 0,calc(100% - 5px) 0,100% 5px,100% 100%,5px 100%,0 calc(100% - 5px));
   font-size:var(--t-min);letter-spacing:.12em;color:#e8a44c;text-align:center;white-space:nowrap}
 #driveWarn:empty{display:none}
+/* Which way to turn, beside where the thing is. Quieter than the bearing —
+   the bearing is the fact, this is the instruction — and green once you are
+   pointed at it, because "stop turning" is the one state worth a colour. */
+.gm-turn{font-style:normal;opacity:.8;margin-left:6px;color:var(--cy)}
+.gm-turn.on{color:#7fdca4;opacity:1;letter-spacing:.08em}
+html[lang="th"] .gm-turn{letter-spacing:0}
 html[lang="th"] #driveWarn{letter-spacing:0;text-transform:none}
 
 /* fold banner */

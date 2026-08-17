@@ -136,6 +136,10 @@ export class GroundMap {
     const far = Math.max(PACK_RANGE * 0.5, ...sites.map((s) => s.range)) * 1.15;
     const cx = w / 2, cy = h / 2;
     const R = Math.min(w, h) / 2 - 18;
+    /* A canvas with no layout yet has no radius, and arc() throws on a negative
+       one — once per frame, for as long as the chart is up. Nothing here is
+       worth drawing at that size anyway. */
+    if (!(R > 0)) return;
     const k = R / far;
 
     /* Heading-up, centred on you. The world rotates under a fixed reticle
@@ -382,6 +386,20 @@ export class GroundMap {
       const a = Math.atan2(s.x - me.x, s.z - me.z) * 180 / Math.PI;
       return Math.round((a + 360) % 360);
     };
+    /* Which way to turn, and by how much. The absolute bearing says where the
+       thing is; this says what to do about it, which is the part a driver can
+       act on without doing arithmetic on a hillside. Blank when stowed, since
+       a parked rover has no heading worth quoting. */
+    const turnTo = (s) => {
+      if (!g.landed.driving) return '';
+      const want = Math.atan2(s.x - me.x, s.z - me.z);
+      const have = Math.atan2(-Math.sin(g.rover.yaw), -Math.cos(g.rover.yaw));
+      let e = (want - have) * 180 / Math.PI;
+      while (e > 180) e -= 360;
+      while (e < -180) e += 360;
+      if (Math.abs(e) < 8) return `<i class="gm-turn on">${t('gm.onCourse')}</i>`;
+      return `<i class="gm-turn">${e < 0 ? '◄' : '►'}${Math.round(Math.abs(e))}°</i>`;
+    };
     const rows = sites.map((s) => {
       const spent = s.kind === 'seam'
         ? g.prospect.remaining(body, s.dep) <= 0 : s.done;
@@ -413,7 +431,7 @@ export class GroundMap {
       const ok = s.dist + s.range <= reach;
       return `<div class="gm-row${spent ? ' spent' : ''}">
         <b class="k-${s.kind}">${label}</b>
-        <span>${bearingTo(s)}° · ${km(s.dist)}</span>
+        <span>${bearingTo(s)}° ${turnTo(s)} · ${km(s.dist)}</span>
         <em class="${ok ? '' : 'far'}">${ok ? note : t('gm.beyond')}</em></div>`;
     }).join('');
 
@@ -422,8 +440,18 @@ export class GroundMap {
          player on a steep face is asking "is this broken", and the pack
          percentage does not answer them. */
       const steep = g.landed.driving && g.rover.gradeLoad > 0.75;
+      /* And which way you are pointing.
+         Every row here quotes an absolute compass bearing — "121 degrees" —
+         on the stated assumption that it is "what you would set on a heading
+         indicator". There was no heading indicator. A bearing you cannot
+         compare against your own heading is not a course, it is a number, and
+         the consequence was a player holding 121 while driving away from the
+         thing: same bearing, distance climbing 5.5 to 6.4 km, pack draining.
+         One number fixes it, next to the pack, in the same units as the rows. */
+      const hdg = Math.round((Math.atan2(-Math.sin(g.rover.yaw),
+        -Math.cos(g.rover.yaw)) * 180 / Math.PI + 360)) % 360;
       this.packEl.textContent = g.landed.driving
-        ? `${Math.round(g.rover.charge * 100)}% · ${km(reach)}`
+        ? `${String(hdg).padStart(3, '0')}° · ${Math.round(g.rover.charge * 100)}% · ${km(reach)}`
         : t('gm.stowed');
       this.packEl.classList.toggle('warn', !!steep);
       if (this.steepEl) this.steepEl.textContent = steep ? t('gm.steep') : '';

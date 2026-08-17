@@ -215,6 +215,11 @@ export class HUD {
              somebody four kilometres away would be a lie. */
           keys = [['WASD', t('k.drive')], ['E', t('k.workSite')],
             ['F', t('k.mine')], ['M', t('k.chart')], ['R', t('k.stow')]];
+          /* H only once it is the answer to something. Offered before the pack
+             is spent it reads as a taxi and invites the trip that strands you;
+             offered after, it is the way out of a state that used to have
+             none. See Game.recall. */
+          if (!g.rover.canReturn()) keys.push(['H', t('k.recall')]);
           this.el.hints.innerHTML = keys.map(([k, v]) => `<span><kbd>${k}</kbd>${v}</span>`).join('');
           this._syncTouchLabels();
           return;

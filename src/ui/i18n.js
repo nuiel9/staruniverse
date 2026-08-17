@@ -212,6 +212,18 @@ const STRINGS = {
      at constant range while the pack drained. The warning's real job is to say
      why the rover slowed down, and it can do that honestly. */
   'gm.steep': ['STEEP — SLOW GOING', 'ชันมาก — ไปได้ช้า'],
+  'gm.onCourse': ['ON COURSE', 'ตรงทาง'],
+  /* The emergency lift, and the two ways it says no. */
+  'g.recalled': ['SHIP LIFTED TO YOU · %N lucent burned · rover aboard',
+    'ยานบินมารับ · ใช้ลูเซนต์ %N · เก็บยานสำรวจแล้ว'],
+  'g.recallNotYet': ['the pack can still get you home — drive back',
+    'พลังงานยังพอขับกลับได้ — ขับกลับเถอะ'],
+  'g.recallNoFuel': ['not enough lucent to lift the ship · %N needed',
+    'ลูเซนต์ไม่พอให้ยานบินมารับ · ต้องใช้ %N'],
+  /* Said once, when the pack stops being able to bring you back. Without it a
+     player only finds out they are stranded by becoming stranded. */
+  'g.noReturn': ['PACK PAST THE POINT OF RETURN · H lifts the ship to you',
+    'พลังงานเลยจุดที่จะกลับได้แล้ว · กด H ให้ยานบินมารับ'],
   'gm.note': ['inner ring is there and back · outer is one way',
     'วงในคือไปกลับได้ · วงนอกคือไปได้อย่างเดียว'],
   /* The shading is the only thing on this chart that is about the ground
@@ -289,6 +301,7 @@ const STRINGS = {
   'k.drive': ['drive', 'ขับ'],
   'k.workSite': ['work the site', 'สำรวจจุดนี้'],
   'k.stow': ['stow rover', 'เก็บยานสำรวจ'],
+  'k.recall': ['call the ship', 'เรียกยานมารับ'],
   'k.rover': ['rover', 'ยานสำรวจภาคพื้น'],
   'k.chart': ['surface chart', 'แผนที่ภาคพื้น'],
   'k.archive': ['archive', 'คลังข้อมูล'],
