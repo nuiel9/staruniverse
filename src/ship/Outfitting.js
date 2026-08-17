@@ -88,6 +88,9 @@ export class Outfitting {
     g.ship.foldRegen = this.spec('drive').foldRegen;
     g.ship.maxSpeed = this.spec('engine').maxSpeed;
     g.ship.setOutfit(this.tier);          // and the hardware you can see
+    // ...from outside. This is the same claim from the pilot's chair: see the
+    // outfit gate in Interior.placeKit.
+    g.interior?.setOutfit?.(this.tier);
   }
 
   /** @returns true if the upgrade was fitted. */

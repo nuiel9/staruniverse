@@ -473,9 +473,29 @@ export function buildInterior(assets = {}) {
   };
   const CP_PIECES = new Set(['cp_tub', 'cp_coaming', 'cp_pedestal', 'cp_seat',
     'cp_controls', 'cp_overhead', 'cp_canopy', 'cp_stow']);
-  const placeKit = (name, x, y, z, ry = 0) => {
+  /* `need` gates a piece on an outfit tier: {sys:'hold', tier:2} appears only
+     once that system is fitted to tier 2 or better.
+
+     Gated pieces are marked dynamic, which is what keeps them out of
+     mergeStatic — a welded mesh has no visibility of its own, so a piece that
+     has to come and go must stay a mesh. That costs a draw call each, so this
+     is for a handful of telling details rather than for dressing the room. */
+  /* What the cabin owes to the ledger. Filled by placeKit's `need` gate and
+     drained by setOutfit below. */
+  const outfitParts = [];
+
+  const placeKit = (name, x, y, z, ry = 0, need = null) => {
     const parts = kit[name];
-    if (!parts) return false;
+    if (!parts) {
+      /* Loud for a gated piece. A missing kit is survivable dressing when it is
+         scenery — the cabin is simply barer — but a piece that exists to show
+         the player what they bought failing to exist is a feature that ships
+         as nothing, with no error and nothing on screen. `canister` was such a
+         name, taken from a comment rather than the atlas, and it placed
+         silently nowhere. */
+      if (need) console.warn(`[interior] no kit "${name}" for ${need.sys} t${need.tier}`);
+      return false;
+    }
     const set = CP_PIECES.has(name) ? KC : KA;
     for (const p of parts) {
       const m = new THREE.Mesh(p.geo, set[p.mat] || set.KIT_HULL);
@@ -483,6 +503,11 @@ export function buildInterior(assets = {}) {
       if (ry) m.rotation.y = ry;
       // merged geometry keeps its UV set; see mergeStatic
       m.userData.kit = true;
+      if (need) {
+        m.userData.dynamic = true;
+        m.visible = false;              // until setOutfit says otherwise
+        outfitParts.push({ mesh: m, sys: need.sys, tier: need.tier });
+      }
       add(m);
     }
     return true;
@@ -1893,6 +1918,36 @@ export function buildInterior(assets = {}) {
     placeKit('crate_a', 1.50, DECK_TOP, 1.40, 0.5);
     placeKit('crate_b', 1.35, DECK_TOP, 1.95, -0.7);
     placeKit('crate_b', 1.55, DECK_TOP + 0.36, 1.40, 1.2);
+
+    /* ---- and what the ledger has bought.
+     *
+     * Outfitting has five systems and three tiers each, and until now none of
+     * it existed inside the ship: you could fit a freighter frame, a deep-field
+     * tank and a deep array, walk back into the cabin, and find it identical to
+     * the one you launched in. The hull grows pods for the hold and nothing
+     * else changes anywhere. That is the one place a trading game should be
+     * spending its fidelity — the ship is the only thing the player keeps, and
+     * every credit spent on it should be visible from the inside.
+     *
+     * Kept to a few pieces per system on purpose. Each one is a draw call it
+     * cannot merge away (see placeKit), and the point is that the room reads
+     * differently, not that it fills up. */
+
+    // The hold, forward of the stow bay: freight arrives as the bay grows.
+    placeKit('crate_a', 1.42, DECK_TOP, 2.55, -0.22, { sys: 'hold', tier: 1 });
+    placeKit('crate_b', 1.58, DECK_TOP + 0.36, 1.95, 0.35, { sys: 'hold', tier: 1 });
+    placeKit('netcargo', -1.42, DECK_TOP, 5.55, 0.28, { sys: 'hold', tier: 2 });
+    placeKit('crate_b', -1.50, DECK_TOP, 2.40, -0.5, { sys: 'hold', tier: 2 });
+
+    /* The tank reads as plumbing rather than as a gauge: a bigger tank means
+       more of the corridor given over to carrying it. */
+    placeKit('pipe_run', HW - 0.20, 1.94, 3.35, Math.PI / 2, { sys: 'tank', tier: 1 });
+    placeKit('pipe_run', HW - 0.20, 1.80, 3.95, Math.PI / 2, { sys: 'tank', tier: 2 });
+    placeKit('wallbox', HW - 0.03, 1.72, 3.65, Math.PI / 2, { sys: 'tank', tier: 2 });
+
+    // The survey scanner earns bench hardware by the archive.
+    placeKit('wallbox', -CHW + 0.03, 1.74, 4.40, -Math.PI / 2, { sys: 'scanner', tier: 1 });
+    placeKit('wallbox', -CHW + 0.03, 1.28, 4.40, -Math.PI / 2, { sys: 'scanner', tier: 2 });
     // service boxes on otherwise blank wall
     placeKit('wallbox', HW - 0.03, 1.42, 2.30, Math.PI / 2);
     placeKit('wallbox', -CHW + 0.03, 1.46, -2.30, -Math.PI / 2);
@@ -1952,9 +2007,17 @@ export function buildInterior(assets = {}) {
     if (o.isMesh) { o.castShadow = !o.userData.noShadow; o.receiveShadow = true; }
   });
 
+  /* What the ledger has bought, made visible. Idempotent and cheap — a few
+     visibility flags — so Outfitting.apply can call it on boot, after a
+     purchase and after a load, exactly as it already does for the hull. */
+  const setOutfit = (tier) => {
+    for (const p of outfitParts) p.mesh.visible = (tier?.[p.sys] || 0) >= p.tier;
+  };
+  setOutfit(null);
+
   return {
     root, materials: M, screens, stations, lights, animated,
-    sockets, resCore, navTable: nav,
+    sockets, resCore, navTable: nav, setOutfit, outfitParts,
     metresToWorld: M_TO_WORLD,
     glazing,
     /**
