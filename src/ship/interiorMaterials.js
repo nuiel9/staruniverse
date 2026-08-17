@@ -817,6 +817,19 @@ export function dressInterior(mat, o = {}) {
      scaled. The reference interiors have a LIFTED albedo — their darkest wall
      is still a light grey — which is a floor, not a multiplier. */
   const toneLift = (o.toneLift ?? 0).toFixed(4);
+  /* And how much of the surface's own colour to keep.
+   *
+   * Lifting the value of a warm albedo does not make it bone, it makes it
+   * terracotta — measured, the whole frame got MORE sepia as the walls got
+   * brighter, red-to-blue 1.526 to 1.558, while a single crop of the port wall
+   * suggested the opposite. Ceramic is not a bright version of rust; it is a
+   * near-neutral surface that takes its warmth from the lamps. Stacking warm
+   * light on warm albedo is what produced oiled leather.
+   *
+   * So desaturate toward the surface's own luminance BEFORE the gain, and let
+   * the tungsten practicals put the warmth back where it belongs — in the
+   * light, not in the paint. */
+  const toneSat = (o.toneSat ?? 1).toFixed(3);
   const toneTint = o.toneTint
     ? `vec3(${o.toneTint.map((v) => v.toFixed(3)).join(',')})` : 'vec3(1.0)';
   const bounce = (o.bounce ?? 1.0).toFixed(3);
@@ -995,9 +1008,13 @@ ${micro > 0 ? /* glsl */`
              Last, so the detail above is preserved at its own relative
              strength rather than being flattened by a brighter starting
              point. See the tone options. */
-          diffuseColor.rgb = clamp(diffuseColor.rgb * ${toneGain} * ${toneTint}
-                                   + ${toneLift} * ${toneTint},
-                                   vec3(0.0), vec3(1.0));
+          {
+            float si_luma = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+            vec3 si_desat = mix(vec3(si_luma), diffuseColor.rgb, ${toneSat});
+            diffuseColor.rgb = clamp(si_desat * ${toneGain} * ${toneTint}
+                                     + ${toneLift} * ${toneTint},
+                                     vec3(0.0), vec3(1.0));
+          }
 
           /* ---- and the centimetre scale on top of all of it.
              Both terms are written so that the *mean* of the map leaves the
@@ -1851,7 +1868,7 @@ export function makeInteriorMaterials(assets = {}) {
        stops a light room reading as a washed one. So the value structure is
        the point, not the brightness: panelling up, deck and graphite left
        exactly where they are. */
-    toneGain: 1.55, toneLift: 0.185, toneTint: [1.03, 1.00, 0.95],
+    toneGain: 1.55, toneLift: 0.185, toneSat: 0.30, toneTint: [1.01, 1.00, 0.99],
     roughLo: 0.62, roughHi: 0.97, sheenKill: 0.55,
     microTile: 0.28, key: 'panel',
   });
@@ -1863,7 +1880,7 @@ export function makeInteriorMaterials(assets = {}) {
     tex, set: 'panel', wear: 0.9, grime: 0.7, bump: 1.1, bare: 0.5,
     dust: 0.7, hands: 0.25, edgeTint: [0.66, 0.69, 0.72],
     // the shell behind the panelling: lifted less, so it still reads as raw
-    toneGain: 1.34, toneLift: 0.125, toneTint: [1.00, 1.01, 0.99],
+    toneGain: 1.34, toneLift: 0.125, toneSat: 0.34, toneTint: [1.00, 1.00, 1.00],
     roughLo: 0.66, roughHi: 0.99, sheenKill: 0.6,
     microTile: 0.32, microWear: 1.15, key: 'hull',
   });
@@ -1922,7 +1939,12 @@ export function makeInteriorMaterials(assets = {}) {
      anti-slip lozenges, countersunk fasteners and plate seams, with a lane
      worn down the middle by boots. */
   M.floor = dressInterior(std({
-    color: 0x5b5851, metalness: 0.04, roughness: 0.88, envMapIntensity: 0.11,
+    /* Down and cooler. The deck was the brightest large surface in the cabin —
+       a cream non-slip plate, albedo-bright rather than merely well lit — so
+       the walls could never out-rank it however far they were raised. The
+       reference rooms put their light on the walls and their dark on the
+       floor. */
+    color: 0x44443f, metalness: 0.04, roughness: 0.88, envMapIntensity: 0.11,
   }), {
     tex, set: 'deck', wear: 1.0, grime: 0.8, bump: 1.0, bare: 0.5,
     dust: 0.2, kick: 0.0, lane: 0.85, edgeTint: [0.62, 0.63, 0.64],

@@ -1301,7 +1301,18 @@ export function buildInterior(assets = {}) {
    * This does not make the cabin look like a bright ship. It cannot: those
    * rooms are bright because their materials are light-valued, and no amount
    * of light on dark oily metal produces a white room. This is the free part. */
-  const amb = new THREE.AmbientLight(0xffd2a6, 1.12);
+  /* Neutral, now that the walls are meant to be bone.
+     This was tungsten-tinted when the room was rust and the fill was there to
+     preserve it. Against pale panelling the same tint is what made the whole
+     frame MORE sepia as it got brighter — red-to-blue rose 1.526 to 1.566
+     while a single crop suggested the opposite. And the colour was never in
+     the paint: forcing the wall albedo to pure grey left it measuring
+     saturation 0.49 and red-to-blue 1.96, because it is lit terracotta, not
+     painted terracotta. Neutralising the fill takes the frame to 1.397, below
+     where it started, and costs nothing in brightness. The warmth that is
+     left is the tungsten strips, which is where a reference interior keeps
+     it — in the lamps, not in the walls. */
+  const amb = new THREE.AmbientLight(0xf6f6f4, 1.12);
   amb.layers.set(INTERIOR_LAYER);
   add(amb);
 
