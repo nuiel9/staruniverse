@@ -2104,7 +2104,13 @@ export function buildInterior(assets = {}) {
      * itself can still be reached. */
     {
       const SB = HW - 0.38;               // against the starboard wall
-      const bz = 4.35;                    // centred under the port
+      /* Aft of the port, not across it.
+         "Under the window" was the intent and in front of it was the result:
+         the back rail rose across the lower third of the observation port, so
+         the object meant to celebrate the best geometry on that wall was
+         hiding it. Moved aft to clear the glazing, and the back rail dropped
+         so the sightline out stays open from a seated eye height. */
+      const bz = 5.35;
 
       /* Upholstery, and it has to be LIGHT.
          The first pass built this from M.dark and M.seat, which are the two
@@ -2113,11 +2119,17 @@ export function buildInterior(assets = {}) {
          unreadable slab. Every reference interior does the opposite: the couch
          is the brightest, most saturated thing in frame, because soft
          furnishing is where a grey ship is allowed to have a colour. */
-      const fabric = M.seat.clone();
-      fabric.color.setHex(0x9c4436, 'srgb');    // oxide red, the ship's one textile
-      fabric.roughness = 0.95;
-      const fabricDim = fabric.clone();
-      fabricDim.color.setHex(0x7a3a30, 'srgb');
+      /* dressedVariant, NOT clone. This file says it plainly a few hundred lines
+         up: clone() drops onBeforeCompile, which is where every material in
+         this ship gets its wear, grime, edge dirt and micro-scale. A cloned
+         seat is the one untextured object in a room where nothing else is
+         untextured, and it reads instantly as belonging to a different render.
+         Muted well down from the first attempt too: oxide, not fire engine.
+         It was the only saturated chroma in the frame, at maximum, sitting
+         next to the holo table's cyan — the harshest pairing available at the
+         point of highest attention. */
+      const fabric = dressedVariant(M.seat, { color: new THREE.Color(0x7d4034), roughness: 0.95 });
+      const fabricDim = dressedVariant(M.seat, { color: new THREE.Color(0x5f3229), roughness: 0.96 });
 
       // bench: plinth, cushion, and a back rail against the hull
       /* A plinth that catches light. In liner it went dark under the cushion —
@@ -2126,7 +2138,7 @@ export function buildInterior(assets = {}) {
          Panel is the lightest surface in the room and it grounds it. */
       add(box(0.62, 0.34, 1.45, M.panel, SB - 0.02, DECK_TOP + 0.17, bz, 0.02));
       add(box(0.60, 0.16, 1.40, fabric, SB - 0.02, DECK_TOP + 0.42, bz, 0.06));
-      add(box(0.10, 0.44, 1.40, fabricDim, SB + 0.26, DECK_TOP + 0.68, bz, 0.06));
+      add(box(0.10, 0.30, 1.40, fabricDim, SB + 0.26, DECK_TOP + 0.61, bz, 0.06));
       // a throw over one end, folded: cloth is the cheapest signal of habitation
       add(box(0.52, 0.08, 0.40, fabricDim, SB - 0.06, DECK_TOP + 0.53, bz + 0.48, 0.04));
 
@@ -2385,7 +2397,7 @@ export function buildInterior(assets = {}) {
          resonance chamber, the port and half the lockers out of the ship, and
          nothing in play.mjs walks that far so nothing caught it. */
       [1.05, 1.85, 1.05, 2.30],      // crates
-      [1.35, 2.05, 3.55, 5.15],      // the bench under the port
+      [1.35, 2.05, 4.55, 6.15],      // the bench, aft of the port
       [-2.05, -1.35, 1.15, 1.55],    // the planter
       /* Netted freight in the aft starboard corner. It hugs the wall — the
          habitat's half-width is 1.68 and the resonance chamber's station puts
