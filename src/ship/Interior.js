@@ -2073,6 +2073,16 @@ export function buildInterior(assets = {}) {
      * already runs — the panel now has something to bounce off, which is most
      * of what a soft ceiling is. */
     {
+      /* The trays are plain M.panel, and a review's claim that they are a
+         different colour family from the walls does not survive measurement.
+         The panels read red-to-blue 1.99 against the walls' 2.03 — the same
+         family. What is cool up there is the structure ABOVE and forward of
+         them and the corridor roof beyond, which are lit by the cool coves and
+         the cyan centreline and are cool on purpose.
+         Tried and reverted: a warm-biased variant for the trays. It moved the
+         part that was already right from 1.99 to 2.19, overshooting the wall,
+         and moved the genuinely cool near field only 1.08 to 1.29 — which is
+         the proof that the near field is not these panels. */
       const CEIL_Y = H - 0.17;
       const CEIL_HW = HW - 0.42;
       const RIB_GAP = 0.085;              // the rib stays visible between bays
