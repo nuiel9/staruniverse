@@ -1326,11 +1326,19 @@ ${micro > 0 ? /* glsl */`
         }
       `);
   };
+  /* The tone values belong in this key, and it is not optional.
+     They are interpolated into the shader SOURCE as literals, not passed as
+     uniforms — so two materials that share an `o.key` but differ in tone would
+     be handed the same compiled program and the second would silently render
+     with the first one's gain, lift and tint. Colour and roughness are safe to
+     leave out because they are uniforms; anything baked into the text is not.
+     Nothing collides today. The next tone variant somebody adds would. */
   mat.customProgramCacheKey = () => 'bake5:' + (o.key
     || `${set}_${tile}_${detail}_${wear}_${grime}_${bump}_${bare}_${dust}`
      + `_${kick}_${lane}_${hands}_${sheenKill}_${RLO}_${RHI}_${edgeTint}`)
     + '_k' + markFloor
-    + '_b' + bounce + '_m' + [mBump, mGrime, mWear, mRough, microTile].join(',');
+    + '_b' + bounce + '_m' + [mBump, mGrime, mWear, mRough, microTile].join(',')
+    + '_t' + [toneGain, toneLift, toneSat, toneTint].join(',');
   // Kept so a variant can be re-dressed — see dressedVariant below.
   mat.userData.dress = o;
   mat.userData.fill = INTERIOR_FILL;
