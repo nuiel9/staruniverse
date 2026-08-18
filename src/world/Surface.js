@@ -6862,10 +6862,45 @@ export class Surface {
       this.scatterMats.push(mat);
       this.disposables.push(mat);
 
+      /* ---- distance LOD, as a prefix split.
+       *
+       * Measured on a landed frame: the scatter is half the triangles in the
+       * scene and half the frame rate. Hiding these six bands takes it from
+       * 17.6 fps to 36.8, and the ground is geometry-bound rather than
+       * fragment-bound — quartering the pixel count buys 17%, which means the
+       * engine's whole "trade resolution, never features" strategy cannot
+       * help down here. It is trading the one resource that is not the
+       * bottleneck. Triangles are the only lever.
+       *
+       * And nearly all of them are far away and small. A det-2 icosphere is
+       * 320 triangles whether it is four metres from the eye or four
+       * kilometres; at 2.6 km a boulder is a couple of pixels of silhouette
+       * that 80 triangles describe exactly as well.
+       *
+       * The split is free because the band is already sorted: the radial
+       * branch of scatterBand walks r = r0*(r1/r0)^u with u rising in i, so
+       * instance order IS radius order. The far set is therefore a suffix, and
+       * a subarray view over the same buffer costs nothing to make and moves
+       * no rock — the layout is identical, only the silhouette of the distant
+       * ones gets cheaper.
+       *
+       * Sixty of its own diameters is the threshold. Past that an object is
+       * under a degree across and the subdivision is describing detail no
+       * pixel receives. */
+      const lodAt = b.r1 && b.det > 0 ? Math.min(b.r1, b.s1 * 60) : 0;
+      let nNear = n;
+      if (lodAt > (b.r0 || 0)) {
+        /* Invert the band's own radius law rather than searching: u solves
+           r = r0*(r1/r0)^u, and i/n = u^(1/0.88) from the sampler above. */
+        const u = Math.log(lodAt / b.r0) / Math.log(b.r1 / b.r0);
+        nNear = Math.min(n, Math.max(1, Math.round(n * Math.pow(u, 1 / 0.88))));
+      }
+      const nFar = n - nNear;
+
       const g = icoSphere(b.det);
       g.setAttribute('iA', attrA);
       g.setAttribute('iB', attrB);
-      g.instanceCount = n;
+      g.instanceCount = nNear;
       const m = new THREE.Mesh(g, mat);
       m.frustumCulled = false;
       m.receiveShadow = true;
@@ -6893,6 +6928,24 @@ export class Surface {
       this.root.add(m);
       this.rocks.push(m);
       this.disposables.push(g);
+
+      if (nFar > 0) {
+        const gF = icoSphere(b.det - 1);
+        gF.setAttribute('iA', new THREE.InstancedBufferAttribute(inst.A.subarray(nNear * 4), 4));
+        gF.setAttribute('iB', new THREE.InstancedBufferAttribute(inst.B.subarray(nNear * 4), 4));
+        gF.instanceCount = nFar;
+        const mF = new THREE.Mesh(gF, mat);
+        mF.frustumCulled = false;
+        mF.receiveShadow = true;
+        mF.name = b.key + '-far';
+        /* No cast from the far set. The sun's shadow box is a few hundred
+           metres wide, so an instance past the LOD radius is outside it by
+           construction — it was being run through the depth pass to
+           contribute nothing. */
+        this.root.add(mF);
+        this.rocks.push(mF);
+        this.disposables.push(gF);
+      }
 
       if (!b.dec) return;
       const dmat = new THREE.ShaderMaterial({
