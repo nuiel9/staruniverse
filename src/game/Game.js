@@ -867,6 +867,14 @@ export class Game {
     /* The surface chart is deliberately NOT in this list. It is an instrument in
        the corner rather than a panel over the frame, and a map you have to
        close before you can steer cannot answer "am I still pointed at it". */
+    /* ?probe=1 and semicolon: name whatever is under the crosshair.
+       Top level on purpose. The first version of this sat beside the recall
+       key, which is inside `if (this.landed)`, so it did nothing anywhere the
+       question actually gets asked — standing in the cabin in flight, which is
+       exactly where it was needed. "What IS that thing" is asked in every mode
+       and has to be answerable in every mode. */
+    if (this._probe && input.tappedCode('Semicolon')) this.probeAhead();
+
     const uiOpen = this.starmap.open || this.codex.open || this.dock.open || this.comms.open;
     input.uiOpen = uiOpen;
     if (uiOpen && document.pointerLockElement) document.exitPointerLock();
@@ -914,13 +922,6 @@ export class Game {
       if (!uiOpen && input.tappedCode('KeyR') && !this.transition) this.toggleRover();
       // H brings the ship to you, and only when the pack cannot. See recall().
       if (!uiOpen && input.tappedCode('KeyH') && !this.transition) this.recall();
-      /* ?probe=1 and semicolon: name whatever is under the crosshair.
-         "What IS that thing" is a question this project keeps having to answer
-         from screenshots, badly — a grey disc on a bulkhead cost an hour of
-         elimination and was still unidentified at the end of it. One raycast
-         answers it in a keypress, and behind a URL flag it costs a shipped
-         player nothing. */
-      if (this._probe && input.tappedCode('Semicolon')) this.probeAhead();
       if (this.groundmap.open) this.groundmap.draw();
       /* The drone. Held, not tapped: extraction is work you stand there for,
          and a seam that emptied on a single keypress would be a loot box. */
