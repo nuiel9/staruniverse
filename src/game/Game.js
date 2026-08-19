@@ -2468,10 +2468,27 @@ export class Game {
       s.core.rotation.y += dt * (lit ? 0.9 : 0.1);
       s.core.rotation.x += dt * (lit ? 0.5 : 0.05);
     });
+    /* The core, dark until it has a reason not to be.
+     *
+     * Its material is unlit — a MeshBasicMaterial, so it takes no light, no
+     * shading and no wear from the room. That is right for a lamp and wrong
+     * for anything else, and at a dormant floor of linear 0.08/0.14/0.20 it
+     * came out BRIGHTER than the chamber around it: a flat mid-grey disc
+     * pasted on the machine's face, with none of the shading every other
+     * surface in the cabin has. It was reported as "a grey ball", and took an
+     * hour to identify because nothing about it reads as part of the ship.
+     *
+     * An unlit core is defensible when the instrument is cold. A mid-grey one
+     * is not — cold hardware in a dim compartment is DARK. So the floor drops
+     * to near black, where it reads as an unpowered emitter sitting in its
+     * collar, and the lit range opens up so that holding Tones is what makes
+     * it glow. Same instrument, and now the brightness means something: it is
+     * the count of the Cantos you carry. */
     const k = n / 7;
     const cp = 0.5 + 0.5 * Math.sin(t * 0.7);
+    const glow = k * k * (0.35 + 0.65 * cp);      // squared: one Tone is a hint
     this.interior.resCore.material.color.setRGB(
-      0.08 + k * 0.9 * cp, 0.14 + k * 0.85 * cp, 0.2 + k * 1.0 * cp);
+      0.010 + glow * 1.05, 0.016 + glow * 0.95, 0.024 + glow * 1.20);
     this.interior.resCore.rotation.y += dt * (0.25 + k * 0.8);
   }
 
