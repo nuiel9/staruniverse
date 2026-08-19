@@ -53,6 +53,8 @@ import { seededRandom, wait as waitClock } from '../core/clock.js';
 const RECALL_FUEL = 1 / 6;
 import { TIERS, storedDetail } from '../core/detail.js';
 
+const _probeNdc = new THREE.Vector2();
+
 const ORBIT_TIME = 1;            // orbit rates are already tuned in generate.js
 const TINE_COUNT = 7;
 
@@ -208,6 +210,7 @@ export class Game {
        detectQuality is a reasonable guess and still the default, but it is a
        guess: the same core count means something different with a discrete GPU
        behind it than without one. See src/core/detail.js. */
+    this._probe = new URLSearchParams(location.search).get('probe') === '1';
     const forced = new URLSearchParams(location.search).get('q');
     this.quality = TIERS.includes(forced) ? forced : (storedDetail() || detectQuality());
     this.engine = new Engine(canvas, this.quality);
@@ -911,6 +914,13 @@ export class Game {
       if (!uiOpen && input.tappedCode('KeyR') && !this.transition) this.toggleRover();
       // H brings the ship to you, and only when the pack cannot. See recall().
       if (!uiOpen && input.tappedCode('KeyH') && !this.transition) this.recall();
+      /* ?probe=1 and semicolon: name whatever is under the crosshair.
+         "What IS that thing" is a question this project keeps having to answer
+         from screenshots, badly — a grey disc on a bulkhead cost an hour of
+         elimination and was still unidentified at the end of it. One raycast
+         answers it in a keypress, and behind a URL flag it costs a shipped
+         player nothing. */
+      if (this._probe && input.tappedCode('Semicolon')) this.probeAhead();
       if (this.groundmap.open) this.groundmap.draw();
       /* The drone. Held, not tapped: extraction is work you stand there for,
          and a seam that emptied on a single keypress would be a loot box. */
@@ -1166,6 +1176,28 @@ export class Game {
     this.rover.speed = 0;
     this.hud.log(T('g.recalled', { '%N': Math.ceil(cost) }), 'ok');
     this.toggleRover();
+  }
+
+  /** Name what the crosshair is pointing at, in the HUD log. See ?probe=1. */
+  probeAhead() {
+    const cam = this.interiorCam && this.interior?.root?.visible ? this.interiorCam : this.camera;
+    const scene = cam === this.interiorCam ? this.interiorScene
+      : (this.landed ? this.surfaceScene : this.scene);
+    if (!this._rcProbe) {
+      this._rcProbe = new THREE.Raycaster();
+      this._rcProbe.layers.enableAll();
+      this._rcProbe.far = 60;
+    }
+    this._rcProbe.setFromCamera(_probeNdc.set(0, 0), cam);
+    const hit = this._rcProbe.intersectObject(scene, true)[0];
+    if (!hit) { this.hud.log('PROBE · nothing ahead', 'hi'); return; }
+    const o = hit.object;
+    const m = Array.isArray(o.material) ? o.material[0] : o.material;
+    this.hud.log(`PROBE · ${o.name || '(unnamed)'} · ${o.geometry?.type} · `
+      + `${m?.type}${m?.color ? ' #' + m.color.getHexString() : ''} · `
+      + `${hit.distance.toFixed(2)} m`, 'ok');
+    // and the full object to the console, for anything the one line cannot hold
+    console.log('[probe]', { object: o, material: m, distance: hit.distance, point: hit.point });
   }
 
   /** Out of the bay, or back into it. Only from the ship: a rover you could
