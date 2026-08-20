@@ -1878,9 +1878,34 @@ export function buildInterior(assets = {}) {
   /* Sized against the boss the kit machines rather than against the old flat
      plate. At r 0.13 it covered the whole centre fitting and read as one grey
      polygon sitting on nothing; at 0.062 it sits *in* the collar, which is
-     what a resonator in its cradle looks like when it is not lit. */
+     what a resonator in its cradle looks like when it is not lit.
+     
+     Lit metal that GLOWS, not a flat fill that changes colour.
+     
+     This was `emissive()`, which is a MeshBasicMaterial — unlit, so it takes
+     no light, no shading and no wear from the room, and can only ever be a
+     flat disc. That gave it exactly two failure modes and no third option: at
+     a bright dormant value it read as a grey sticker pasted on the machine's
+     face, and at a dark one it read as a hole punched through it. Both were
+     reported, in that order.
+     
+     A resonator in its cradle is a metal component. Cold, it should catch the
+     chamber's own light like every other surface in this ship; hot, it should
+     add light of its own. That is a standard material with an emissive term —
+     the emission is the part that carries the Cantos, and the base is the part
+     that stops it being a hole. Dressed, so it wears like the ship.
+     
+     Its own variant, not a shared one: `emissive()` caches by colour and
+     intensity and hands the same material to every caller, and updateChamber
+     writes to it every frame. Only this mesh uses 0x1a2a34 today, so nothing
+     else is being driven by the resonator's pulse — but it would be, silently,
+     the moment someone reused that colour. */
   const resCore = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(haveKit ? 0.062 : 0.13, 1), emissive(0x1a2a34, 1.0));
+    new THREE.IcosahedronGeometry(haveKit ? 0.062 : 0.13, 1),
+    dressedVariant(M.rail, {
+      color: new THREE.Color(0x3d4650), metalness: 0.78, roughness: 0.44,
+      emissive: new THREE.Color(0x000000), emissiveIntensity: 1,
+    }));
   resCore.position.set(0, 1.30, haveKit ? -0.045 : 0.05);
   res.add(resCore);
   /* Pulled in and warmed. At 2.2 m of throw this one cyan lamp was the only

@@ -2487,8 +2487,13 @@ export class Game {
     const k = n / 7;
     const cp = 0.5 + 0.5 * Math.sin(t * 0.7);
     const glow = k * k * (0.35 + 0.65 * cp);      // squared: one Tone is a hint
-    this.interior.resCore.material.color.setRGB(
-      0.010 + glow * 1.05, 0.016 + glow * 0.95, 0.024 + glow * 1.20);
+    /* Emission, not albedo. The core is a lit metal now, so its base colour is
+       the chamber's light on a machined surface and must be left alone; what
+       the Cantos drive is the light it ADDS. At zero Tones the emissive term
+       is black and the core is simply an unpowered component sitting in its
+       collar — which is what it should have looked like all along. */
+    this.interior.resCore.material.emissive.setRGB(
+      glow * 1.05, glow * 0.95, glow * 1.20);
     this.interior.resCore.rotation.y += dt * (0.25 + k * 0.8);
   }
 
