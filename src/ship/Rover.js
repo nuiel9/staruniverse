@@ -46,6 +46,8 @@ const ACCEL = 11;
 const BRAKE = 18;
 const DRAG = 0.7;
 const YAW_RATE = 1.5;          // rad/s at speed, scaled down when crawling
+const BOOST = 1.7;             // held on `run`, scales the grade-limited cap
+const BOOST_COST = 1.5;        // and the metres cost half as much again
 
 /* Coarse enough to skip the fine detail band. See the note in `update`. */
 const GRADE_LOD = 14;
@@ -254,7 +256,26 @@ export class Rover {
     if (throttle < 0 && this.speed > 0) this.speed -= BRAKE * dt;
     if (throttle > 0 && this.speed < 0) this.speed += BRAKE * dt;
 
-    const capF = MAX_FWD * driveBiteAt(climb);
+    /* ---- boost, on the key that already says "run".
+     *
+     * Distance was never the whole story. With every site now inside a round
+     * trip, driving to one still took over six minutes in fourteen cases out
+     * of a hundred and two, and a 4.5 km site could take 9.6 — because the
+     * rover averages about 8 m/s against a 22 m/s top speed. The loss is
+     * terrain, not range, and capping range further would start deleting the
+     * game rather than the tail of it.
+     *
+     * So: hold it and go faster, and pay for it out of the pack. That keeps
+     * the drive model exactly as it is — a hill still slows you, a mountain is
+     * still something to go around — and gives the player the one thing they
+     * were missing on a long open run, which is a way to spend charge to buy
+     * time. It scales the grade-limited cap rather than replacing it, so boost
+     * on a steep face buys much less than boost on a plain, which is the
+     * honest behaviour and also stops it being a way to climb walls. */
+    const boosting = !!(input && input.held && input.held('run') && throttle > 0
+      && this.charge > 0);
+    this.boosting = boosting;
+    const capF = MAX_FWD * driveBiteAt(climb) * (boosting ? BOOST : 1);
     this.speed = THREE.MathUtils.clamp(this.speed, -MAX_REV, capF);
 
     // ---- steering. A stationary rover does not pivot on the spot, and
@@ -270,7 +291,12 @@ export class Rover {
       /* Metres, not seconds: sitting still is free. Climbing costs more,
          because it does — and it gives the route-finding a second reason to
          exist beyond not stalling. */
-      const cost = Math.abs(step) * (1 + Math.max(0, this._grade) * 1.6);
+      /* Boost is bought, not free: the same metres cost half as much again.
+         At BOOST 1.7 that is roughly break-even on range and a clear win on
+         time, which is the trade a player should be allowed to make rather
+         than one the game makes for them. */
+      const cost = Math.abs(step) * (1 + Math.max(0, this._grade) * 1.6)
+        * (this.boosting ? BOOST_COST : 1);
       this.charge = Math.max(0, this.charge - cost / PACK_RANGE);
       if (this.charge <= 0) this.speed = 0;
     }

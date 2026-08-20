@@ -301,6 +301,7 @@ const STRINGS = {
   'k.drive': ['drive', 'ขับ'],
   'k.workSite': ['work the site', 'สำรวจจุดนี้'],
   'k.stow': ['stow rover', 'เก็บยานสำรวจ'],
+  'k.boost': ['boost · burns charge', 'เร่ง · ใช้พลังงานมากขึ้น'],
   'k.recall': ['call the ship', 'เรียกยานมารับ'],
   'k.rover': ['rover', 'ยานสำรวจภาคพื้น'],
   'k.chart': ['surface chart', 'แผนที่ภาคพื้น'],

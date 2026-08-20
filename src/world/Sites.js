@@ -153,6 +153,23 @@ const RANGE_MAX = 6200;
  * fetched in person. */
 const MARKER_RANGE_MAX = 4500;
 
+/* And the same ceiling for everything else, which was a mistake to leave off.
+ *
+ * The bound above was derived from the pack — 14 km of range, route cost
+ * running 1.2 to 1.4 times straight-line, and the 1.06 margin canReturn uses —
+ * and none of that arithmetic is about markers. It is about the rover. Scoping
+ * it to markers rested on the idea that a seam past a round trip is a risk the
+ * chart already shows you, and measurement says that is not how it lands:
+ * driving to every site of every kind across three systems, 23 of them took
+ * over six minutes of continuous, perfectly-aimed driving and one arrived with
+ * too little charge to get home. Six minutes of holding W to reach one seam is
+ * not a decision, it is a walk.
+ *
+ * The median is 3.4 minutes and stays there — this cuts the tail, not the
+ * game. Seven of twenty-five seams move; wrecks and markers were already
+ * inside it. */
+const SITE_RANGE_MAX = 4500;
+
 const WRECK_NAMES = ['CASTELLAN', 'MERIDIAN', 'FALLOW', 'ARGENT', 'TIDE OF ASH',
   'PATIENT', 'NINE SISTERS', 'COLD HARBOUR', 'REDOUBT', 'LAST WORD'];
 
@@ -201,7 +218,7 @@ export class Sites {
       // Roll first, clamp after: the draw count is load-bearing. See
       // MARKER_RANGE_MAX.
       const rolled = Math.round(RANGE_MIN + rnd() * (RANGE_MAX - RANGE_MIN));
-      const range = kind === 'marker' ? Math.min(rolled, MARKER_RANGE_MAX) : rolled;
+      const range = Math.min(rolled, kind === 'marker' ? MARKER_RANGE_MAX : SITE_RANGE_MAX);
       const a = bearing * Math.PI / 180;
       return {
         kind, i, bearing, range,

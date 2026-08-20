@@ -213,7 +213,7 @@ export class HUD {
           /* Driving is its own control set. Nothing about the parked ship is
              reachable from out here, and advertising L or E-to-step-out to
              somebody four kilometres away would be a lie. */
-          keys = [['WASD', t('k.drive')], ['E', t('k.workSite')],
+          keys = [['WASD', t('k.drive')], ['SHIFT', t('k.boost')], ['E', t('k.workSite')],
             ['F', t('k.mine')], ['M', t('k.chart')], ['R', t('k.stow')]];
           /* H only once it is the answer to something. Offered before the pack
              is spent it reads as a taxi and invites the trip that strands you;
