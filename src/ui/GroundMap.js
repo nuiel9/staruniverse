@@ -1,7 +1,8 @@
 import { t, goodName } from './i18n.js';
 import { PACK_RANGE } from '../ship/Rover.js';
 import { groundField } from '../world/Surface.js';
-import { driveBiteRawAt } from '../ship/driveModel.js';
+import { driveBiteRawAt, TYPICAL_TERRAIN_COST } from '../ship/driveModel.js';
+import { routeCost } from '../world/Sites.js';
 
 /* How coarse the relief layer is. 96 cells across the whole chart, so a cell is
    about a hundred and seventy metres at the usual extent — landform, which is
@@ -234,8 +235,18 @@ export class GroundMap {
       c.beginPath(); c.arc(shipX, shipY, m * k, 0, Math.PI * 2); c.stroke();
       c.restore();
     };
-    ring(reach, 'rgba(232,164,76,0.40)', [4, 5]);          // one-way
-    ring(reach / 2, 'rgba(63,216,232,0.55)', [2, 4]);      // there and back
+    /* Drawn at what the ground actually charges, not at what the pack holds.
+     *
+     * A circle cannot know which way you are going, and the ground charges by
+     * direction — so these two can never be exactly right, and were exactly
+     * wrong instead: at a flat-ground rate they promised about forty per cent
+     * more reach than any real route delivers. TYPICAL_TERRAIN_COST is the
+     * measured ratio, so the rings are now the honest average of every bearing
+     * at once. The rows underneath score the actual route and are the numbers
+     * to trust; these are for the glance that decides where to point. */
+    const fair = reach / TYPICAL_TERRAIN_COST;
+    ring(fair, 'rgba(232,164,76,0.40)', [4, 5]);          // one-way
+    ring(fair / 2, 'rgba(63,216,232,0.55)', [2, 4]);      // there and back
 
     // ---- north
     const nAng = rot - Math.PI / 2;
@@ -287,7 +298,7 @@ export class GroundMap {
     c.closePath();
     c.fill();
 
-    this._side(sites, body, reach);
+    this._side(sites, body, me);
   }
 
   /**
@@ -374,11 +385,57 @@ export class GroundMap {
     return cv;
   }
 
-  _side(sites, body, reach) {
+  /* What each site really costs, scored over the ground rather than guessed
+   * from the distance to it.
+   *
+   * The chart used to answer "can I get there and back" with straight-line
+   * metres against a flat-ground pack, and called the optimism deliberate — a
+   * player should be allowed to get the decision wrong. That reasoning does
+   * not survive contact with the thing it caused: `canReturn` says in its own
+   * comment that "arriving on empty because the readout lied is a bug report",
+   * and this is the readout that lied. A pack quoted at 10.6 km against a
+   * 3.9 km site is a green light, and the same trip over hills spends thirteen
+   * kilometres. The player is not making a bad decision, they are making a
+   * good decision on a bad number.
+   *
+   * So both legs go through `routeCost`, the same integral the rover performs
+   * as it drives — out from where you are standing, home from the site — and
+   * separately, because only climbing costs and the way back over a ridge is
+   * not the way out over it. Deliberate risk survives: the number is honest,
+   * the ring past it is still drawn, and driving out anyway is still allowed.
+   *
+   * A rolling average of what the last kilometre cost would have been cheaper
+   * and would lie exactly when it matters, on the last flat run before the
+   * mountains. This predicts the route ahead, which is the question.
+   *
+   * Not free: two scored legs per site at a 25 m step is a few hundred height
+   * samples, and `draw` runs every frame the chart is open. It is cached on
+   * the site list and the rover's position rounded to 60 m — far inside the
+   * margin below, and a distance that takes seconds to cover. */
+  _legs(sites, body, me) {
+    const key = `${Math.round(me.x / 60)}|${Math.round(me.z / 60)}|${
+      sites.map((s) => s.id).join(',')}`;
+    if (this._legsKey === key && this._legsBody === body) return this._legsVal;
+    let field;
+    try { field = groundField(body.spec); } catch { return null; }
+    const val = {
+      home: routeCost(field, me.x, me.z, 0, 0).drain,
+      sites: sites.map((s) => {
+        const out = routeCost(field, me.x, me.z, s.x, s.z);
+        const back = routeCost(field, s.x, s.z, 0, 0);
+        return { secs: out.secs, drain: out.drain + back.drain };
+      }),
+    };
+    this._legsKey = key; this._legsBody = body; this._legsVal = val;
+    return val;
+  }
+
+  _side(sites, body, me) {
     if (!this.side) return;
     const g = this.game;
+    const reach = g.rover.metresLeft();
+    const legs = this._legs(sites, body, me);
     const km = (m) => (m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`);
-    const me = g.groundPos();
     /* Compass bearing, still absolute: the number is what you would set on a
        heading indicator, and the *picture* is what tells you which way to
        turn. Two relative readouts saying the same thing would be redundant. */
@@ -400,7 +457,7 @@ export class GroundMap {
       if (Math.abs(e) < 8) return `<i class="gm-turn on">${t('gm.onCourse')}</i>`;
       return `<i class="gm-turn">${e < 0 ? '◄' : '►'}${Math.round(Math.abs(e))}°</i>`;
     };
-    const rows = sites.map((s) => {
+    const rows = sites.map((s, i) => {
       const spent = s.kind === 'seam'
         ? g.prospect.remaining(body, s.dep) <= 0 : s.done;
       const label = labelFor(s);
@@ -428,10 +485,22 @@ export class GroundMap {
          metre than flat ground does. That is deliberate: the pack is a decision
          you can get wrong, and a readout that promised otherwise would be
          making the decision for you. */
-      const ok = s.dist + s.range <= reach;
+      /* Scored where the ground can be read, straight-lined where it cannot —
+         `_legs` returns null only if the height field will not build, and a
+         chart that blanked its verdict in that case would be worse than one
+         that falls back to the old arithmetic. */
+      const leg = legs && legs.sites[i];
+      const ok = leg ? leg.drain * 1.06 <= reach : s.dist + s.range <= reach;
+      /* And how long, which is the half of "too far" the metres never said.
+         A player reading 3.0 km against a 10.6 km pack is being told the trip
+         is a third of what they have; nobody told them it was twenty minutes
+         of holding W. The distance is the decision about charge and the time
+         is the decision about the evening, and only one of them was on screen. */
+      const mins = leg ? Math.max(1, Math.round(leg.secs / 60)) : 0;
+      const when = leg ? ` · ${t('gm.min', { '%N': mins })}` : '';
       return `<div class="gm-row${spent ? ' spent' : ''}">
         <b class="k-${s.kind}">${label}</b>
-        <span>${bearingTo(s)}° ${turnTo(s)} · ${km(s.dist)}</span>
+        <span>${bearingTo(s)}° ${turnTo(s)} · ${km(s.dist)}${when}</span>
         <em class="${ok ? '' : 'far'}">${ok ? note : t('gm.beyond')}</em></div>`;
     }).join('');
 
@@ -450,11 +519,30 @@ export class GroundMap {
          One number fixes it, next to the pack, in the same units as the rows. */
       const hdg = Math.round((Math.atan2(-Math.sin(g.rover.yaw),
         -Math.cos(g.rover.yaw)) * 180 / Math.PI + 360)) % 360;
+      /* The third number was the pack's metres — 76 per cent of 14 km reading
+         as "10.6 km" — which is the pack's capacity restated, not a fact about
+         where you are. It answers a question nobody on a hillside is asking,
+         and it answers it at a flat-ground rate.
+         What a driver wants from one number is whether they can still get
+         back, so that is what it says now: the scored cost of the route home
+         from exactly here. It falls as you drive toward the ship and climbs
+         when you cross a ridge, which is the behaviour that makes a readout
+         worth glancing at. */
+      const home = legs ? legs.home : Math.hypot(me.x, me.z) * TYPICAL_TERRAIN_COST;
+      const thin = home * 1.06 > reach * 0.9;
       this.packEl.textContent = g.landed.driving
-        ? `${String(hdg).padStart(3, '0')}° · ${Math.round(g.rover.charge * 100)}% · ${km(reach)}`
+        ? `${String(hdg).padStart(3, '0')}° · ${Math.round(g.rover.charge * 100)}% · ${
+          t('gm.home', { '%N': km(home) })}`
         : t('gm.stowed');
-      this.packEl.classList.toggle('warn', !!steep);
-      if (this.steepEl) this.steepEl.textContent = steep ? t('gm.steep') : '';
+      this.packEl.classList.toggle('warn', !!steep || thin);
+      /* Boost releasing itself is the more urgent of the two, because it is
+         the one the player just did something to cause: a held key stopped
+         working and nothing else on screen would say why. */
+      const saved = g.landed.driving && g.rover.boostHeld && !g.rover.boosting;
+      if (this.steepEl) {
+        this.steepEl.textContent = saved ? t('gm.boostHeld')
+          : steep ? t('gm.steep') : '';
+      }
     }
     this.side.innerHTML = `<div class="gm-rows">${
       rows || `<div class="gm-note">${t('gm.empty')}</div>`}</div>

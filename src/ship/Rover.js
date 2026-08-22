@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { driveBiteAt, driveBiteRawAt, MAX_FWD } from './driveModel.js';
+import { driveBiteAt, driveBiteRawAt, driveDrainAt, MAX_FWD,
+  TYPICAL_TERRAIN_COST } from './driveModel.js';
 
 /* ============================================================================
    The rover.
@@ -272,9 +273,27 @@ export class Rover {
      * time. It scales the grade-limited cap rather than replacing it, so boost
      * on a steep face buys much less than boost on a plain, which is the
      * honest behaviour and also stops it being a way to climb walls. */
-    const boosting = !!(input && input.held && input.held('run') && throttle > 0
-      && this.charge > 0);
+    /* And it stops at the reserve.
+     *
+     * The first cut of this ran until the pack was empty, and the measurement
+     * said so plainly: driving every site with boost held took the worst case
+     * from 9.6 minutes to 5.9 and the strandings from none to three. That was
+     * written down in a table and shipped anyway, and then the player was told
+     * to hold SHIFT — so the one new way to strand yourself in this game was
+     * something I put there and then recommended.
+     *
+     * Buying time with charge is still the trade. Buying the charge that gets
+     * you home is not a trade, it is a trap, because the cost is only visible
+     * kilometres later. So boost releases itself at the point where the pack
+     * is down to what the return leg needs, and the panel says why. Driving on
+     * past that is still allowed — the pack is a decision you are permitted to
+     * get wrong. It just is not a decision a held key makes for you. */
+    const held = !!(input && input.held && input.held('run') && throttle > 0);
+    this.boostReserve = Math.hypot(this.pos.x, this.pos.z) * TYPICAL_TERRAIN_COST * 1.06;
+    const boosting = held && this.metresLeft() > this.boostReserve;
     this.boosting = boosting;
+    // for the readout: asking for boost and not getting it is worth explaining
+    this.boostHeld = held;
     const capF = MAX_FWD * driveBiteAt(climb) * (boosting ? BOOST : 1);
     this.speed = THREE.MathUtils.clamp(this.speed, -MAX_REV, capF);
 
@@ -292,10 +311,12 @@ export class Rover {
          because it does — and it gives the route-finding a second reason to
          exist beyond not stalling. */
       /* Boost is bought, not free: the same metres cost half as much again.
-         At BOOST 1.7 that is roughly break-even on range and a clear win on
-         time, which is the trade a player should be allowed to make rather
-         than one the game makes for them. */
-      const cost = Math.abs(step) * (1 + Math.max(0, this._grade) * 1.6)
+         That is a third off the range, not a break-even — 14 km becomes 9.3 —
+         bought at 1.7x the speed. A clear win on time and a real loss of
+         reach, which is the trade a player should be allowed to make rather
+         than one the game makes for them, and the reason the reserve above
+         exists to stop it being made by accident. */
+      const cost = Math.abs(step) * driveDrainAt(this._grade)
         * (this.boosting ? BOOST_COST : 1);
       this.charge = Math.max(0, this.charge - cost / PACK_RANGE);
       if (this.charge <= 0) this.speed = 0;

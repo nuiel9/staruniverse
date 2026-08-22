@@ -1,7 +1,7 @@
 import { mulberry32 } from './generate.js';
 import { LOGS, OWN_LOG } from '../game/lore.js';
 import { groundField } from './Surface.js';
-import { driveSpeedAt, MAX_FWD } from '../ship/driveModel.js';
+import { driveSpeedAt, driveDrainAt, MAX_FWD } from '../ship/driveModel.js';
 
 /** How the route is sampled. 25 m steps at the rover's own grade LOD.
  *
@@ -48,26 +48,36 @@ const WALL_SPEED = MAX_FWD * 0.25;
  * Only climbing costs, exactly as the drive does — which is what makes a site
  * on the near side of a ridge score better than the same site on the far side.
  *
+ * `drain` is what the pack pays for it, in pack metres — the same integral the
+ * rover performs as it drives, run ahead of time. It exists because the chart
+ * was answering "can I get there and back" with straight-line distance against
+ * a flat-ground pack, which over-promises by whatever the hills add. Both legs
+ * have to be scored separately and in the right direction: only climbing costs,
+ * so out and back are not the same number, and neither is twice the other.
+ *
  * @param {{heightAt:(x:number,z:number,lod?:number)=>number}} field
- * @returns {{secs:number, wall:number}} seconds, and metres of the worst stretch
+ * @returns {{secs:number, wall:number, drain:number}} seconds, metres of the
+ *          worst stretch, and pack metres spent
  */
 export function routeCost(field, x0, z0, x1, z1) {
   const dx = x1 - x0, dz = z1 - z0;
   const len = Math.hypot(dx, dz);
-  if (len < 1) return { secs: 0, wall: 0 };
+  if (len < 1) return { secs: 0, wall: 0, drain: 0 };
   const n = Math.max(1, Math.round(len / ROUTE_STEP));
   const sx = dx / n, sz = dz / n, step = len / n;
-  let secs = 0, wall = 0, run = 0;
+  let secs = 0, wall = 0, run = 0, drain = 0;
   let h0 = field.heightAt(x0, z0, ROUTE_LOD);
   for (let i = 1; i <= n; i++) {
     const x = x0 + sx * i, z = z0 + sz * i;
     const h1 = field.heightAt(x, z, ROUTE_LOD);
-    const v = driveSpeedAt((h1 - h0) / step);
+    const climb = (h1 - h0) / step;
+    const v = driveSpeedAt(climb);
     secs += step / v;
+    drain += step * driveDrainAt(climb);
     if (v <= WALL_SPEED) { run += step; if (run > wall) wall = run; } else run = 0;
     h0 = h1;
   }
-  return { secs, wall };
+  return { secs, wall, drain };
 }
 
 /* ============================================================================
@@ -328,7 +338,24 @@ export class Sites {
          it. Half the sites measured never did — the complaint was about a tail,
          not a median — and scoring fifteen candidates for a site that was
          already fine would cost fifteen times as much to change nothing. */
-      if (base.wall <= WALL_TRIGGER) return s;
+      /* And a second trigger, for the drives that are simply long.
+       *
+       * Ranking on the wall was right about what gets reported as a broken
+       * vehicle and blind to what gets reported as a world too big to cross.
+       * Measured over all 457 sites in the galaxy, the worst drive on the
+       * median world is 5.4 minutes one way and on the p90 world 8.0 — and
+       * almost none of that is wall. It is four kilometres of ground at 1.2x
+       * flat-out, which no wall check will ever look at twice.
+       *
+       * Six minutes is the line the range ceiling was already drawn at, in the
+       * words written beside it: holding W for six minutes to reach one seam
+       * is not a decision, it is a walk. So a drive past that gets the same
+       * search the walls get. The ranking does not change and does not need
+       * to — a route with no wall keeps a count of zero however far it moves,
+       * so the existing tie-break on seconds is already the right comparison
+       * for exactly these candidates. */
+      const LONG_DRIVE = 360;
+      if (base.wall <= WALL_TRIGGER && base.secs <= LONG_DRIVE) return s;
 
       /* A seam may move its range but never its bearing: the deposit owns that
          and the survey text quotes it — see the note where seams are built. */
@@ -341,7 +368,15 @@ export class Sites {
           /* Dropped rather than clamped: clamping piles candidates onto the
              boundary, where the ground is no better and the site is now a lie
              about how far out it was rolled. */
-          if (rng < RANGE_MIN || rng > RANGE_MAX) continue;
+          /* Against the round-trip ceiling, not the raw band. `place` clamps
+             the rolled range to SITE_RANGE_MAX so every site fits one pack
+             there and back, and then easing multiplied that range by up to
+             1.12 and checked it against RANGE_MAX — putting sites back outside
+             the very bound they had just been brought inside. Measured: two of
+             457, both at 5040 m, both a 13.9 km round trip against a 14 km
+             pack, both a twenty-minute drive. A ceiling that the step after it
+             is allowed to undo is not a ceiling. */
+          if (rng < RANGE_MIN || rng > SITE_RANGE_MAX) continue;
           const bear = s.bearing + db;
           const a = bear * Math.PI / 180;
           const c = routeCost(f, 0, 0, Math.sin(a) * rng, Math.cos(a) * rng);

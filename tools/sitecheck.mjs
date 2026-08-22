@@ -15,6 +15,7 @@
  */
 import { chromium } from 'playwright';
 import { ROUTE_STEP } from '../src/world/Sites.js';
+import { PACK_RANGE } from '../src/ship/Rover.js';
 
 const URL = process.argv[2] || 'http://localhost:5173/';
 const browser = await chromium.launch({
@@ -138,10 +139,14 @@ for (let id = 0; id < walkTo; id++) {
       const f = surfMod.groundField(body.spec);
       for (const s of g.sites.at(body)) {
         const now = sitesMod.routeCost(f, 0, 0, s.x, s.z);
+        const back = sitesMod.routeCost(f, s.x, s.z, 0, 0);
         const was = s._rolled ? sitesMod.routeCost(f, 0, 0, s._rolled.x, s._rolled.z) : null;
         out.push({
           system: g.galaxy[id].name, body: body.name, kind: s.kind, id: s.id,
           wall: now.wall, secs: now.secs,
+          /* Both legs, because only climbing costs: the way home over a ridge
+             is not the way out over it, and no doubling of one gets the other. */
+          round: now.drain + back.drain, backSecs: back.secs,
           wasWall: was ? was.wall : null, wasSecs: was ? was.secs : null,
           range: s.range, bearing: s.bearing,
           moved: !!s._rolled && (s._rolled.bearing !== s.bearing || s._rolled.range !== s.range),
@@ -271,6 +276,62 @@ const dist = { rows, worlds };
      how bad it can get at MAX_FWD/(MAX_FWD*CRAWL_FLOOR) = 10x. */
   check('drive times sit between flat out and the crawl floor',
     rq(0) >= 0.99 && rq(1) <= 10.01, `${rq(0).toFixed(2)}x to ${rq(1).toFixed(2)}x`);
+}
+
+// ---------------------------- stage 1b: and what the pack actually pays for it
+/* The placement ceiling was derived on paper — 14 km of pack, route cost
+ * running 1.2 to 1.4 times straight-line, a 1.06 margin — and then written down
+ * as a straight-line number, 4500 m. Every part of that is an average, and a
+ * player does not drive an average. They drive one route on one world, and the
+ * report that keeps coming back is "I cannot reach it", filed five times now
+ * against a chart that quoted the pack at its flat-ground capacity.
+ *
+ * So this measures the thing the arithmetic was standing in for: what the pack
+ * is really charged for a round trip to every site in the galaxy, scored both
+ * ways over the actual ground. It is the check the expedition suite makes with
+ * straight-line metres, made honestly — and the one that decides whether the
+ * ceiling has to stop being a distance and start being a cost. */
+{
+  const round = dist.rows.map((r) => r.round).sort((a, b) => a - b);
+  const q = (arr, p) => (arr.length ? arr[Math.min(arr.length - 1, Math.floor(arr.length * p))] : 0);
+  /* Scale-free, so a 700 m site and a 4500 m one are comparable: what one
+     metre of ground costs the pack, averaged over the trip there and back. */
+  const mult = dist.rows.map((r) => r.round / (r.range * 2)).sort((a, b) => a - b);
+  console.log('\n  what the pack pays, there and back');
+  console.log(`  round trip      median ${q(round, 0.5).toFixed(0)} m`
+    + `  p90 ${q(round, 0.9).toFixed(0)} m  worst ${q(round, 1).toFixed(0)} m  of a ${PACK_RANGE} m pack`);
+  console.log(`  per metre       median ${q(mult, 0.5).toFixed(2)}x`
+    + `  p90 ${q(mult, 0.9).toFixed(2)}x  worst ${q(mult, 1).toFixed(2)}x`);
+  const over = dist.rows.filter((r) => r.round * 1.06 > PACK_RANGE)
+    .sort((a, b) => b.round - a.round);
+  console.log(`  past the pack   ${over.length} of ${dist.rows.length} sites`);
+  for (const w of over.slice(0, 8)) {
+    console.log(`    ${w.system}/${w.body} ${w.kind} ${w.range} m`
+      + ` -> ${w.round.toFixed(0)} m (${(w.round / (w.range * 2)).toFixed(2)}x)`
+      + ` · ${((w.secs + w.backSecs) / 60).toFixed(1)} min there and back`);
+  }
+  /* The long drives, by world rather than by site — the sampling failure that
+     kept this bug alive was measuring the worst *site* in a handful of systems
+     when the thing that varies is the *world*. A gentle planet's worst site is
+     nothing like a steep planet's median one. */
+  const byWorld = new Map();
+  for (const r of dist.rows) {
+    const k = `${r.system}/${r.body}`;
+    byWorld.set(k, Math.max(byWorld.get(k) || 0, r.secs));
+  }
+  const worldWorst = [...byWorld.values()].sort((a, b) => a - b);
+  console.log(`  worst drive on a world   median ${(q(worldWorst, 0.5) / 60).toFixed(1)} min`
+    + `  p90 ${(q(worldWorst, 0.9) / 60).toFixed(1)} min`
+    + `  worst ${(q(worldWorst, 1) / 60).toFixed(1)} min  over ${byWorld.size} worlds`);
+  const long = [...byWorld.entries()].filter(([, v]) => v > 600).length;
+  console.log(`  worlds with a site over ten minutes out   ${long} of ${byWorld.size}`);
+
+  check('every site is inside a round trip the pack can actually pay for',
+    over.length === 0,
+    over.length ? `${over.length} sites past it, worst ${over[0].round.toFixed(0)} m`
+      : `worst ${q(round, 1).toFixed(0)} m of ${PACK_RANGE} m`);
+  check('and the chart is not quoting a range the ground will not honour',
+    q(mult, 0.5) >= 1, `the pack pays ${q(mult, 0.5).toFixed(2)}x its metres at the median`);
 }
 
 /* Only climbing costs. The two checks above pass on a score that ignores

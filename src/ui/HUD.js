@@ -159,11 +159,18 @@ export class HUD {
        string, so the two can never say different things about the same slope.
        Written only when the state changes: this runs every frame and a DOM
        write per frame for a value that changes every few seconds is waste. */
-    const steep = !!(g.landed && g.landed.driving && !uiOpen
-      && g.rover.gradeLoad > 0.75);
-    if (steep !== this._steep) {
-      this._steep = steep;
-      this.el.driveWarn.textContent = steep ? t('gm.steep') : '';
+    /* Boost releasing itself shares the line, and takes it. Same reasoning one
+       step on: a held key that stops working is the strongest "this is broken"
+       signal the drive can send, and it is exactly the moment the pack has
+       started keeping back what it needs to get you home. The steep warning
+       can wait — the hill is still there in a second. */
+    const atWheel = !!(g.landed && g.landed.driving && !uiOpen);
+    const saved = atWheel && g.rover.boostHeld && !g.rover.boosting;
+    const steep = atWheel && g.rover.gradeLoad > 0.75;
+    const warn = saved ? 'gm.boostHeld' : steep ? 'gm.steep' : '';
+    if (warn !== this._steep) {
+      this._steep = warn;
+      this.el.driveWarn.textContent = warn ? t(warn) : '';
     }
 
     // ---- contextual control hints

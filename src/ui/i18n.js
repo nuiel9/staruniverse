@@ -213,6 +213,18 @@ const STRINGS = {
      why the rover slowed down, and it can do that honestly. */
   'gm.steep': ['STEEP — SLOW GOING', 'ชันมาก — ไปได้ช้า'],
   'gm.onCourse': ['ON COURSE', 'ตรงทาง'],
+  /* How long, beside how far. "3.0 km" against a pack quoted at 10.6 km reads
+     as an easy trip; the same row saying twenty minutes reads as the afternoon
+     it is. Distance was answering the question about charge and being taken as
+     an answer to the question about time. */
+  'gm.min': ['%N min', '%N นาที'],
+  /* And what the way back costs from where you are standing, scored over the
+     actual ground — the one number that decides whether to press on. */
+  'gm.home': ['home %N', 'กลับ %N'],
+  /* Said when a held boost key stops boosting. Without it the drive quietly
+     slows down and the player is left thinking the key broke. */
+  'gm.boostHeld': ['BOOST OFF — PACK HELD FOR THE RETURN',
+    'ปิดเร่ง — กันพลังงานไว้ขับกลับ'],
   /* The emergency lift, and the two ways it says no. */
   'g.recalled': ['SHIP LIFTED TO YOU · %N lucent burned · rover aboard',
     'ยานบินมารับ · ใช้ลูเซนต์ %N · เก็บยานสำรวจแล้ว'],

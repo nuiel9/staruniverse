@@ -75,3 +75,40 @@ export function driveBiteAt(climb) {
 export function driveSpeedAt(climb) {
   return MAX_FWD * driveBiteAt(climb);
 }
+
+/* What a climbed metre costs the pack, on top of itself.
+ *
+ * This lived as a bare 1.6 inside Rover's travel step, which was fine while
+ * the rover was the only thing spending charge and nothing else had to predict
+ * the spend. It is not fine now: the ground chart has to answer "can I get
+ * there and back", and a chart that estimates the drain with its own number
+ * would agree with the vehicle only until one of them was tuned.
+ *
+ * It sits beside the speed curve because it is the same fact seen twice — a
+ * hill takes longer *and* costs more, and both are properties of the ground
+ * arguing with a drive, not of the vehicle's bookkeeping. */
+export const GRADE_DRAIN = 1.6;
+
+/**
+ * Pack metres burned per metre driven at a given grade: 1 on the flat, more
+ * uphill, and never less than 1 — a descent is free but does not refund.
+ *
+ * @param {number} climb  rise over run; only positive values cost anything
+ * @returns {number} multiplier, >= 1
+ */
+export function driveDrainAt(climb) {
+  return 1 + Math.max(0, climb) * GRADE_DRAIN;
+}
+
+/* What real ground costs over a real route, as a single number.
+ *
+ * Not a fudge factor: it is the measured ratio of route drain to straight-line
+ * distance, 1.2 to 1.4 across the runs that set the site placement cap, taken
+ * at 1.45 to sit past what was measured. Site placement already derived its
+ * ceiling from it and the ground chart's rings are drawn with it, so it lives
+ * here rather than as the same arithmetic written out in two files.
+ *
+ * Anything that can afford to score the actual route should score it — this is
+ * for the cases that cannot, which is precisely the ones that have to answer
+ * for every direction at once. A ring is a circle; the ground is not. */
+export const TYPICAL_TERRAIN_COST = 1.45;
