@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { clockNow } from '../core/clock.js';
+import { LOGD_V_PARS, LOGD_V, LOGD_F_PARS, LOGD_F } from '../gfx/glsl/noise.js';
 
 /* ============================================================================
    A light over every site you have not worked yet.
@@ -82,27 +83,44 @@ const W_MAX = 30;     // metres, and no wider, or the far ones read as walls
    enough to be a beacon rather than an alarm. */
 const PULSE_HZ = 0.42;
 
+/* The LOGD chunks are not optional decoration, and leaving them out cost a
+   whole debugging session. Engine.js builds the renderer with
+   `logarithmicDepthBuffer` on by default, so three defines
+   USE_LOGARITHMIC_DEPTH_BUFFER for every material in the game and every custom
+   shader in this codebase — Dust, Structures, the ground itself — writes
+   gl_FragDepth through these chunks to match. A shader that skips them writes
+   ordinary z/w instead, which is not on the same scale as what everything
+   around it wrote, so it loses essentially every depth comparison and draws
+   nothing at all. Surface.js:7333 names the failure exactly: a scene where
+   some shaders write gl_FragDepth and some do not "does not z-fight, it
+   inverts". They are #ifdef-guarded, so they are also correct with the flag
+   off. */
 const VERT = /* glsl */`
 precision highp float;
+${LOGD_V_PARS}
 varying vec2 vUv;
 void main(){
   vUv = uv;
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  ${LOGD_V}
 }
 `;
 
-/* No `discard` anywhere in here, deliberately. The ground shader this beam is
-   drawn against writes gl_FragDepth, and Surface.js records that discard
-   beside gl_FragDepth mis-compiles under ANGLE — which is why the canopy is
-   solid triangles rather than alpha cards. An additive beam does not need it:
-   where the gradient reaches zero the contribution is zero. */
+/* No `discard` anywhere in here, and with LOGD_F below writing gl_FragDepth
+   that is now a hard requirement rather than a preference: Surface.js records
+   that discard beside gl_FragDepth mis-compiles under ANGLE, which is why the
+   grass and the canopy are solid triangles rather than alpha cards. An
+   additive beam does not need it — where the gradient reaches zero the
+   contribution is zero. */
 const FRAG = /* glsl */`
 precision highp float;
+${LOGD_F_PARS}
 varying vec2 vUv;
 uniform vec3  uColor;
 uniform float uGain;
 uniform float uAlpha;
 void main(){
+  ${LOGD_F}
   /* Across: soft-edged, squared so the falloff is a column of light and not a
      flat ribbon with two hard sides. */
   float ex = abs(vUv.x - 0.5) * 2.0;
