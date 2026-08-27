@@ -248,8 +248,12 @@ body:has(.panel:not(.hidden)) #narrStack{opacity:0}
 #prompt em{font-style:normal;font-size:var(--t-min);letter-spacing:.11em;color:var(--dim)}
 
 /* contextual keys */
-#hints{position:absolute;left:50%;bottom:calc(14px + var(--safe-b));transform:translateX(-50%);
-  display:flex;gap:7px;flex-wrap:wrap;justify-content:center;max-width:92vw}
+/* No anchoring of its own: it is a child of #narrStack now, which carries the
+   bottom offset and the safe-area inset for the whole band. See the note beside
+   it in the markup - a fixed offset here is the same guess the prompt and the
+   drive warning were each moved out of, and it collided with the subtitle for
+   the same reason. */
+#hints{display:flex;gap:7px;flex-wrap:wrap;justify-content:center;max-width:92vw}
 /* The label was 46% of a pale blue over a 46%-opaque chip — about a fifth of
    the contrast it needed against a bright windscreen, so the one line telling
    a new player which keys exist was the least legible thing on screen. The

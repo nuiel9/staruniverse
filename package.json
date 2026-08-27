@@ -13,6 +13,7 @@
     "detailcheck": "node tools/detailcheck.mjs",
     "framecheck": "node tools/framecheck.mjs",
     "cabincheck": "node tools/cabincheck.mjs",
+    "hudcheck": "node tools/hudcheck.mjs",
     "smoke": "node tools/smoke.mjs",
     "trade": "node tools/trade.mjs",
     "nebula": "node tools/nebula.mjs",

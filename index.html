@@ -119,10 +119,20 @@
 
       <!-- narrative subtitle -->
       <div id="narr"><div id="narrText"></div></div>
-    </div>
 
-    <!-- contextual controls -->
-    <div id="hints"></div>
+      <!-- Contextual controls, and the last thing in the stack for the reason
+           the note above the stack gives. This row was the one member of the
+           bottom band still pinned at an offset of its own - 14px, against a
+           stack anchored at 4% - so the subtitle grew down into it, and a fold
+           line arriving while a prompt was up drew "Fold complete. You are
+           inside the stillness, Long Margin." straight through the key pills.
+           Exactly the failure the prompt and the drive warning were each moved
+           in here to stop, one element later.
+           It is last rather than first because the keys belong under the
+           sentence, and display:none on touch still collapses it out of the
+           column - which puts the subtitle back at the 4% it had alone. -->
+      <div id="hints"></div>
+    </div>
 
     <!-- fold banner -->
     <div id="foldOverlay"><div class="fo-t">FOLD</div><div class="fo-s" id="foldSub"></div></div>
