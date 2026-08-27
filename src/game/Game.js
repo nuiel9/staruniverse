@@ -14,6 +14,7 @@ import { Fleet } from '../world/Fleet.js';
 import { buildStation } from '../world/Station.js';
 import { Surface } from '../world/Surface.js';
 import { buildTine, buildDerelict, buildWreck, buildBeacon } from '../world/Structures.js';
+import { SiteBeacons } from '../world/SiteBeacons.js';
 import { Ship } from '../ship/Ship.js';
 import { HULL_LIGHT } from '../gfx/greeble.js';
 import { buildInterior, INTERIOR_LAYER } from '../ship/Interior.js';
@@ -453,6 +454,11 @@ export class Game {
     this.prospect = new Prospecting(this);
     this.sites = new Sites(this);
     this.rover = new Rover(this);
+    /* The other half of the surface chart: the chart says where a site is, and
+       this puts a light there so you can steer at it without reading anything.
+       See SiteBeacons for why a site with no presence in the world was the
+       thing behind "I drive but it seems not reach". */
+    this.siteBeacons = new SiteBeacons(this);
     this.groundmap = new GroundMap(this);
     this.outfit = new Outfitting(this);
     this.outfit.apply();
@@ -1710,6 +1716,10 @@ export class Game {
     this.setShadowScale(1000);
 
     this.landed = { body: b, normal: T.site.clone(), t: 0, onFoot: false, settle: SETTLE_TIME };
+    /* Lights over the unworked sites, now that there is a scene to put them in
+       and a body to ask about. Before `landed` is read by anything, because
+       the beams' liveness test asks the same two systems the chart asks. */
+    this.siteBeacons.build(b, this.surfaceScene);
     this.ship.throttle = 0;
     this.ship.boost = 0;
     this.ship.vel.set(0, 0, 0);
@@ -2032,6 +2042,9 @@ export class Game {
     if (this.rover && this.rover.object.parent) {
       this.rover.object.parent.remove(this.rover.object);
     }
+    /* Before the scene it lives in goes: the meshes would be collected with
+       the scene, but the materials are ours and leaks.mjs counts programs. */
+    this.siteBeacons.clear();
     this.landed = null;
     /* Back at the helm, not hanging behind the ship. This was the other half
        of "stuck in third person after taking off": liftOff left `mode` on
@@ -2107,6 +2120,11 @@ export class Game {
   updateSurface(dt) {
     const L = this.landed;
     L.t += dt;
+
+    /* Billboard, size and pulse the site lights, and put out any site that has
+       been worked since the last frame — which is how finishing one looks from
+       under it. Cheap: a handful of sites per body. */
+    this.siteBeacons.update(dt);
 
     // sun direction in the *local* frame: the landing normal is up
     const up = L.normal;
