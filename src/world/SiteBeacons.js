@@ -252,7 +252,17 @@ export class SiteBeacons {
 
       /* Face the viewer, about Y only. A full lookAt would tip the column off
          vertical, and a beam that leans is a beam that has stopped being a
-         landmark. */
+         landmark.
+
+         The sign here is the ground frame's, and it is worth stating because
+         getting it backwards is expensive and silent: on the surface a yaw of
+         PI faces **+Z**, not -Z, and the camera's world forward at that yaw
+         measures (0, 0, +1). A harness that assumed the opposite pointed every
+         verification shot 180 degrees away from what it was verifying, and
+         produced frame after frame of empty landscape that looked exactly like
+         a beacon that would not draw. If something here ever needs checking
+         against a camera again, take the forward vector off the camera itself
+         inside onBeforeRender rather than deriving it from a yaw. */
       b.mesh.rotation.y = Math.atan2(dx, dz);
 
       /* Constant angular width past the first few hundred metres — see the
