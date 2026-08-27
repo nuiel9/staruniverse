@@ -1369,6 +1369,46 @@ export function buildInterior(assets = {}) {
     add(box(0.46, 0.05, 0.46, M.shell, 0, 0.06, -5.02, 0.02));
   }
 
+  /* ---- the seat, from behind.
+     Every light on this deck serves the *seated* frame — the coaming wash down
+     the panel, the overhead downwash, the grazing lamp along the console face,
+     the footwell flood — and that frame was measured and fixed. The frame
+     nobody measured is the one you spend the walk to the helm looking at, and
+     in it the chair is a silhouette with no features in it at all: the one lamp
+     that reaches it, the deck practical at (-0.55, 0.72, -4.66), has a 2.2 m
+     range and lights its front quarter, and it is itself a merge of two lamps
+     one of which the note there calls "the practical that was picking the chair
+     out of the dark". Correct for the seated view, and it left the chair with
+     no light on its back at all from seven metres down the corridor.
+
+     Emissive, not a fifth lamp. The lighting note above records seventeen
+     sources taking the seated frame from 120 fps to 53, and what is there now
+     is called "the smallest set" — so the fix for a frame nobody sits in should
+     not be another entry in the fragment loop. A lit strip costs geometry.
+
+     The two z values are measured off the kit's own vertices rather than
+     guessed, because the seat back leans forward as it rises and the aft-most
+     point of the whole assembly is the *lower* back: a strip placed at the
+     bounding box would float 200 mm behind the headrest. Scanned by height
+     band, the rail behind the headrest stands at z -4.529 across x +/-0.17,
+     and the seat back at y 1.36 is at z -4.582 across x +/-0.34. The fallback
+     branch is a different shape and gets its own pair. */
+  {
+    const railZ = haveKit ? -4.5225 : -4.6285;   // headrest rail, 6 mm proud
+    const backZ = haveKit ? -4.576 : -4.655;     // seat back at y 1.36
+    /* The three-layer strip the cabin builds every lit edge from: a wide dim
+       halo, a mid, and a narrow bright core. One horizontal at the top of the
+       silhouette is what turns a blob into a seat with a headrest. */
+    add(sbox(0.300, 0.020, 0.014, emissive(0xffe6c8, 0.12), 0, 1.60, railZ));
+    add(sbox(0.284, 0.013, 0.010, emissive(0xffe0bc, 0.34), 0, 1.60, railZ - 0.001));
+    add(sbox(0.284, 0.009, 0.007, emissive(0xfff0da, 0.86), 0, 1.60, railZ - 0.002));
+    /* And one pip, off the centreline. Saturated on purpose and the only
+       saturated thing back here: the rule this cabin follows is that a colour
+       like this reads as information rather than as a lamp, and a harness state
+       is information. Small enough that it is a point of light, not a panel. */
+    add(sbox(0.014, 0.014, 0.004, emissive(0x8fe4ff, 2.2), 0.115, 1.36, backZ));
+  }
+
   /* ---- the coaming light.
      A glare shield with a strip under its lip is the single most recognisable
      thing about a lit flight deck: the light comes from above and in front of
