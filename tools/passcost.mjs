@@ -11,8 +11,10 @@ const B = WK ? webkit : chromium;
 const b = await B.launch({ headless:false, ...(WK?{}:{args:['--use-angle=metal','--enable-gpu','--ignore-gpu-blocklist','--autoplay-policy=no-user-gesture-required']}) });
 const ctx = await b.newContext({ viewport:{width:W,height:H}, deviceScaleFactor:DPR });
 const p = await ctx.newPage();
+const SLOW = 300000;
 await p.goto(URL,{waitUntil:'domcontentloaded'});
-await p.waitForFunction(()=>{const x=document.getElementById('bootStart');return x&&!x.hidden;},{timeout:120000});
+// undefined, then the options: waitForFunction is (fn, arg, options) — see boot.mjs
+await p.waitForFunction(()=>{const x=document.getElementById('bootStart');return x&&!x.hidden;},undefined,{timeout:SLOW});
 await p.click('#bootStart');
 await p.waitForTimeout(3000);
 // pin resolution so the adaptive controller cannot confound the comparison

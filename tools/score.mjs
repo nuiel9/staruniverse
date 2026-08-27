@@ -65,8 +65,10 @@ if (ARR === 'trailer' && !args.includes('--secs')) SECS = CUT.end + 0.30;
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage();
+const SLOW = 300000;
 await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded' });
-await page.waitForFunction(() => window.__game, { timeout: 120000 });
+// undefined, then the options: waitForFunction is (fn, arg, options) — see boot.mjs
+await page.waitForFunction(() => window.__game, undefined, { timeout: SLOW });
 
 const b64 = await page.evaluate(async ({ secs, arr, C }) => {
   const { Audio } = await import('/src/audio/Audio.js');

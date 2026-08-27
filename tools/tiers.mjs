@@ -10,6 +10,7 @@ import { chromium, webkit } from 'playwright';
 
 const URL = process.argv[2] || 'http://localhost:4173/';
 const engines = [['chromium', chromium], ['webkit', webkit]];
+const SLOW = 300000;
 
 for (const [name, launcher] of engines) {
   let b;
@@ -20,7 +21,8 @@ for (const [name, launcher] of engines) {
     const errs = [];
     p.on('pageerror', (e) => errs.push(e.message));
     await p.goto(URL, { waitUntil: 'domcontentloaded' });
-    await p.waitForFunction(() => window.__game, { timeout: 120000 });
+    // undefined, then the options: waitForFunction is (fn, arg, options) — see boot.mjs
+    await p.waitForFunction(() => window.__game, undefined, { timeout: SLOW });
     await p.waitForTimeout(2500);
     const s = await p.evaluate(() => {
       const e = window.__game.engine;

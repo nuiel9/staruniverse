@@ -5,8 +5,10 @@ const OUT = process.argv[2] || 'shots/holomap.png';
 const b = await chromium.launch({ headless:false, args:['--use-angle=metal','--enable-gpu','--ignore-gpu-blocklist','--autoplay-policy=no-user-gesture-required','--hide-scrollbars'] });
 const ctx = await b.newContext({ viewport:{width:1600,height:900}, deviceScaleFactor:2 });
 const p = await ctx.newPage();
+const SLOW = 300000;
 await p.goto('http://localhost:5173/',{waitUntil:'domcontentloaded'});
-await p.waitForFunction(()=>{const x=document.getElementById('bootStart');return x&&!x.hidden;},{timeout:120000});
+// undefined, then the options: waitForFunction is (fn, arg, options) — see boot.mjs
+await p.waitForFunction(()=>{const x=document.getElementById('bootStart');return x&&!x.hidden;},undefined,{timeout:SLOW});
 await p.click('#bootStart');
 await p.waitForTimeout(2200);
 await p.evaluate(()=>{

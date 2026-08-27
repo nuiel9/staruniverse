@@ -6,8 +6,10 @@ const browser = await chromium.launch({ headless: false,
 const ctx = await browser.newContext({ viewport: { width: 844, height: 390 }, isMobile: true, hasTouch: true });
 const page = await ctx.newPage();
 const errs = []; page.on('pageerror', e => errs.push(e.message));
+const SLOW = 300000;
 await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded' });
-await page.waitForFunction(() => { const b = document.getElementById('bootStart'); return b && !b.hidden; }, { timeout: 90000 });
+// undefined, then the options: waitForFunction is (fn, arg, options) — see boot.mjs
+await page.waitForFunction(() => { const b = document.getElementById('bootStart'); return b && !b.hidden; }, undefined, { timeout: SLOW });
 await page.tap('#bootStart');
 await page.waitForTimeout(1600);
 

@@ -25,10 +25,12 @@ const browser = await chromium.launch({
 const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 2 });
 const page = await ctx.newPage();
 
+const SLOW = 300000;
 await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded' });
+// undefined, then the options: waitForFunction is (fn, arg, options) — see boot.mjs
 await page.waitForFunction(() => {
   const b = document.getElementById('bootStart'); return b && !b.hidden;
-}, { timeout: 90000 });
+}, undefined, { timeout: SLOW });
 await page.click('#bootStart');
 await page.waitForTimeout(2000);
 

@@ -15,6 +15,7 @@ const opt = (k, d) => {
 };
 const W = +opt('w', 1600), H = +opt('h', 900);
 const WAIT = +opt('wait', 9000);
+const SLOW = 300000;
 const SCRIPT = opt('script', null);
 const START = opt('start', '1') !== '0';
 const outDir = 'shots';
@@ -47,10 +48,11 @@ await page.goto('http://localhost:5173/', { waitUntil: 'domcontentloaded' });
 
 // wait for boot to finish
 try {
+  // undefined, then the options: waitForFunction is (fn, arg, options) — see boot.mjs
   await page.waitForFunction(() => {
     const b = document.getElementById('bootStart');
     return b && !b.hidden;
-  }, { timeout: 60000 });
+  }, undefined, { timeout: SLOW });
 } catch {
   logs.push('[harness] boot never completed');
 }

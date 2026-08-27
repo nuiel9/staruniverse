@@ -323,10 +323,12 @@ const ctx = await browser.newContext({
 });
 const page = await ctx.newPage();
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
+const SLOW = 300000;
 await page.goto(`http://localhost:5173/?record=${FPS}`, { waitUntil: 'domcontentloaded' });
+// undefined, then the options: waitForFunction is (fn, arg, options) — see boot.mjs
 await page.waitForFunction(() => {
   const b = document.getElementById('bootStart'); return b && !b.hidden;
-}, { timeout: 240000 });
+}, undefined, { timeout: SLOW });
 await page.click('#bootStart');
 await page.evaluate(() => {
   // The overlay is state, not scenery: directive cards and key hints pop
