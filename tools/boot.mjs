@@ -8,6 +8,21 @@
 // overlay animates its opacity and a click landing mid-transition is silently
 // discarded), then verify the overlay is actually gone, and start over if it
 // is not.
+//
+// The waits below spell out `undefined` in the argument slot, and it is
+// load-bearing rather than decorative. waitForFunction's signature is
+// (pageFunction, arg, options), so an options object passed second is taken as
+// the *argument to the predicate* and the timeout in it is never read —
+// Playwright falls back to its own 30 s default. Both waits here were written
+// that way and both were silently thirty seconds, against numbers that said
+// 90000 and 120000 two lines up. No developer machine is slow enough to show
+// it: boot finishes well inside 30 s on real hardware. A container with no GPU
+// is not real hardware — SwiftShader took 132 s to raise the title card, and
+// every checker that goes through here failed to boot at all while reporting a
+// timeout that matched none of the numbers in this file. SLOW is smoke.mjs's
+// and expedition.mjs's, which already pass their options in the right slot.
+const SLOW = 300000;
+
 export async function bootGame(page, { setup = null, settle = 0, after = null, tries = 4 } = {}) {
   for (let attempt = 1; attempt <= tries; attempt++) {
     let out, reason = 'game never came up';
@@ -32,11 +47,12 @@ export async function bootGame(page, { setup = null, settle = 0, after = null, t
       }
       await page.waitForFunction(
         () => { const b = document.getElementById('bootStart'); return b && !b.hidden; },
-        { timeout: 90000 });
+        undefined, { timeout: SLOW });
       await page.evaluate(() => document.getElementById('bootStart').click());
-            // Generous on purpose: boot bakes cubemaps, warms shaders and now loads
+      // Generous on purpose: boot bakes cubemaps, warms shaders and now loads
       // model assets, and a slow cold start is not a failure.
-      await page.waitForFunction(() => window.__game && window.__game.started, { timeout: 120000 });
+      await page.waitForFunction(() => window.__game && window.__game.started,
+        undefined, { timeout: SLOW });
       await page.waitForTimeout(1500);
       if (setup) out = await page.evaluate(`(()=>{ const g = window.__game; return (${setup}); })()`);
       if (settle) await page.waitForTimeout(settle);
