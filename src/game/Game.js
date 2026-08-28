@@ -1600,10 +1600,35 @@ export class Game {
   /** Build the landscape and compile it, spread over frames. */
   async _prepareGround(b) {
     const T = this.transition;
+    /* Where the descent's time actually goes, on the machine that is slow.
+     *
+     * Every step below is spread over frames, so the loop keeps turning — but
+     * each individual step is synchronous, and one of them being long enough
+     * shows up to the player as "Page Unresponsive" over a descent title card
+     * with no indication of which. Reported once as exactly that, on a machine
+     * whose GPU was sitting at 23% while a core was pinned, which is what says
+     * this is CPU work rather than a frame that will not draw.
+     *
+     * Opt-in with ?timing=1 rather than always on: a player does not need it,
+     * and a console line per landing is noise in every capture the tools take.
+     * The numbers name the step, because "landing is slow" has four candidates
+     * and they want different fixes — a long `surface` is geometry, a long
+     * `bake` or `compile` is the GPU driver, a long `scene` is this file. */
+    const timing = new URLSearchParams(location.search).get('timing') === '1';
+    const marks = [];
+    let t0 = performance.now();
+    const mark = (what) => {
+      if (!timing) return;
+      const now = performance.now();
+      marks.push(`${what} ${(now - t0).toFixed(0)}ms`);
+      t0 = now;
+    };
     try {
       await this._nextFrame();
       if (this.transition !== T) return;
+      t0 = performance.now();
       const surface = new Surface(b.spec, this.quality);
+      mark('surface');
       await this._nextFrame();
       if (this.transition !== T) { surface.dispose(); return; }
       /* Everything the terrain's vertex stage can know before the sun moves,
@@ -1611,6 +1636,7 @@ export class Game {
          frame for the rest of the landing. See Surface.bake — it is two point
          draws over the grid's own vertex buffer. */
       surface.bake(this.renderer);
+      mark('bake');
       /* And ask this machine whether it agrees with us about the trees, while
          there is still a renderer in hand and nothing on screen yet. The CPU
          copy of the tree acceptance test matches the GPU only because it is
@@ -1619,15 +1645,19 @@ export class Game {
          landing, and takes tree collision away rather than trusting it if this
          device answers differently. See Surface.verifyTreeAgreement. */
       surface.verifyTreeAgreement(this.renderer);
+      mark('treeGuard');
       await this._nextFrame();
       if (this.transition !== T) { surface.dispose(); return; }
       this._buildGround(b, surface);
+      mark('scene');
 
       // Wait for the deck to close before touching anything the camera can see.
       while (this.transition === T && !T.covered) await this._nextFrame();
       if (this.transition !== T) { surface.dispose(); return; }
       this._stageGround();
+      mark('stage');
       await this._compileScene(T.scene);
+      mark('compile');
       /* And the covering beat gets to play, whether or not it is still needed.
        *
        * Its length is bounded below as well as above. On a cold cache it holds
@@ -1641,7 +1671,16 @@ export class Game {
         await this._nextFrame();
       }
       if (this.transition !== T) return;
+      t0 = performance.now();
       this._finishGround();
+      /* Last, and its own line, because this is where the site lights are
+         raised and raising them asks Sites for the body's list — which, cold,
+         runs a route integral over the terrain for every candidate in the
+         easing lattice. Estimated at tens to low hundreds of milliseconds
+         rather than seconds, but it is work this step did not do before the
+         beacons existed, so it gets measured rather than assumed. */
+      mark('finish');
+      if (timing) console.log('[landing]', marks.join('  ·  '));
     } catch (e) {
       console.error('landing preparation failed', e);
       this.transition = null;
