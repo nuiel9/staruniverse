@@ -403,11 +403,37 @@ export class Rover {
     this.object.position.set(this.pos.x, 0, this.pos.z);
     this.object.updateMatrixWorld(true);
 
-    let lift = -Infinity;
+    /* How high the body has to sit, and which wheel gets to decide.
+     *
+     * This was the max over all four contacts, which is a perfectly rigid body
+     * on four points: one wheel meeting a boulder or a spike in the fine band
+     * lifted the whole chassis by that much, in one frame, while the attitude
+     * basis above snapped at the same instant. Reported as the rover "flying"
+     * on the way to a site, and it is not flight — there is no gravity here and
+     * nothing to fall with. It is a jack.
+     *
+     * The vehicle this is drawing is a six-wheel rocker, and a rocker's whole
+     * purpose is that one wheel can ride up without taking the deck with it. So
+     * the second-highest demand carries the body and the highest is allowed to
+     * be wrong, which is the cheapest stand-in for that compliance: a lone rock
+     * under one corner now buries a wheel instead of launching the vehicle.
+     *
+     * Bounded, though, or a big enough rock swallows a wheel to the axle. GIVE
+     * is most of the 0.55 m wheel radius, so past that the chassis does rise —
+     * a step tall enough to beach the rover still reads as one.
+     *
+     * `_footprint`'s 0.75 m cross already softened this once, and its comment
+     * says that is what "finally stopped the vehicle standing on one corner
+     * with the rest in the air". It could not finish the job, because averaging
+     * a patch cannot undo a max taken across the patches. */
+    const GIVE = 0.45;
+    const need = [];
     for (const p of CONTACTS) {
       _c.copy(p).applyMatrix4(this.object.matrixWorld);
-      lift = Math.max(lift, this._footprint(_c.x, _c.z) - _c.y);
+      need.push(this._footprint(_c.x, _c.z) - _c.y);
     }
+    need.sort((a, b) => b - a);
+    const lift = Math.max(need[1], need[0] - GIVE);
     this.pos.y = lift;
     this.object.position.y = lift;
     this.object.updateMatrixWorld(true);
