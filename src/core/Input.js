@@ -37,6 +37,8 @@ export class Input {
     this.lookSens = 1;
     // raw pointer deltas, consumed once per frame by the first-person camera
     this._mdx = 0; this._mdy = 0;
+    // and a total nothing consumes — see the mousemove handler
+    this.lookPixels = 0;
 
     this.state = {
       pitch: 0, yaw: 0, roll: 0,
@@ -75,6 +77,12 @@ export class Input {
       if (!this.locked) return;
       this._mdx += e.movementX;
       this._mdy += e.movementY * (this.invertY ? -1 : 1);
+      /* Total pixels of look, never consumed. `consumeMouse` clears the pair
+         above on whichever system reads it first, so anything downstream that
+         wants to know "has this player used the mouse at all" cannot ask them
+         without racing the camera for the answer. The HUD retires its own
+         MOUSE hint off this. */
+      this.lookPixels += Math.abs(e.movementX) + Math.abs(e.movementY);
     });
     dom.addEventListener('wheel', (e) => {
       this._wheel = (this._wheel || 0) + Math.sign(e.deltaY);

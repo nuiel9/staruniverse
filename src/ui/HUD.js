@@ -68,6 +68,55 @@ export class HUD {
     onLangChange(() => { this._hintKey = null; this._steep = null; });
   }
 
+  /**
+   * Drop the "how to move" keys once the player has demonstrably learned them.
+   *
+   * The key row is the one part of this HUD that is pure tuition, and it never
+   * graduated: WASD, MOUSE and SHIFT sat across the bottom of every frame for
+   * the whole game, competing with the room the interior work exists to be
+   * looked at. The action keys are a different thing and stay — E, L, F, M, R,
+   * V, H change with what is in front of you, so they are telling you what is
+   * possible now rather than teaching you to walk.
+   *
+   * Only the three that can be measured honestly, and only on sustained use.
+   * A single tap of W retiring the row instantly would take the hint away in
+   * the moment a first-time player is still reading it, so each needs a few
+   * seconds of real use — held movement, held run, or a screen's worth of
+   * mouse travel. Nothing here is ever restored: a player who has driven for
+   * three seconds knows which keys move them.
+   */
+  _retireLearnedKeys(dt) {
+    const inp = this.game.input;
+    if (!this._used) this._used = { move: 0, run: 0 };
+    if (!this._retired) this._retired = new Set();
+
+    const moving = inp.held('thrUp') || inp.held('thrDn')
+      || inp.held('yawL') || inp.held('yawR');
+    if (moving) this._used.move += dt;
+    if (inp.held('boost')) this._used.run += dt;
+
+    const n = this._retired.size;
+    if (this._used.move > 3.0) this._retired.add('WASD');
+    if (this._used.run > 1.5) this._retired.add('SHIFT');
+    /* Roughly a screen's worth of look. Pixels rather than seconds because the
+       mouse is not held — see Input.lookPixels, which exists because
+       consumeMouse clears the deltas on whichever system reads them first. */
+    if ((inp.lookPixels || 0) > 2400) this._retired.add('MOUSE');
+    // the row is memoised on a signature; retiring one has to invalidate it
+    if (this._retired.size !== n) this._hintKey = null;
+  }
+
+  /* The one place the row is written, so the filter cannot be applied to one
+     context and forgotten in another — there are two call sites and the driving
+     one returns early. A row that retired down to nothing would be a bug rather
+     than a tidy screen, so the last chip always survives; in practice that never
+     fires, because every context here carries at least one action key. */
+  _renderHints(keys) {
+    const kept = keys.filter(([k]) => !this._retired?.has(k));
+    return (kept.length ? kept : keys.slice(-1))
+      .map(([k, v]) => `<span><kbd>${k}</kbd>${v}</span>`).join('');
+  }
+
   show() { this.root.classList.remove('hidden'); requestAnimationFrame(() => this.root.classList.add('on')); }
 
   onSystemChange() {
@@ -126,6 +175,8 @@ export class HUD {
     const g = this.game;
     const piloting = g.mode === 'pilot' || g.mode === 'exterior';
     const uiOpen = g.starmap.open || g.codex.open || g.dock.open || g.comms.open;
+
+    this._retireLearnedKeys(dt);
 
     // ---- reticle only when you are actually flying
     this.el.reticle.classList.toggle('hidden', !piloting || uiOpen);
@@ -227,7 +278,7 @@ export class HUD {
              offered after, it is the way out of a state that used to have
              none. See Game.recall. */
           if (!g.rover.canReturn()) keys.push(['H', t('k.recall')]);
-          this.el.hints.innerHTML = keys.map(([k, v]) => `<span><kbd>${k}</kbd>${v}</span>`).join('');
+          this.el.hints.innerHTML = this._renderHints(keys);
           this._syncTouchLabels();
           return;
         }
@@ -253,7 +304,7 @@ export class HUD {
         else if (canLand) keys.push(['L', t('k.land')]);
         if (canHail) keys.push(['C', t('k.hail')]);
       }
-      this.el.hints.innerHTML = keys.map(([k, v]) => `<span><kbd>${k}</kbd>${v}</span>`).join('');
+      this.el.hints.innerHTML = this._renderHints(keys);
       this._syncTouchLabels();
       // The row is small and at the bottom edge. Coming into range of a world
       // you can actually set down on is worth saying out loud, once.

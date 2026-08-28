@@ -1233,6 +1233,15 @@ export class Game {
     this.rover.deploy(this.surfaceScene, R * 0.55, R * 0.30);
     L.driving = true;
     this.hud.log(T('g.roverOut'), 'ok');
+    /* And put the chart up, because this is the moment it becomes the thing you
+       need. It is an instrument in the corner rather than a panel over the
+       frame — it blocks no control and takes no input — but it starts closed
+       behind M, and M is discovered by reading a hint row rather than by
+       needing anything. A player who never finds it drives with no heading, no
+       range and no rings, at sites up to 4.5 km out.
+       Once, and never against the player's wishes: `dismissed` latches the
+       first time they close it themselves. See GroundMap. */
+    if (!this.groundmap.dismissed) this.groundmap.show();
     this.audio.ping('ui');
   }
 

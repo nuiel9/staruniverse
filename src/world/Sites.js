@@ -125,8 +125,17 @@ export function routeCost(field, x0, z0, x1, z1) {
 const SAVE_KEY = 'star-universe.sites.v1';
 
 /** How close counts as being there, in metres. Seams are generous because you
- *  are hunting a seam rather than a doorway; the rest want you to arrive. */
-const REACH = { seam: 70, wreck: 55, marker: 45, survivor: 55 };
+ *  are hunting a seam rather than a doorway; the rest want you to arrive.
+ *
+ *  Markers came up from 45. The spread was written when nothing in the world
+ *  marked a site at all, so every radius was a target you drove at on a bearing
+ *  and a hope — and the tightest one of the four sat on the kind of site with
+ *  the least to see when you got there. A wreck is a wreck and a seam is ground
+ *  you are already scanning; a Hush marker is a spot. 45 m of it, at the end of
+ *  a 3.9 km drive, is a circle you can circle without entering. 70 m is the
+ *  seam's own number and the same argument: you are hunting the place, not
+ *  looking for a doorway. */
+const REACH = { seam: 70, wreck: 55, marker: 70, survivor: 55 };
 
 /** Near enough to matter, far enough that walking is not an answer. */
 const RANGE_MIN = 700;

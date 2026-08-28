@@ -73,6 +73,15 @@ export class GroundMap {
     this.packEl = document.getElementById('gmPack');
     this.steepEl = document.getElementById('gmSteep');
     this.open = false;
+    /* Whether the player has ever closed this themselves. The chart opens
+       itself the first time the wheels turn — see toggleRover — because it
+       starts closed on a key nobody is told about, and a player who never
+       presses M drives with no heading, no range and no rings at all, which is
+       most of "I drive but I cannot reach it". Opening it once teaches that it
+       exists; opening it again after someone has deliberately shut it would be
+       nagging, so this latches on the first manual close and the chart stays
+       shut for the rest of the session. */
+    this.dismissed = false;
     this._dpr = 1;
 
     this.root?.querySelectorAll('[data-close-gm]').forEach((b) => {
@@ -89,8 +98,12 @@ export class GroundMap {
     this.draw();
   }
 
+  /* Every route into here is the player's own hand — Escape, M, and the close
+     button — so this is the one place that can honestly say they dismissed it.
+     `hide()` beside it is the programmatic one and deliberately does not latch. */
   close() {
     if (!this.open) return;
+    this.dismissed = true;
     this.open = false;
     this.root.classList.add('closing');
     clearTimeout(this._t);
